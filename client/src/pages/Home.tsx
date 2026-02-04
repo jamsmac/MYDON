@@ -1,25 +1,22 @@
-import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
-
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Best Practices, Design Guide and Common Pitfalls
+/* 
+ * TechRent Roadmap Manager - Home Page
+ * Design: Industrial Blueprint
+ * - Primary: Deep slate (#1e293b) for authority
+ * - Accent: Amber (#f59e0b) for progress, Emerald (#10b981) for completion
+ * - Typography: JetBrains Mono for headers, Inter for body
  */
-export default function Home() {
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
 
+import { Sidebar } from '@/components/Sidebar';
+import { MainContent } from '@/components/MainContent';
+import { RoadmapProvider } from '@/contexts/RoadmapContext';
+
+export default function Home() {
   return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
-    </div>
+    <RoadmapProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        <Sidebar />
+        <MainContent />
+      </div>
+    </RoadmapProvider>
   );
 }
