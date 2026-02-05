@@ -398,6 +398,12 @@ const taskRouter = router({
     .mutation(async ({ input }) => {
       return db.reorderTasks(input.sectionId, input.taskIds);
     }),
+
+  // Get all overdue tasks for user
+  getOverdue: protectedProcedure
+    .query(async ({ ctx }) => {
+      return db.getOverdueTasks(ctx.user.id);
+    }),
 });
 
 // ============ SUBTASK ROUTER ============

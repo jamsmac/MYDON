@@ -30,6 +30,7 @@ import { AIGoalGenerator } from '@/components/AIGoalGenerator';
 import { TemplateLibrary } from '@/components/TemplateLibrary';
 import { DailyBriefing } from '@/components/DailyBriefing';
 import { NotificationCenter } from '@/components/NotificationCenter';
+import { OverdueTasksWidget } from '@/components/OverdueTasksWidget';
 import { FloatingAIButton } from '@/components/AIAssistantButton';
 import { Link, useLocation } from 'wouter';
 import { useState, useMemo, useRef } from 'react';
@@ -103,6 +104,21 @@ export default function Dashboard() {
     return filtered;
   }, [projects, statusFilter, searchQuery]);
 
+  // Fetch overdue tasks from server
+  const { data: overdueTasksData } = trpc.task.getOverdue.useQuery(
+    undefined,
+    { enabled: isAuthenticated }
+  );
+
+  // Transform overdue tasks for widget
+  const overdueTasks = useMemo(() => {
+    if (!overdueTasksData) return [];
+    return overdueTasksData.map(task => ({
+      ...task,
+      priority: task.priority as 'critical' | 'high' | 'medium' | 'low' | null,
+    }));
+  }, [overdueTasksData]);
+
   // Get filter label for display
   const getFilterLabel = () => {
     switch (statusFilter) {
@@ -130,6 +146,13 @@ export default function Dashboard() {
         toast.error('Ошибка создания проекта: ' + error.message);
       }
     }
+  });
+
+  const utils = trpc.useUtils();
+  const updateTaskMutation = trpc.task.update.useMutation({
+    onSuccess: () => {
+      utils.task.getOverdue.invalidate();
+    },
   });
 
   const handleCreateProject = () => {
@@ -311,6 +334,34 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Overdue Tasks Widget */}
+        {overdueTasks.length > 0 && (
+          <div className="mb-8">
+            <OverdueTasksWidget
+              tasks={overdueTasks}
+              onTaskClick={(taskId, projectId) => navigate(`/project/${projectId}?task=${taskId}`)}
+              onMarkComplete={async (taskId) => {
+                try {
+                  await updateTaskMutation.mutateAsync({ id: taskId, status: 'completed' });
+                  toast.success('Задача отмечена как выполненная');
+                } catch (error) {
+                  toast.error('Не удалось обновить задачу');
+                }
+              }}
+              onRescheduleToday={async (taskId) => {
+                try {
+                  const today = new Date();
+                  today.setHours(23, 59, 59, 999);
+                  await updateTaskMutation.mutateAsync({ id: taskId, deadline: today.getTime() });
+                  toast.success('Дедлайн перенесён на сегодня');
+                } catch (error) {
+                  toast.error('Не удалось обновить дедлайн');
+                }
+              }}
+            />
+          </div>
+        )}
 
         {/* Timeline Section */}
         {projects && projects.length > 0 && (

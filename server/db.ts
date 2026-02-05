@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, lt, not, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { 
   InsertUser, users,
@@ -1402,6 +1402,83 @@ export async function duplicateTask(taskId: number): Promise<Task> {
   return newTask;
 }
 
+
+// ============ OVERDUE TASKS ============
+
+export async function getOverdueTasks(userId: number): Promise<Array<{
+  id: number;
+  title: string;
+  projectId: number;
+  projectName: string;
+  deadline: Date;
+  daysOverdue: number;
+  priority: string | null;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Get all projects for user with their tasks
+  const userProjects = await db.select()
+    .from(projects)
+    .where(eq(projects.userId, userId));
+
+  const overdueTasks: Array<{
+    id: number;
+    title: string;
+    projectId: number;
+    projectName: string;
+    deadline: Date;
+    daysOverdue: number;
+    priority: string | null;
+  }> = [];
+
+  for (const project of userProjects) {
+    // Get all tasks for this project that are overdue
+    const projectBlocks = await db.select()
+      .from(blocks)
+      .where(eq(blocks.projectId, project.id));
+
+    for (const block of projectBlocks) {
+      const blockSections = await db.select()
+        .from(sections)
+        .where(eq(sections.blockId, block.id));
+
+      for (const section of blockSections) {
+        const sectionTasks = await db.select()
+          .from(tasks)
+          .where(and(
+            eq(tasks.sectionId, section.id),
+            lt(tasks.deadline, today),
+            not(eq(tasks.status, 'completed'))
+          ));
+
+        for (const task of sectionTasks) {
+          if (task.deadline) {
+            const deadlineDate = new Date(task.deadline);
+            deadlineDate.setHours(0, 0, 0, 0);
+            const daysOverdue = Math.ceil((today.getTime() - deadlineDate.getTime()) / (1000 * 60 * 60 * 24));
+            
+            overdueTasks.push({
+              id: task.id,
+              title: task.title,
+              projectId: project.id,
+              projectName: project.name,
+              deadline: task.deadline,
+              daysOverdue,
+              priority: task.priority,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Sort by days overdue (most overdue first)
+  return overdueTasks.sort((a, b) => b.daysOverdue - a.daysOverdue);
+}
 
 // ============ DRAG & DROP REORDER FUNCTIONS ============
 

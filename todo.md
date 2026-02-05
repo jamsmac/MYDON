@@ -680,3 +680,13 @@
 - [x] Place TaskFiltersBar above DraggableSidebar
 - [x] Apply filters and sorting to task list (via filteredTaskIds prop)
 - [x] Test filter and sort functionality - all 113 tests passing
+
+
+## Phase 48.2: OverdueTasksWidget Dashboard Integration (Completed)
+- [x] Import OverdueTasksWidget in Dashboard
+- [x] Add getOverdue API endpoint in taskRouter
+- [x] Add getOverdueTasks function in db.ts
+- [x] Place widget above Timeline section
+- [x] Add quick actions (Mark Complete, Reschedule to Today)
+- [x] Navigate to task on click
+- [x] Test overdue tasks display - all 113 tests passing
