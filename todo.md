@@ -831,3 +831,23 @@
 - [ ] REST API documentation (Swagger)
 - [ ] API keys management
 - [ ] Rate limiting
+
+
+## Phase 50: Advanced Analytics (Completed)
+### 50.1 Progress Dashboard
+- [x] Install Recharts library
+- [x] BurnupChart component with scope line
+- [x] VelocityChart with bar chart and moving average
+- [x] BlockCompletionChart with horizontal bars
+- [x] ProjectedCompletion card with on-track status
+### 50.2 Project Statistics
+- [x] PriorityDistributionChart (pie chart)
+- [x] CompletionTimeHistogram (bar chart)
+- [x] PlanVsActualChart (table with status)
+- [x] TopLongestTasks (ranked list)
+### 50.3 Export Reports
+- [x] Markdown report generation (generatePdfReport)
+- [x] CSV export with all task details (generateExcelData)
+- [x] Analytics page (/project/:id/analytics)
+- [x] Export dropdown with PDF and Excel options
+- [x] 170 tests passing

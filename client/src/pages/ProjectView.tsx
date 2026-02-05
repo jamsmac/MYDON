@@ -70,7 +70,7 @@ import {
   ConvertSectionToTaskDialog,
   BulkActionsDialog 
 } from '@/components/TaskManagementDialogs';
-import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical } from 'lucide-react';
+import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical, BarChart3 } from 'lucide-react';
 import { 
   DragDropProvider, 
   SortableTask, 
@@ -1140,6 +1140,13 @@ export default function ProjectView() {
                   Создать источник в NotebookLM
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-700" />
+                <DropdownMenuItem 
+                  className="text-cyan-400"
+                  onClick={() => navigate(`/project/${projectId}/analytics`)}
+                >
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                  Аналитика
+                </DropdownMenuItem>
                 <DropdownMenuItem 
                   className="text-violet-400"
                   onClick={() => setShowSaveTemplateDialog(true)}

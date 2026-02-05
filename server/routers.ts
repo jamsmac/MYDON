@@ -15,6 +15,8 @@ import { limitsRouter } from "./limits/limitsRouter";
 import { collaborationRouter } from "./collaborationRouter";
 import { notificationsRouter } from "./notificationsRouter";
 import { teamRouter } from "./teamRouter";
+import { analyticsRouter } from "./analyticsRouter";
+import { analyticsExportRouter } from "./analyticsExport";
 import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
@@ -1469,6 +1471,8 @@ export const appRouter = router({
   collaboration: collaborationRouter,
   notifications: notificationsRouter,
   team: teamRouter,
+  analytics: analyticsRouter,
+  analyticsExport: analyticsExportRouter,
 });
 
 export type AppRouter = typeof appRouter;
