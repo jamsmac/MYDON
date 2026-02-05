@@ -7,6 +7,8 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Dashboard from "./pages/Dashboard";
 import ProjectView from "./pages/ProjectView";
 import Settings from "./pages/Settings";
+import AdminPanel from "./pages/AdminPanel";
+import AIIntegrations from "./pages/AIIntegrations";
 
 function Router() {
   return (
@@ -14,6 +16,8 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/project/:id" component={ProjectView} />
       <Route path="/settings" component={Settings} />
+      <Route path="/admin" component={AdminPanel} />
+      <Route path="/integrations" component={AIIntegrations} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

@@ -50,6 +50,7 @@ import { StreamingAIChat } from '@/components/StreamingAIChat';
 import { CalendarDialog } from '@/components/CalendarDialog';
 import { SaveAsTemplateDialog } from '@/components/SaveAsTemplateDialog';
 import { PitchDeckGenerator } from '@/components/PitchDeckGenerator';
+import { FloatingAIButton } from '@/components/AIAssistantButton';
 import { LayoutTemplate, Presentation } from 'lucide-react';
 
 // ============ AI CHAT PANEL ============
@@ -1200,6 +1201,9 @@ export default function ProjectView() {
         projectId={projectId}
         projectName={project.name}
       />
+
+      {/* Floating AI Assistant Button */}
+      <FloatingAIButton />
     </div>
   );
 }

@@ -27,6 +27,7 @@ import { CreditsWidget } from '@/components/CreditsWidget';
 import { AIGoalGenerator } from '@/components/AIGoalGenerator';
 import { TemplateLibrary } from '@/components/TemplateLibrary';
 import { DailyBriefing } from '@/components/DailyBriefing';
+import { FloatingAIButton } from '@/components/AIAssistantButton';
 import { Link, useLocation } from 'wouter';
 import { useState, useMemo } from 'react';
 import { LayoutTemplate } from 'lucide-react';
@@ -539,6 +540,9 @@ export default function Dashboard() {
         open={dailyBriefingOpen} 
         onOpenChange={setDailyBriefingOpen} 
       />
+
+      {/* Floating AI Assistant Button */}
+      <FloatingAIButton />
     </div>
   );
 }

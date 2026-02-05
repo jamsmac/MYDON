@@ -357,3 +357,84 @@
 - [x] UI: Add save/cancel buttons for edit mode
 - [x] UI: Show visual feedback when changes are saved
 - [x] Test editing and saving slides
+
+
+## Phase 26: Team Photo Upload for Pitch Deck
+- [ ] Design team member data structure (name, role, photo URL)
+- [ ] Create file upload endpoint for team photos using S3 storage
+- [ ] Update PitchDeckGenerator UI with team member section in edit mode
+- [ ] Add photo upload button with preview for each team member
+- [ ] Allow adding/removing team members dynamically
+- [ ] Update PowerPoint export to include team photos
+- [ ] Test team photo upload, display, and export
+
+
+## Phase 27: User Registration & Subscription System
+- [x] Create subscription_plans table (id, name, price, features, limits)
+- [x] Create user_subscriptions table (userId, planId, status, startDate, endDate)
+- [x] Create ai_integrations table (userId, provider, apiKey, isActive, usageStats)
+- [x] Backend: Subscription management procedures (subscribe, cancel, upgrade)
+- [ ] Backend: Check subscription limits before AI operations
+- [ ] UI: Subscription plans page with pricing cards
+- [ ] UI: User profile page with subscription status
+- [x] UI: AI integrations management (connect Claude Code, Codex, Perplexity, etc.)
+- [x] Support for BYOK (Bring Your Own Key) per integration
+- [ ] Fallback to platform credits when user not subscribed to specific AI
+
+## Phase 28: AI Orchestrator System
+- [x] Create agents table (id, name, type, capabilities, systemPrompt, modelPreference)
+- [x] Create skills table (id, name, description, triggerPatterns, agentId)
+- [x] Create mcp_servers table (id, name, endpoint, authConfig, status)
+- [x] Create orchestrator_config table (routingRules, fallbackBehavior, logging)
+- [x] Backend: Orchestrator service that routes requests to appropriate agents
+- [x] Backend: Agent capability matching based on task type
+- [x] Backend: MCP server integration for external tools
+- [x] Backend: Skill triggering based on user input patterns
+- [x] Backend: Fallback chain when primary agent unavailable
+- [x] Logging and analytics for AI operations
+
+## Phase 29: Developer Admin Panel
+- [x] Create admin role check middleware
+- [x] Admin Dashboard with system overview (users, AI usage, costs)
+- [x] AI Agents management page (create, edit, delete agents)
+- [x] Skills configuration page (define triggers, assign to agents)
+- [x] MCP Servers management (add, configure, test connections)
+- [x] Orchestrator rules editor (routing logic, priorities)
+- [ ] Hooks configuration (pre/post processing, webhooks)
+- [ ] Database management UI (view tables, run queries)
+- [x] System logs viewer with filtering
+- [ ] API usage analytics and cost tracking
+
+## Phase 30: Enhanced Roadmap Task Management
+- [ ] Add "Add Task" button at any level (block, section, task)
+- [ ] Add "Add Subtask" button on tasks
+- [ ] Add "Add Section" button within blocks
+- [ ] Add "Split Task" feature (divide task into subtasks)
+- [ ] Add "Merge Tasks" feature (combine multiple tasks)
+- [ ] Add "Convert to Section" (promote task to section)
+- [ ] Add "Convert to Task" (demote section to task)
+- [ ] Drag-and-drop for reordering at all levels
+- [ ] Bulk actions (select multiple, change status, delete)
+- [ ] Quick inline editing for task names
+
+## Phase 31: Universal AI Assistant Button
+- [x] Create FloatingAIButton component (fixed position, always visible)
+- [x] Create AIAssistantModal component (full-featured chat interface)
+- [x] Auto-detect current page/context (project, block, section, task)
+- [x] Pass relevant context to AI automatically
+- [x] Support for quick actions (summarize, expand, translate, etc.)
+- [ ] History of conversations per context
+- [ ] Keyboard shortcut to open (Cmd/Ctrl + K)
+- [x] Minimize/maximize states
+- [x] Integration with orchestrator for smart routing
+
+## Phase 32: AI Provider Integrations
+- [ ] Claude Code integration (via API or MCP)
+- [ ] OpenAI Codex integration
+- [ ] Perplexity API integration
+- [ ] GitHub Copilot integration (if available)
+- [ ] Cursor-style inline code suggestions
+- [ ] Multi-model comparison mode
+- [ ] Cost estimation before execution
+- [ ] Usage tracking per provider
+

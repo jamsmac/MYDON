@@ -1,0 +1,36 @@
+Team Slide Edit Mode - Key Findings (Feb 5, 2026)
+==================================================
+
+Current State:
+- Successfully navigated to Slide 8 (Team: Опыт и Экспертиза)
+- Clicked "Редактировать" (Edit) button to enter edit mode
+- Edit mode is now active showing team member editing UI
+
+UI Elements Visible:
+1. Description textarea - contains team overview text
+2. "Члены команды" (Team Members) label
+3. "+ Добавить" (Add) button for adding new team members
+4. Team member cards with:
+   - Circular avatar placeholder (gray circle with user icon)
+   - Name input field (currently showing bullet text like "**Основатели:** Опыт создания...")
+   - Role/Position input field (placeholder: "Должность / Опыт")
+   - Delete button (trash icon)
+5. Cancel button ("Отмена")
+6. Save button ("Сохранить изменения")
+
+Photo Upload Feature:
+- The avatar circles are clickable (based on code review)
+- Clicking should trigger file input for photo upload
+- Upload uses handlePhotoUpload() function
+- Photos are uploaded via trpc.pitchDeck.uploadTeamPhoto mutation
+- Uploaded photos stored in S3 and URL saved to team member
+
+Issue Observed:
+- Team member names are showing full bullet text instead of parsed names
+- The parsing logic in handleStartEdit() should split "Name - Role" format
+- Current bullets don't follow that format, so parsing may not work correctly
+
+Next Steps:
+1. Test clicking on avatar circle to trigger photo upload
+2. Verify photo upload works correctly
+3. Check if team member data is properly parsed/displayed

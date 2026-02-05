@@ -7,6 +7,8 @@ import { z } from "zod";
 import * as db from "./db";
 import * as googleDrive from "./googleDrive";
 import * as googleCalendar from "./googleCalendar";
+import { subscriptionRouter, aiIntegrationsRouter } from "./subscriptionRouter";
+import { agentsRouter, skillsRouter, mcpServersRouter, orchestratorRouter } from "./orchestratorRouter";
 
 // ============ PROJECT ROUTER ============
 const projectRouter = router({
@@ -1181,6 +1183,11 @@ Make the content realistic and compelling based on the project's roadmap. Use ac
         content: z.string(),
         bullets: z.array(z.string()).optional(),
         metrics: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
+        teamMembers: z.array(z.object({
+          name: z.string(),
+          role: z.string(),
+          photoUrl: z.string().optional(),
+        })).optional(),
       })).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -1192,6 +1199,28 @@ Make the content realistic and compelling based on the project's roadmap. Use ac
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       return db.deletePitchDeck(input.id, ctx.user.id);
+    }),
+
+  uploadTeamPhoto: protectedProcedure
+    .input(z.object({
+      imageData: z.string(), // base64 encoded image
+      filename: z.string(),
+      mimeType: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { storagePut } = await import('./storage');
+      
+      // Decode base64 to buffer
+      const buffer = Buffer.from(input.imageData, 'base64');
+      
+      // Generate unique filename
+      const ext = input.filename.split('.').pop() || 'jpg';
+      const uniqueFilename = `team-photos/${ctx.user.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+      
+      // Upload to S3
+      const { url } = await storagePut(uniqueFilename, buffer, input.mimeType);
+      
+      return { url };
     }),
 
   exportPptx: protectedProcedure
@@ -1241,6 +1270,12 @@ export const appRouter = router({
   template: templateRouter,
   briefing: briefingRouter,
   pitchDeck: pitchDeckRouter,
+  subscription: subscriptionRouter,
+  aiIntegrations: aiIntegrationsRouter,
+  agents: agentsRouter,
+  skills: skillsRouter,
+  mcpServers: mcpServersRouter,
+  orchestrator: orchestratorRouter,
 });
 
 export type AppRouter = typeof appRouter;

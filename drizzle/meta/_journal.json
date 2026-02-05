@@ -43,6 +43,13 @@
       "when": 1770285944034,
       "tag": "0005_tiny_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1770293293829,
+      "tag": "0006_legal_sentry",
+      "breakpoints": true
     }
   ]
 }

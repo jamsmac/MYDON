@@ -323,3 +323,301 @@ export type PitchDeckSlide = {
 
 export type PitchDeck = typeof pitchDecks.$inferSelect;
 export type InsertPitchDeck = typeof pitchDecks.$inferInsert;
+
+
+/**
+ * Subscription Plans - defines available subscription tiers
+ */
+export const subscriptionPlans = mysqlTable("subscription_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  nameRu: varchar("nameRu", { length: 100 }),
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
+  price: int("price").default(0).notNull(), // Price in cents (0 = free)
+  currency: varchar("currency", { length: 3 }).default("USD"),
+  billingPeriod: mysqlEnum("billingPeriod", ["monthly", "yearly", "lifetime"]).default("monthly"),
+  creditsPerMonth: int("creditsPerMonth").default(1000).notNull(),
+  // Features as JSON
+  features: json("features").$type<SubscriptionFeatures>(),
+  // Limits
+  maxProjects: int("maxProjects").default(3),
+  maxAiRequests: int("maxAiRequests").default(100), // Per day
+  maxTeamMembers: int("maxTeamMembers").default(1),
+  // AI integrations allowed
+  allowedIntegrations: json("allowedIntegrations").$type<string[]>(),
+  // Status
+  isActive: boolean("isActive").default(true),
+  isPopular: boolean("isPopular").default(false),
+  sortOrder: int("sortOrder").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SubscriptionFeatures = {
+  aiChat: boolean;
+  pitchDeck: boolean;
+  templates: boolean;
+  export: boolean;
+  googleIntegration: boolean;
+  adminPanel: boolean;
+  customAgents: boolean;
+  mcpServers: boolean;
+  prioritySupport: boolean;
+};
+
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type InsertSubscriptionPlan = typeof subscriptionPlans.$inferInsert;
+
+/**
+ * User Subscriptions - tracks user subscription status
+ */
+export const userSubscriptions = mysqlTable("user_subscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  planId: int("planId").notNull(),
+  status: mysqlEnum("status", ["active", "cancelled", "expired", "past_due", "trialing"]).default("active"),
+  // Billing info
+  stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
+  stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 255 }),
+  // Dates
+  startDate: timestamp("startDate").defaultNow().notNull(),
+  endDate: timestamp("endDate"),
+  cancelledAt: timestamp("cancelledAt"),
+  trialEndsAt: timestamp("trialEndsAt"),
+  // Usage tracking
+  currentPeriodStart: timestamp("currentPeriodStart"),
+  currentPeriodEnd: timestamp("currentPeriodEnd"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserSubscription = typeof userSubscriptions.$inferSelect;
+export type InsertUserSubscription = typeof userSubscriptions.$inferInsert;
+
+/**
+ * AI Integrations - user's connected AI services (BYOK)
+ */
+export const aiIntegrations = mysqlTable("ai_integrations", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  provider: varchar("provider", { length: 50 }).notNull(), // claude_code, codex, perplexity, etc.
+  displayName: varchar("displayName", { length: 100 }),
+  // Authentication
+  apiKey: text("apiKey"), // Encrypted
+  accessToken: text("accessToken"), // For OAuth-based integrations
+  refreshToken: text("refreshToken"),
+  tokenExpiresAt: timestamp("tokenExpiresAt"),
+  // Configuration
+  config: json("config").$type<AIIntegrationConfig>(),
+  // Status
+  isActive: boolean("isActive").default(true),
+  lastUsedAt: timestamp("lastUsedAt"),
+  lastErrorAt: timestamp("lastErrorAt"),
+  lastError: text("lastError"),
+  // Usage stats
+  totalRequests: int("totalRequests").default(0),
+  totalTokens: int("totalTokens").default(0),
+  totalCost: int("totalCost").default(0), // In cents
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AIIntegrationConfig = {
+  model?: string;
+  baseUrl?: string;
+  maxTokens?: number;
+  temperature?: number;
+  customHeaders?: Record<string, string>;
+};
+
+export type AIIntegration = typeof aiIntegrations.$inferSelect;
+export type InsertAIIntegration = typeof aiIntegrations.$inferInsert;
+
+/**
+ * AI Agents - specialized AI entities for different tasks
+ */
+export const aiAgents = mysqlTable("ai_agents", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  nameRu: varchar("nameRu", { length: 100 }),
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
+  description: text("description"),
+  descriptionRu: text("descriptionRu"),
+  // Agent type and capabilities
+  type: mysqlEnum("type", ["code", "research", "writing", "planning", "analysis", "general"]).notNull(),
+  capabilities: json("capabilities").$type<string[]>(),
+  // AI configuration
+  systemPrompt: text("systemPrompt"),
+  modelPreference: varchar("modelPreference", { length: 50 }), // Preferred model
+  fallbackModel: varchar("fallbackModel", { length: 50 }),
+  temperature: int("temperature").default(70), // 0-100, stored as int
+  maxTokens: int("maxTokens").default(4096),
+  // Routing
+  triggerPatterns: json("triggerPatterns").$type<string[]>(), // Regex patterns for auto-routing
+  priority: int("priority").default(0), // Higher = checked first
+  // Status
+  isActive: boolean("isActive").default(true),
+  isSystem: boolean("isSystem").default(false), // System agents can't be deleted
+  // Stats
+  totalRequests: int("totalRequests").default(0),
+  avgResponseTime: int("avgResponseTime").default(0), // In ms
+  successRate: int("successRate").default(100), // Percentage
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AIAgent = typeof aiAgents.$inferSelect;
+export type InsertAIAgent = typeof aiAgents.$inferInsert;
+
+/**
+ * AI Skills - reusable capabilities that agents can invoke
+ */
+export const aiSkills = mysqlTable("ai_skills", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  nameRu: varchar("nameRu", { length: 100 }),
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
+  description: text("description"),
+  // Skill configuration
+  agentId: int("agentId"), // Optional: assigned to specific agent
+  triggerPatterns: json("triggerPatterns").$type<string[]>(),
+  // Handler
+  handlerType: mysqlEnum("handlerType", ["prompt", "function", "mcp", "webhook"]).default("prompt"),
+  handlerConfig: json("handlerConfig").$type<SkillHandlerConfig>(),
+  // Input/output schema
+  inputSchema: json("inputSchema"),
+  outputSchema: json("outputSchema"),
+  // Status
+  isActive: boolean("isActive").default(true),
+  isSystem: boolean("isSystem").default(false),
+  // Stats
+  totalInvocations: int("totalInvocations").default(0),
+  avgExecutionTime: int("avgExecutionTime").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SkillHandlerConfig = {
+  prompt?: string;
+  functionName?: string;
+  mcpServerId?: number;
+  mcpToolName?: string;
+  webhookUrl?: string;
+  webhookMethod?: string;
+};
+
+export type AISkill = typeof aiSkills.$inferSelect;
+export type InsertAISkill = typeof aiSkills.$inferInsert;
+
+/**
+ * MCP Servers - Model Context Protocol server connections
+ */
+export const mcpServers = mysqlTable("mcp_servers", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
+  description: text("description"),
+  // Connection
+  endpoint: varchar("endpoint", { length: 500 }).notNull(),
+  protocol: mysqlEnum("protocol", ["stdio", "http", "websocket"]).default("http"),
+  // Authentication
+  authType: mysqlEnum("authType", ["none", "api_key", "oauth", "basic"]).default("none"),
+  authConfig: json("authConfig").$type<MCPAuthConfig>(),
+  // Available tools
+  tools: json("tools").$type<MCPTool[]>(),
+  // Status
+  status: mysqlEnum("status", ["active", "inactive", "error", "connecting"]).default("inactive"),
+  lastHealthCheck: timestamp("lastHealthCheck"),
+  lastError: text("lastError"),
+  // Stats
+  totalRequests: int("totalRequests").default(0),
+  avgResponseTime: int("avgResponseTime").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MCPAuthConfig = {
+  apiKey?: string;
+  username?: string;
+  password?: string;
+  clientId?: string;
+  clientSecret?: string;
+  tokenUrl?: string;
+};
+
+export type MCPTool = {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+};
+
+export type MCPServer = typeof mcpServers.$inferSelect;
+export type InsertMCPServer = typeof mcpServers.$inferInsert;
+
+/**
+ * Orchestrator Config - global routing and fallback settings
+ */
+export const orchestratorConfig = mysqlTable("orchestrator_config", {
+  id: int("id").autoincrement().primaryKey(),
+  // Routing rules
+  routingRules: json("routingRules").$type<OrchestratorRoutingRule[]>(),
+  // Fallback behavior
+  fallbackAgentId: int("fallbackAgentId"),
+  fallbackModel: varchar("fallbackModel", { length: 50 }).default("gpt-4o-mini"),
+  // Logging
+  loggingLevel: mysqlEnum("loggingLevel", ["debug", "info", "warn", "error"]).default("info"),
+  logRetentionDays: int("logRetentionDays").default(30),
+  // Rate limiting
+  globalRateLimit: int("globalRateLimit").default(100), // Requests per minute
+  // Feature flags
+  enableAgentRouting: boolean("enableAgentRouting").default(true),
+  enableSkillMatching: boolean("enableSkillMatching").default(true),
+  enableMCPIntegration: boolean("enableMCPIntegration").default(true),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type OrchestratorRoutingRule = {
+  id: string;
+  name: string;
+  condition: {
+    type: "pattern" | "context" | "user_preference";
+    value: string;
+  };
+  targetAgentId: number;
+  priority: number;
+  isActive: boolean;
+};
+
+export type OrchestratorConfig = typeof orchestratorConfig.$inferSelect;
+export type InsertOrchestratorConfig = typeof orchestratorConfig.$inferInsert;
+
+/**
+ * AI Request Logs - detailed logging for debugging and analytics
+ */
+export const aiRequestLogs = mysqlTable("ai_request_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  // Request info
+  requestType: mysqlEnum("requestType", ["chat", "generate", "skill", "mcp"]).notNull(),
+  agentId: int("agentId"),
+  skillId: int("skillId"),
+  mcpServerId: int("mcpServerId"),
+  // Input/output
+  input: text("input"),
+  output: text("output"),
+  // Model info
+  model: varchar("model", { length: 64 }),
+  provider: varchar("provider", { length: 50 }),
+  // Performance
+  tokensUsed: int("tokensUsed"),
+  responseTimeMs: int("responseTimeMs"),
+  // Status
+  status: mysqlEnum("status", ["success", "error", "timeout", "rate_limited"]).default("success"),
+  errorMessage: text("errorMessage"),
+  // Cost
+  creditsCost: int("creditsCost").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AIRequestLog = typeof aiRequestLogs.$inferSelect;
+export type InsertAIRequestLog = typeof aiRequestLogs.$inferInsert;
