@@ -6,14 +6,32 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { 
   X, Check, Clock, Circle, Save, FileText, 
-  ChevronDown, ChevronRight, Sparkles
+  ChevronDown, ChevronRight, Sparkles, Tag
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { TagSelector } from './TagSelector';
 
 interface TaskPanelProps {
   task: Task;
   onClose: () => void;
+}
+
+// Helper to extract numeric ID from string task ID (e.g., "task-1-1-1" -> 111)
+function getNumericTaskId(taskId: string): number {
+  // Try to extract numbers from the task ID
+  const numbers = taskId.replace(/\D/g, '');
+  if (numbers) {
+    return parseInt(numbers, 10);
+  }
+  // Fallback: hash the string to get a consistent number
+  let hash = 0;
+  for (let i = 0; i < taskId.length; i++) {
+    const char = taskId.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
 }
 
 export function TaskPanel({ task, onClose }: TaskPanelProps) {
@@ -22,6 +40,9 @@ export function TaskPanel({ task, onClose }: TaskPanelProps) {
   const [summary, setSummary] = useState(task.summary);
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set());
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Get numeric task ID for tag operations
+  const numericTaskId = getNumericTaskId(task.id);
 
   useEffect(() => {
     setNotes(task.notes);
@@ -131,6 +152,15 @@ export function TaskPanel({ task, onClose }: TaskPanelProps) {
             );
           })}
         </div>
+      </div>
+
+      {/* Tags Section */}
+      <div className="p-4 border-b border-border">
+        <label className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+          <Tag className="w-4 h-4" />
+          Теги
+        </label>
+        <TagSelector taskId={numericTaskId} />
       </div>
 
       {/* Content */}
