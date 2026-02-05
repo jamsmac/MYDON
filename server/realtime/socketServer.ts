@@ -25,9 +25,17 @@ export interface TaskEditingState {
   startedAt: Date;
 }
 
+export interface TypingState {
+  taskId: number;
+  userId: number;
+  userName: string;
+  startedAt: Date;
+}
+
 // Store for active connections and presence
 const projectPresence = new Map<number, Map<string, PresenceUser>>();
 const taskEditingState = new Map<number, TaskEditingState>();
+const typingState = new Map<number, Map<number, TypingState>>(); // taskId -> userId -> state
 const socketToUser = new Map<string, { userId: number; userName: string }>();
 
 // Generate consistent color from user ID
@@ -277,6 +285,50 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         type: "updated",
         block,
         updatedBy: user.name,
+      });
+    });
+
+    // Comment typing started
+    socket.on("comment:typing:start", (data: { projectId: number; taskId: number }) => {
+      const { projectId, taskId } = data;
+      
+      // Initialize typing state for this task if needed
+      if (!typingState.has(taskId)) {
+        typingState.set(taskId, new Map());
+      }
+      
+      const taskTyping = typingState.get(taskId)!;
+      taskTyping.set(user.id, {
+        taskId,
+        userId: user.id,
+        userName: user.name,
+        startedAt: new Date(),
+      });
+
+      // Broadcast to others in project
+      socket.to(`project:${projectId}`).emit("comment:typing:started", {
+        taskId,
+        userId: user.id,
+        userName: user.name,
+      });
+    });
+
+    // Comment typing stopped
+    socket.on("comment:typing:stop", (data: { projectId: number; taskId: number }) => {
+      const { projectId, taskId } = data;
+      
+      const taskTyping = typingState.get(taskId);
+      if (taskTyping) {
+        taskTyping.delete(user.id);
+        if (taskTyping.size === 0) {
+          typingState.delete(taskId);
+        }
+      }
+
+      // Broadcast to others in project
+      socket.to(`project:${projectId}`).emit("comment:typing:stopped", {
+        taskId,
+        userId: user.id,
       });
     });
 

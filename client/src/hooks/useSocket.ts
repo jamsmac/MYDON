@@ -36,6 +36,12 @@ export interface BlockChangeEvent {
   updatedBy: string;
 }
 
+export interface TypingUser {
+  taskId: number;
+  userId: number;
+  userName: string;
+}
+
 interface UseSocketOptions {
   projectId?: number;
   onPresenceUpdate?: (users: PresenceUser[]) => void;
@@ -45,6 +51,8 @@ interface UseSocketOptions {
   onTaskEditingStarted?: (info: TaskEditingInfo) => void;
   onTaskEditingStopped?: (info: { taskId: number; userId: number }) => void;
   onTaskEditingConflict?: (info: { taskId: number; editingBy: string }) => void;
+  onCommentTypingStarted?: (info: TypingUser) => void;
+  onCommentTypingStopped?: (info: { taskId: number; userId: number }) => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}) {
@@ -57,12 +65,15 @@ export function useSocket(options: UseSocketOptions = {}) {
     onTaskEditingStarted,
     onTaskEditingStopped,
     onTaskEditingConflict,
+    onCommentTypingStarted,
+    onCommentTypingStopped,
   } = options;
 
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
   const [editingTasks, setEditingTasks] = useState<Map<number, TaskEditingInfo>>(new Map());
+  const [typingUsers, setTypingUsers] = useState<Map<number, Map<number, TypingUser>>>(new Map()); // taskId -> userId -> user
 
   // Initialize socket connection
   useEffect(() => {
@@ -133,6 +144,34 @@ export function useSocket(options: UseSocketOptions = {}) {
 
     socket.on("task:editing:conflict", (info: { taskId: number; editingBy: string }) => {
       onTaskEditingConflict?.(info);
+    });
+
+    // Comment typing events
+    socket.on("comment:typing:started", (info: TypingUser) => {
+      setTypingUsers((prev) => {
+        const next = new Map(prev);
+        if (!next.has(info.taskId)) {
+          next.set(info.taskId, new Map());
+        }
+        next.get(info.taskId)!.set(info.userId, info);
+        return next;
+      });
+      onCommentTypingStarted?.(info);
+    });
+
+    socket.on("comment:typing:stopped", (info: { taskId: number; userId: number }) => {
+      setTypingUsers((prev) => {
+        const next = new Map(prev);
+        const taskTyping = next.get(info.taskId);
+        if (taskTyping) {
+          taskTyping.delete(info.userId);
+          if (taskTyping.size === 0) {
+            next.delete(info.taskId);
+          }
+        }
+        return next;
+      });
+      onCommentTypingStopped?.(info);
     });
 
     return () => {
@@ -211,6 +250,34 @@ export function useSocket(options: UseSocketOptions = {}) {
     socket.emit("block:updated", { projectId, block });
   }, [projectId]);
 
+  // Emit comment typing started
+  const startTypingComment = useCallback((taskId: number) => {
+    const socket = socketRef.current;
+    if (!socket || !projectId) return;
+
+    socket.emit("comment:typing:start", { projectId, taskId });
+  }, [projectId]);
+
+  // Emit comment typing stopped
+  const stopTypingComment = useCallback((taskId: number) => {
+    const socket = socketRef.current;
+    if (!socket || !projectId) return;
+
+    socket.emit("comment:typing:stop", { projectId, taskId });
+  }, [projectId]);
+
+  // Get typing users for a task
+  const getTypingUsersForTask = useCallback((taskId: number, currentUserId?: number): TypingUser[] => {
+    const taskTyping = typingUsers.get(taskId);
+    if (!taskTyping) return [];
+    
+    const users = Array.from(taskTyping.values());
+    if (currentUserId) {
+      return users.filter(u => u.userId !== currentUserId);
+    }
+    return users;
+  }, [typingUsers]);
+
   // Check if a task is being edited by someone else
   const isTaskBeingEdited = useCallback((taskId: number, currentUserId?: number): TaskEditingInfo | null => {
     const editInfo = editingTasks.get(taskId);
@@ -231,5 +298,9 @@ export function useSocket(options: UseSocketOptions = {}) {
     emitSectionUpdated,
     emitBlockUpdated,
     isTaskBeingEdited,
+    typingUsers,
+    startTypingComment,
+    stopTypingComment,
+    getTypingUsersForTask,
   };
 }

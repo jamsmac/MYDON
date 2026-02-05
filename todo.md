@@ -591,3 +591,14 @@
 - [x] Show "editing" indicator when someone is editing a task
 - [ ] Add cursor/selection visibility (optional - future enhancement)
 - [ ] Write tests for real-time features
+
+
+## Phase 46.1: Typing Indicator for Comments (Completed)
+- [x] Add comment:typing:start and comment:typing:stop events to socket server
+- [x] Create TypingIndicator component with animated dots
+- [x] Add typing state management to useSocket hook (startTypingComment, stopTypingComment, getTypingUsersForTask)
+- [x] Create TaskComments component with full comment functionality
+- [x] Integrate typing indicator in TaskDetailPanel
+- [x] Debounce typing detection (2 second timeout)
+- [x] Show "User is typing..." with animated dots (Russian: "печатает")
+- [x] Filter out current user from typing display

@@ -2,6 +2,7 @@ import { useAuth } from '@/_core/hooks/useAuth';
 import { getLoginUrl } from '@/const';
 import { useSocket } from '@/hooks/useSocket';
 import { PresenceAvatars } from '@/components/PresenceAvatars';
+import { TaskComments } from '@/components/TaskComments';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -237,10 +238,14 @@ function AIChatPanel({
 // ============ TASK DETAIL PANEL ============
 function TaskDetailPanel({
   task,
+  projectId,
   onClose,
   onUpdate,
   onSaveNote,
-  onSaveDocument
+  onSaveDocument,
+  onTypingStart,
+  onTypingStop,
+  typingUsers,
 }: {
   task: {
     id: number;
@@ -250,10 +255,14 @@ function TaskDetailPanel({
     notes?: string | null;
     summary?: string | null;
   };
+  projectId: number;
   onClose: () => void;
   onUpdate: (data: { status?: 'not_started' | 'in_progress' | 'completed'; notes?: string; summary?: string }) => void;
   onSaveNote: (content: string) => void;
   onSaveDocument: (content: string) => void;
+  onTypingStart?: () => void;
+  onTypingStop?: () => void;
+  typingUsers?: { userId: number; userName: string }[];
 }) {
   const [notes, setNotes] = useState(task.notes || '');
   const [summary, setSummary] = useState(task.summary || '');
@@ -376,6 +385,21 @@ function TaskDetailPanel({
               )}
             </div>
           </div>
+
+          {/* Comments Section */}
+          <div>
+            <Label className="text-slate-400 text-xs mb-3 block flex items-center gap-2">
+              <MessageSquare className="w-4 h-4" />
+              Комментарии
+            </Label>
+            <TaskComments
+              taskId={task.id}
+              projectId={projectId}
+              onTypingStart={onTypingStart}
+              onTypingStop={onTypingStop}
+              typingUsers={typingUsers}
+            />
+          </div>
         </div>
       </ScrollArea>
     </div>
@@ -400,6 +424,9 @@ export default function ProjectView() {
     emitTaskCreated,
     emitTaskDeleted,
     isTaskBeingEdited,
+    startTypingComment,
+    stopTypingComment,
+    getTypingUsersForTask,
   } = useSocket({
     projectId: isAuthenticated ? projectId : undefined,
     onTaskChange: (event) => {
@@ -1102,6 +1129,7 @@ export default function ProjectView() {
           {selectedTask ? (
             <TaskDetailPanel
               task={selectedTask}
+              projectId={projectId}
               onClose={() => setSelectedTask(null)}
               onUpdate={(data) => {
                 updateTask.mutate({ id: selectedTask.id, ...data });
@@ -1109,6 +1137,9 @@ export default function ProjectView() {
               }}
               onSaveNote={handleSaveAsNote}
               onSaveDocument={handleSaveAsDocument}
+              onTypingStart={() => startTypingComment(selectedTask.id)}
+              onTypingStop={() => stopTypingComment(selectedTask.id)}
+              typingUsers={getTypingUsersForTask(selectedTask.id, user?.id)}
             />
           ) : selectedContext ? (
             <div className="p-6">
