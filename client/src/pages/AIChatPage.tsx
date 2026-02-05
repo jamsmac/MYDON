@@ -3,7 +3,7 @@
  * Full-featured chat interface with session management and usage statistics
  */
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -57,6 +57,7 @@ interface Message {
   fromCache?: boolean;
   executionTime?: number;
   timestamp: Date;
+  isStreaming?: boolean;
 }
 
 const TASK_TYPE_OPTIONS: { value: TaskType; label: string; icon: string }[] = [
@@ -77,8 +78,11 @@ export default function AIChatPage() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // tRPC queries and mutations
   const utils = trpc.useUtils();
@@ -180,8 +184,9 @@ export default function AIChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || chatMutation.isPending) return;
+  // Streaming send handler
+  const handleSend = useCallback(async () => {
+    if (!input.trim() || isStreaming) return;
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -193,6 +198,8 @@ export default function AIChatPage() {
     setMessages(prev => [...prev, userMessage]);
     const messageContent = input.trim();
     setInput('');
+    setIsStreaming(true);
+    setStreamingContent('');
 
     // Build messages array for context
     const contextMessages = messages.map(m => ({
@@ -201,13 +208,125 @@ export default function AIChatPage() {
     }));
     contextMessages.push({ role: 'user', content: messageContent });
 
-    await chatMutation.mutateAsync({
-      messages: contextMessages,
-      sessionId: currentSessionId || undefined,
-      taskType,
-      useCache: true,
-    });
-  };
+    // Create abort controller for cancellation
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const response = await fetch('/api/ai/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: contextMessages,
+          sessionId: currentSessionId || undefined,
+          taskType,
+        }),
+        credentials: 'include',
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Stream failed');
+      }
+
+      if (!response.body) {
+        throw new Error('No response body');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      let executionTime = 0;
+
+      // Add placeholder assistant message
+      const assistantId = `assistant-${Date.now()}`;
+      setMessages(prev => [...prev, {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+      }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              // Handle done event
+              if (data.type === 'done') {
+                executionTime = data.executionTime || 0;
+                continue;
+              }
+              
+              // Handle error event
+              if (data.type === 'error') {
+                throw new Error(data.message || 'Stream error');
+              }
+              
+              // Handle content delta
+              const content = data.choices?.[0]?.delta?.content;
+              if (content) {
+                fullContent += content;
+                setStreamingContent(fullContent);
+                
+                // Update the assistant message with new content
+                setMessages(prev => prev.map(m => 
+                  m.id === assistantId 
+                    ? { ...m, content: fullContent }
+                    : m
+                ));
+              }
+            } catch (e) {
+              // Skip malformed JSON
+              if (e instanceof SyntaxError) continue;
+              throw e;
+            }
+          }
+        }
+      }
+
+      // Finalize the assistant message
+      setMessages(prev => prev.map(m => 
+        m.id === assistantId 
+          ? { ...m, content: fullContent, isStreaming: false, executionTime, model: 'gemini-2.5-flash' }
+          : m
+      ));
+
+      // Invalidate queries to refresh stats
+      utils.aiRouter.getSessions.invalidate();
+      utils.aiRouter.getUsageStats.invalidate();
+
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        toast.info('Генерация отменена');
+      } else {
+        toast.error(`Ошибка AI: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Remove the streaming message on error
+        setMessages(prev => prev.filter(m => !m.isStreaming));
+      }
+    } finally {
+      setIsStreaming(false);
+      setStreamingContent('');
+      abortControllerRef.current = null;
+    }
+  }, [input, isStreaming, messages, currentSessionId, taskType, utils]);
+
+  // Cancel streaming
+  const handleCancelStream = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }, []);
 
   const handleNewChat = () => {
     createSessionMutation.mutate({ title: 'Новый чат' });
@@ -521,16 +640,14 @@ export default function AIChatPage() {
                   )}
                 </div>
               ))}
-              {chatMutation.isPending && (
+              {isStreaming && messages[messages.length - 1]?.isStreaming && (
                 <div className="flex gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Bot className="w-4 h-4 text-primary" />
+                    <Bot className="w-4 h-4 text-primary animate-pulse" />
                   </div>
-                  <div className="bg-muted rounded-lg p-3">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span className="text-sm text-muted-foreground">Думаю...</span>
-                    </div>
+                  <div className="text-xs text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Генерация...
                   </div>
                 </div>
               )}
@@ -548,20 +665,27 @@ export default function AIChatPage() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Введите сообщение..."
-              disabled={chatMutation.isPending}
+              disabled={isStreaming}
               className="flex-1"
             />
-            <Button
-              onClick={handleSend}
-              disabled={!input.trim() || chatMutation.isPending}
-              size="icon"
-            >
-              {chatMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
+            {isStreaming ? (
+              <Button
+                onClick={handleCancelStream}
+                variant="destructive"
+                size="icon"
+                title="Отменить генерацию"
+              >
+                <span className="w-3 h-3 bg-white rounded-sm" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                size="icon"
+              >
                 <Send className="w-4 h-4" />
-              )}
-            </Button>
+              </Button>
+            )}
           </div>
           <div className="max-w-4xl mx-auto mt-2 text-xs text-muted-foreground text-center">
             Нажмите Enter для отправки • Shift+Enter для новой строки

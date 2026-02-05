@@ -165,6 +165,128 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
       }
     }
   });
+
+  // AI Router streaming endpoint for AIChatPage
+  app.post("/api/ai/stream", async (req, res) => {
+    try {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const { messages, sessionId, taskType } = req.body;
+
+      if (!messages || !Array.isArray(messages)) {
+        res.status(400).json({ error: "Messages array required" });
+        return;
+      }
+
+      // Check AI request limit
+      const limitCheck = await checkAiRequestLimit(user.id);
+      if (!limitCheck.allowed) {
+        res.status(403).json({ 
+          error: limitCheck.message,
+          limitReached: true,
+          remaining: 0
+        });
+        return;
+      }
+
+      // Build system prompt based on task type
+      const taskPrompts: Record<string, string> = {
+        chat: "Ты полезный AI-ассистент. Отвечай на русском языке, если пользователь пишет на русском.",
+        reasoning: "Ты аналитический AI-ассистент. Анализируй проблемы шаг за шагом, приводи логические аргументы.",
+        coding: "Ты опытный программист. Пиши чистый, документированный код. Объясняй свои решения.",
+        translation: "Ты профессиональный переводчик. Переводи точно, сохраняя стиль и контекст оригинала.",
+        summarization: "Ты специалист по резюмированию. Выделяй ключевые моменты, создавай краткие и информативные сводки.",
+        creative: "Ты креативный писатель. Генерируй оригинальные идеи, истории и контент.",
+      };
+
+      const systemPrompt = taskPrompts[taskType || 'chat'] || taskPrompts.chat;
+
+      const llmMessages = [
+        { role: "system" as const, content: systemPrompt },
+        ...messages.map((m: { role: string; content: string }) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+      ];
+
+      // Set headers for SSE
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      // Stream the response
+      const stream = await streamLLM({ messages: llmMessages });
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = "";
+      const startTime = Date.now();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          res.write(chunk);
+
+          // Parse SSE to collect full content
+          const lines = chunk.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+              try {
+                const data = JSON.parse(line.slice(6));
+                const content = data.choices?.[0]?.delta?.content;
+                if (content) fullContent += content;
+              } catch {}
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      const executionTime = Date.now() - startTime;
+
+      // Log the request to aiRequests table
+      const { getDb } = await import("../db");
+      const schema = await import("../../drizzle/schema");
+      const dbInstance = await getDb();
+      if (dbInstance && fullContent) {
+        const userPrompt = messages[messages.length - 1]?.content || '';
+        await dbInstance.insert(schema.aiRequests).values({
+          userId: user.id,
+          sessionId: sessionId || null,
+          prompt: userPrompt,
+          response: fullContent,
+          model: 'gemini-2.5-flash',
+          taskType: taskType || 'chat',
+          tokens: Math.ceil((userPrompt.length + fullContent.length) / 4),
+          fromCache: false,
+          executionTime,
+        });
+      }
+
+      // Increment AI usage counter
+      await incrementAiUsage(user.id);
+
+      // Send final event
+      res.write(`\ndata: {"type":"done","executionTime":${executionTime}}\n\n`);
+      res.end();
+    } catch (error) {
+      console.error("AI Stream error:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to stream response" });
+      } else {
+        res.write(`data: {"type":"error","message":"Stream failed"}\n\n`);
+        res.end();
+      }
+    }
+  });
+
   // Export endpoints
   app.get("/api/export/markdown/:projectId", async (req, res) => {
     try {
