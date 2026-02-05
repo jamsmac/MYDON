@@ -14,11 +14,11 @@ import { DeadlineBadge } from './DeadlineBadge';
 import { FilterBar } from './FilterBar';
 import { CalendarExport } from './CalendarExport';
 import { TaskTagBadges } from './TaskTagBadges';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { 
   Check, Clock, Circle, Download, FileText, 
-  ChevronRight, Sparkles, ArrowRight, AlertTriangle,
-  Filter, ListFilter, Tag, Layers
+  ChevronRight, ChevronDown, Sparkles, ArrowRight, AlertTriangle,
+  Filter, ListFilter, Tag, Layers, ChevronsUpDown, Maximize2, Minimize2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -70,6 +70,44 @@ export function MainContent() {
   const selectedBlock = getSelectedBlock();
   const selectedSection = getSelectedSection();
   const selectedTask = getSelectedTask();
+
+  // Collapsed groups state - persisted in localStorage
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('roadmap-collapsed-groups');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  // Toggle group collapse state
+  const toggleGroupCollapse = useCallback((groupKey: string) => {
+    setCollapsedGroups(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupKey)) {
+        newSet.delete(groupKey);
+      } else {
+        newSet.add(groupKey);
+      }
+      // Persist to localStorage
+      localStorage.setItem('roadmap-collapsed-groups', JSON.stringify(Array.from(newSet)));
+      return newSet;
+    });
+  }, []);
+
+  // Expand all groups
+  const expandAllGroups = useCallback(() => {
+    setCollapsedGroups(new Set());
+    localStorage.setItem('roadmap-collapsed-groups', '[]');
+  }, []);
+
+  // Collapse all groups
+  const collapseAllGroups = useCallback((groupKeys: string[]) => {
+    const newSet = new Set(groupKeys);
+    setCollapsedGroups(newSet);
+    localStorage.setItem('roadmap-collapsed-groups', JSON.stringify(groupKeys));
+  }, []);
 
   // Calculate filter counts for all tasks
   const filterCounts = useMemo(() => {
@@ -364,55 +402,122 @@ export function MainContent() {
       );
     }
 
+    // Get all group keys for collapse all functionality
+    const allGroupKeys = groups.map(g => 
+      String('id' in g ? g.id : ('status' in g ? g.status : g.priority))
+    );
+    const allCollapsed = allGroupKeys.every(key => collapsedGroups.has(key));
+    const someCollapsed = allGroupKeys.some(key => collapsedGroups.has(key));
+
     return (
-      <div className="space-y-6">
-        {groups.map((group) => {
-          const GroupIcon = groupIcon;
-          const groupKey = 'id' in group ? group.id : ('status' in group ? group.status : group.priority);
-          
-          return (
-            <div key={String(groupKey)} className="space-y-3">
-              {/* Group Header */}
-              <div className="flex items-center gap-3 sticky top-0 bg-background py-2 z-10">
-                <div 
-                  className="w-8 h-8 rounded-lg flex items-center justify-center"
-                  style={{ backgroundColor: `${group.color}20` }}
-                >
-                  {filterState.groupBy === 'tag' ? (
-                    <Tag className="w-4 h-4" style={{ color: group.color }} />
-                  ) : (
-                    <GroupIcon className="w-4 h-4" style={{ color: group.color }} />
+      <div className="space-y-4">
+        {/* Expand/Collapse All Controls */}
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={expandAllGroups}
+            disabled={!someCollapsed}
+            className="text-xs gap-1.5"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            Развернуть все
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => collapseAllGroups(allGroupKeys)}
+            disabled={allCollapsed}
+            className="text-xs gap-1.5"
+          >
+            <Minimize2 className="w-3.5 h-3.5" />
+            Свернуть все
+          </Button>
+        </div>
+
+        {/* Groups */}
+        <div className="space-y-3">
+          {groups.map((group) => {
+            const GroupIcon = groupIcon;
+            const groupKey = String('id' in group ? group.id : ('status' in group ? group.status : group.priority));
+            const isCollapsed = collapsedGroups.has(groupKey);
+            
+            return (
+              <div key={groupKey} className="space-y-2">
+                {/* Group Header - Clickable to toggle */}
+                <button
+                  onClick={() => toggleGroupCollapse(groupKey)}
+                  className={cn(
+                    "w-full flex items-center gap-3 sticky top-0 bg-background py-2 z-10 rounded-lg",
+                    "hover:bg-muted/50 transition-colors cursor-pointer text-left",
+                    "focus:outline-none focus:ring-2 focus:ring-primary/20"
                   )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <h2 className="font-mono font-semibold text-lg" style={{ color: group.color }}>
-                    {'name' in group ? group.name : group.label}
-                  </h2>
-                  <Badge 
-                    variant="secondary" 
-                    className="text-xs"
-                    style={{ backgroundColor: `${group.color}20`, color: group.color }}
+                >
+                  {/* Collapse chevron */}
+                  <div className="w-6 h-6 flex items-center justify-center">
+                    <ChevronRight 
+                      className={cn(
+                        "w-4 h-4 text-muted-foreground transition-transform duration-200",
+                        !isCollapsed && "rotate-90"
+                      )} 
+                    />
+                  </div>
+                  
+                  {/* Group icon */}
+                  <div 
+                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: `${group.color}20` }}
                   >
-                    {group.tasks.length}
-                  </Badge>
+                    {filterState.groupBy === 'tag' ? (
+                      <Tag className="w-4 h-4" style={{ color: group.color }} />
+                    ) : (
+                      <GroupIcon className="w-4 h-4" style={{ color: group.color }} />
+                    )}
+                  </div>
+                  
+                  {/* Group name and count */}
+                  <div className="flex items-center gap-2 flex-1">
+                    <h2 className="font-mono font-semibold text-lg" style={{ color: group.color }}>
+                      {'name' in group ? group.name : group.label}
+                    </h2>
+                    <Badge 
+                      variant="secondary" 
+                      className="text-xs"
+                      style={{ backgroundColor: `${group.color}20`, color: group.color }}
+                    >
+                      {group.tasks.length}
+                    </Badge>
+                  </div>
+                  
+                  {/* Collapsed indicator */}
+                  {isCollapsed && (
+                    <span className="text-xs text-muted-foreground mr-2">
+                      {group.tasks.length} {group.tasks.length === 1 ? 'задача' : group.tasks.length < 5 ? 'задачи' : 'задач'}
+                    </span>
+                  )}
+                </button>
+                
+                {/* Tasks in Group - Animated collapse */}
+                <div 
+                  className={cn(
+                    "grid gap-3 pl-14 overflow-hidden transition-all duration-300 ease-in-out",
+                    isCollapsed ? "max-h-0 opacity-0" : "max-h-[5000px] opacity-100"
+                  )}
+                >
+                  {group.tasks.map((task) => (
+                    <TaskCard 
+                      key={task.id}
+                      task={task}
+                      isSelected={selectedTask?.id === task.id}
+                      onClick={() => selectTask(task.id)}
+                      isBlockOverdue={deadlineStatus === 'overdue'}
+                    />
+                  ))}
                 </div>
               </div>
-              
-              {/* Tasks in Group */}
-              <div className="grid gap-3 pl-11">
-                {group.tasks.map((task) => (
-                  <TaskCard 
-                    key={task.id}
-                    task={task}
-                    isSelected={selectedTask?.id === task.id}
-                    onClick={() => selectTask(task.id)}
-                    isBlockOverdue={deadlineStatus === 'overdue'}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     );
   };

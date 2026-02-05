@@ -1275,3 +1275,13 @@
 - [x] Add grouping by priority (based on tag keywords)
 - [x] Maintain existing filter and sort functionality within groups
 - [x] 379 total tests passing
+
+
+## Phase 64: Collapsible Tag Groups
+- [x] Add collapsed state management for groups
+- [x] Add chevron toggle icon to group headers
+- [x] Animate collapse/expand transitions
+- [x] Add "Развернуть все" / "Свернуть все" buttons
+- [x] Persist collapsed state in localStorage
+- [x] Show task count when group is collapsed
+- [x] 379 total tests passing
