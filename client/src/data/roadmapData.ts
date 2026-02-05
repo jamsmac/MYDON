@@ -23,6 +23,7 @@ export interface Block {
   title: string;
   titleRu: string;
   duration: string;
+  deadline?: string; // ISO date string
   sections: Section[];
   icon: string;
 }

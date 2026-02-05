@@ -1,4 +1,5 @@
 import { useRoadmap } from '@/contexts/RoadmapContext';
+import { useDeadlines } from '@/contexts/DeadlineContext';
 import { Task } from '@/data/roadmapData';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -6,9 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TaskPanel } from './TaskPanel';
+import { DeadlinePicker } from './DeadlinePicker';
+import { DeadlineBadge } from './DeadlineBadge';
 import { 
   Check, Clock, Circle, Download, FileText, 
-  ChevronRight, Sparkles, ArrowRight
+  ChevronRight, Sparkles, ArrowRight, AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -29,6 +32,7 @@ export function MainContent() {
     exportBlockSummary,
     exportAllSummaries
   } = useRoadmap();
+  const { getDeadlineStatus, getDaysRemaining, getBlockDeadline } = useDeadlines();
 
   const selectedBlock = getSelectedBlock();
   const selectedSection = getSelectedSection();
@@ -65,6 +69,9 @@ export function MainContent() {
   }
 
   const blockProgress = getBlockProgress(selectedBlock.id);
+  const deadlineStatus = getDeadlineStatus(selectedBlock.id);
+  const daysRemaining = getDaysRemaining(selectedBlock.id);
+  const deadline = getBlockDeadline(selectedBlock.id);
 
   return (
     <div className="flex-1 flex h-screen overflow-hidden">
@@ -74,7 +81,11 @@ export function MainContent() {
         selectedTask ? "w-1/2" : "w-full"
       )}>
         {/* Block Header */}
-        <header className="p-6 border-b border-border bg-card">
+        <header className={cn(
+          "p-6 border-b border-border bg-card",
+          deadlineStatus === 'overdue' && "bg-red-50 border-red-200",
+          deadlineStatus === 'due_soon' && "bg-amber-50 border-amber-200"
+        )}>
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-3 mb-2">
@@ -82,11 +93,30 @@ export function MainContent() {
                   Блок {String(selectedBlock.number).padStart(2, '0')}
                 </Badge>
                 <Badge variant="secondary">{selectedBlock.duration}</Badge>
+                <DeadlineBadge blockId={selectedBlock.id} />
               </div>
               <h1 className="font-mono text-2xl font-bold text-foreground">
                 {selectedBlock.titleRu}
               </h1>
               <p className="text-muted-foreground mt-1">{selectedBlock.title}</p>
+              
+              {/* Deadline warning */}
+              {deadlineStatus === 'overdue' && (
+                <div className="flex items-center gap-2 mt-2 text-red-600">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="text-sm font-medium">
+                    Блок просрочен на {Math.abs(daysRemaining!)} дней
+                  </span>
+                </div>
+              )}
+              {deadlineStatus === 'due_soon' && daysRemaining !== null && (
+                <div className="flex items-center gap-2 mt-2 text-amber-600">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-sm font-medium">
+                    {daysRemaining === 0 ? 'Дедлайн сегодня!' : `До дедлайна ${daysRemaining} дней`}
+                  </span>
+                </div>
+              )}
             </div>
             
             <div className="flex items-center gap-3">
@@ -99,18 +129,27 @@ export function MainContent() {
                   {blockProgress.completed}/{blockProgress.total} задач
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={handleExportBlock}>
-                <Download className="w-4 h-4 mr-2" />
-                Экспорт
-              </Button>
+              <div className="flex flex-col gap-2">
+                <DeadlinePicker blockId={selectedBlock.id} blockTitle={selectedBlock.titleRu} />
+                <Button variant="outline" size="sm" onClick={handleExportBlock}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Экспорт
+                </Button>
+              </div>
             </div>
           </div>
           
           {/* Progress bar */}
           <div className="mt-4">
-            <div className="progress-gauge h-3">
+            <div className={cn(
+              "progress-gauge h-3",
+              deadlineStatus === 'overdue' && "bg-red-200"
+            )}>
               <div 
-                className="progress-gauge-fill"
+                className={cn(
+                  "progress-gauge-fill",
+                  deadlineStatus === 'overdue' && "!bg-red-500"
+                )}
                 style={{ width: `${blockProgress.percentage}%` }}
               />
             </div>
@@ -289,8 +328,13 @@ function TaskCard({ task, isSelected, onClick }: TaskCardProps) {
 }
 
 function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
-  const { state, getOverallProgress, selectBlock } = useRoadmap();
+  const { state, getOverallProgress, selectBlock, getBlockProgress } = useRoadmap();
+  const { getDeadlineStatus, getDaysRemaining, getBlockDeadline } = useDeadlines();
   const overall = getOverallProgress();
+
+  // Count urgent deadlines
+  const overdueBlocks = state.blocks.filter(b => getDeadlineStatus(b.id) === 'overdue');
+  const dueSoonBlocks = state.blocks.filter(b => getDeadlineStatus(b.id) === 'due_soon');
 
   return (
     <div className="flex-1 overflow-auto">
@@ -329,6 +373,40 @@ function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
         </div>
       </div>
 
+      {/* Deadline Alerts */}
+      {(overdueBlocks.length > 0 || dueSoonBlocks.length > 0) && (
+        <div className="p-4 bg-gradient-to-r from-red-50 to-amber-50 border-b border-amber-200">
+          <div className="container flex flex-wrap gap-4">
+            {overdueBlocks.length > 0 && (
+              <div className="flex items-center gap-3 px-4 py-2 bg-red-100 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+                <div>
+                  <p className="font-medium text-red-800">
+                    {overdueBlocks.length} {overdueBlocks.length === 1 ? 'блок просрочен' : 'блоков просрочено'}
+                  </p>
+                  <p className="text-sm text-red-600">
+                    {overdueBlocks.map(b => b.titleRu).join(', ')}
+                  </p>
+                </div>
+              </div>
+            )}
+            {dueSoonBlocks.length > 0 && (
+              <div className="flex items-center gap-3 px-4 py-2 bg-amber-100 rounded-lg">
+                <Clock className="w-5 h-5 text-amber-600" />
+                <div>
+                  <p className="font-medium text-amber-800">
+                    {dueSoonBlocks.length} {dueSoonBlocks.length === 1 ? 'блок скоро' : 'блоков скоро'}
+                  </p>
+                  <p className="text-sm text-amber-600">
+                    {dueSoonBlocks.map(b => b.titleRu).join(', ')}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="p-8">
         {/* Quick Actions */}
@@ -343,32 +421,19 @@ function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
         {/* Blocks Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {state.blocks.map((block) => {
-            const progress = state.blocks.reduce((acc, b) => {
-              if (b.id === block.id) {
-                let completed = 0;
-                let total = 0;
-                b.sections.forEach(s => {
-                  s.tasks.forEach(t => {
-                    if (t.subtasks && t.subtasks.length > 0) {
-                      t.subtasks.forEach(st => {
-                        total++;
-                        if (st.status === 'completed') completed++;
-                      });
-                    } else {
-                      total++;
-                      if (t.status === 'completed') completed++;
-                    }
-                  });
-                });
-                return { completed, total, percentage: total > 0 ? Math.round((completed / total) * 100) : 0 };
-              }
-              return acc;
-            }, { completed: 0, total: 0, percentage: 0 });
+            const progress = getBlockProgress(block.id);
+            const deadlineStatus = getDeadlineStatus(block.id);
+            const daysRemaining = getDaysRemaining(block.id);
+            const deadline = getBlockDeadline(block.id);
 
             return (
               <Card 
                 key={block.id}
-                className="task-card cursor-pointer group"
+                className={cn(
+                  "task-card cursor-pointer group",
+                  deadlineStatus === 'overdue' && "ring-2 ring-red-400 bg-red-50",
+                  deadlineStatus === 'due_soon' && "ring-2 ring-amber-400 bg-amber-50"
+                )}
                 onClick={() => selectBlock(block.id)}
               >
                 <CardHeader className="pb-2">
@@ -376,9 +441,14 @@ function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
                     <Badge variant="outline" className="font-mono">
                       {String(block.number).padStart(2, '0')}
                     </Badge>
-                    <Badge variant="secondary" className="text-xs">
-                      {block.duration}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      {deadline && (
+                        <DeadlineBadge blockId={block.id} size="sm" />
+                      )}
+                      <Badge variant="secondary" className="text-xs">
+                        {block.duration}
+                      </Badge>
+                    </div>
                   </div>
                   <CardTitle className="font-mono text-lg mt-2 group-hover:text-primary transition-colors">
                     {block.titleRu}
@@ -389,9 +459,17 @@ function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
                     {block.title}
                   </p>
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                    <div className={cn(
+                      "flex-1 h-2 bg-muted rounded-full overflow-hidden",
+                      deadlineStatus === 'overdue' && "bg-red-200"
+                    )}>
                       <div 
-                        className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-300"
+                        className={cn(
+                          "h-full transition-all duration-300",
+                          deadlineStatus === 'overdue' 
+                            ? "bg-red-500"
+                            : "bg-gradient-to-r from-amber-500 to-emerald-500"
+                        )}
                         style={{ width: `${progress.percentage}%` }}
                       />
                     </div>

@@ -9,14 +9,17 @@
 import { Sidebar } from '@/components/Sidebar';
 import { MainContent } from '@/components/MainContent';
 import { RoadmapProvider } from '@/contexts/RoadmapContext';
+import { DeadlineProvider } from '@/contexts/DeadlineContext';
 
 export default function Home() {
   return (
     <RoadmapProvider>
-      <div className="flex h-screen overflow-hidden bg-background">
-        <Sidebar />
-        <MainContent />
-      </div>
+      <DeadlineProvider>
+        <div className="flex h-screen overflow-hidden bg-background">
+          <Sidebar />
+          <MainContent />
+        </div>
+      </DeadlineProvider>
     </RoadmapProvider>
   );
 }
