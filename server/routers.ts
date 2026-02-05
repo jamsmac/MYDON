@@ -12,6 +12,8 @@ import { agentsRouter, skillsRouter, mcpServersRouter, orchestratorRouter } from
 import { stripeRouter } from "./stripe/stripeRouter";
 import { checkProjectLimit, checkAiRequestLimit, incrementAiUsage, getUserUsageStats } from "./limits/limitsService";
 import { limitsRouter } from "./limits/limitsRouter";
+import { collaborationRouter } from "./collaborationRouter";
+import { notificationsRouter } from "./notificationsRouter";
 import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
@@ -292,10 +294,15 @@ const taskRouter = router({
       status: z.enum(["not_started", "in_progress", "completed"]).optional(),
       notes: z.string().optional(),
       summary: z.string().optional(),
+      dueDate: z.number().nullable().optional(), // Unix timestamp
       sortOrder: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
-      const { id, ...data } = input;
+      const { id, dueDate, ...rest } = input;
+      const data = {
+        ...rest,
+        ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
+      };
       return db.updateTask(id, data);
     }),
 
@@ -1377,6 +1384,8 @@ export const appRouter = router({
   orchestrator: orchestratorRouter,
   stripe: stripeRouter,
   limits: limitsRouter,
+  collaboration: collaborationRouter,
+  notifications: notificationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

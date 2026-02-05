@@ -38,6 +38,9 @@ interface AIAssistantButtonProps {
   className?: string;
   // Size variant
   size?: "sm" | "md" | "lg";
+  // Controlled open state
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 interface Message {
@@ -87,9 +90,21 @@ export function AIAssistantButton({
   context, 
   position = "fixed", 
   className,
-  size = "md"
+  size = "md",
+  open: controlledOpen,
+  onOpenChange
 }: AIAssistantButtonProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  
+  // Support both controlled and uncontrolled modes
+  const isOpen = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const setIsOpen = (value: boolean) => {
+    if (onOpenChange) {
+      onOpenChange(value);
+    } else {
+      setInternalOpen(value);
+    }
+  };
   const [isExpanded, setIsExpanded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -367,6 +382,12 @@ export function AIAssistantButton({
 }
 
 // Export a simple floating version for global use
-export function FloatingAIButton() {
-  return <AIAssistantButton position="fixed" size="lg" />;
+export function FloatingAIButton({ 
+  open, 
+  onOpenChange 
+}: { 
+  open?: boolean; 
+  onOpenChange?: (open: boolean) => void; 
+} = {}) {
+  return <AIAssistantButton position="fixed" size="lg" open={open} onOpenChange={onOpenChange} />;
 }

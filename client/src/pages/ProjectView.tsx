@@ -965,6 +965,9 @@ export default function ProjectView() {
                 onUpdateTaskTitle={(taskId, newTitle) => {
                   updateTask.mutate({ id: taskId, title: newTitle });
                 }}
+                onUpdateTaskDueDate={(taskId, dueDate) => {
+                  updateTask.mutate({ id: taskId, dueDate: dueDate?.getTime() || null });
+                }}
                 onUpdateSectionTitle={(sectionId, newTitle) => {
                   updateSection.mutate({ id: sectionId, title: newTitle });
                 }}

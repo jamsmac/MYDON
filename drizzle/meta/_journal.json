@@ -64,6 +64,27 @@
       "when": 1770297656504,
       "tag": "0008_shocking_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1770298365791,
+      "tag": "0009_large_shaman",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1770298662696,
+      "tag": "0010_smiling_thing",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1770299012125,
+      "tag": "0011_old_metal_master",
+      "breakpoints": true
     }
   ]
 }

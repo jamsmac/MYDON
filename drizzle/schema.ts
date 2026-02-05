@@ -183,6 +183,7 @@ export const tasks = mysqlTable("tasks", {
   status: mysqlEnum("status", ["not_started", "in_progress", "completed"]).default("not_started"),
   notes: text("notes"),
   summary: text("summary"), // AI-generated or user summary
+  dueDate: timestamp("dueDate"), // Task due date for calendar and scheduling
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -642,3 +643,157 @@ export const aiUsageTracking = mysqlTable("ai_usage_tracking", {
 
 export type AiUsageTracking = typeof aiUsageTracking.$inferSelect;
 export type InsertAiUsageTracking = typeof aiUsageTracking.$inferInsert;
+
+
+// ============ COLLABORATION TABLES ============
+
+/**
+ * Project Members - Team collaboration
+ */
+export const projectMembers = mysqlTable("project_members", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  role: mysqlEnum("role", ["owner", "editor", "viewer"]).default("viewer").notNull(),
+  invitedBy: int("invitedBy"),
+  invitedAt: timestamp("invitedAt").defaultNow().notNull(),
+  acceptedAt: timestamp("acceptedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type InsertProjectMember = typeof projectMembers.$inferInsert;
+
+/**
+ * Project Invitations - Pending invites
+ */
+export const projectInvitations = mysqlTable("project_invitations", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  role: mysqlEnum("role", ["editor", "viewer"]).default("viewer").notNull(),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  invitedBy: int("invitedBy").notNull(),
+  status: mysqlEnum("status", ["pending", "accepted", "expired", "cancelled"]).default("pending").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ProjectInvitation = typeof projectInvitations.$inferSelect;
+export type InsertProjectInvitation = typeof projectInvitations.$inferInsert;
+
+/**
+ * Task Comments - Discussion on tasks
+ */
+export const taskComments = mysqlTable("task_comments", {
+  id: int("id").autoincrement().primaryKey(),
+  taskId: int("taskId").notNull(),
+  userId: int("userId").notNull(),
+  content: text("content").notNull(),
+  parentId: int("parentId"), // For threaded replies
+  mentions: json("mentions").$type<number[]>(), // Array of mentioned user IDs
+  isEdited: boolean("isEdited").default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TaskComment = typeof taskComments.$inferSelect;
+export type InsertTaskComment = typeof taskComments.$inferInsert;
+
+/**
+ * Comment Reactions - Emoji reactions on comments
+ */
+export const commentReactions = mysqlTable("comment_reactions", {
+  id: int("id").autoincrement().primaryKey(),
+  commentId: int("commentId").notNull(),
+  userId: int("userId").notNull(),
+  emoji: varchar("emoji", { length: 32 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CommentReaction = typeof commentReactions.$inferSelect;
+export type InsertCommentReaction = typeof commentReactions.$inferInsert;
+
+
+// ============ NOTIFICATIONS ============
+
+/**
+ * User notifications
+ */
+export const notifications = mysqlTable("notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  type: mysqlEnum("type", [
+    "task_assigned",
+    "task_completed",
+    "task_overdue",
+    "comment_added",
+    "comment_mention",
+    "project_invite",
+    "project_update",
+    "deadline_reminder",
+    "daily_digest",
+    "system"
+  ]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message"),
+  data: json("data"), // Additional data (projectId, taskId, etc.)
+  isRead: boolean("isRead").default(false),
+  readAt: timestamp("readAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;
+
+/**
+ * User notification preferences
+ */
+export const notificationPreferences = mysqlTable("notification_preferences", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  // In-app notifications
+  inAppEnabled: boolean("inAppEnabled").default(true),
+  // Email notifications
+  emailEnabled: boolean("emailEnabled").default(true),
+  emailDigestFrequency: mysqlEnum("emailDigestFrequency", ["none", "daily", "weekly"]).default("daily"),
+  emailDigestTime: varchar("emailDigestTime", { length: 5 }).default("09:00"), // HH:mm format
+  // Telegram notifications
+  telegramEnabled: boolean("telegramEnabled").default(false),
+  telegramChatId: varchar("telegramChatId", { length: 64 }),
+  telegramUsername: varchar("telegramUsername", { length: 64 }),
+  // Browser push notifications
+  pushEnabled: boolean("pushEnabled").default(false),
+  pushSubscription: json("pushSubscription"), // Web Push subscription object
+  // Notification types to receive
+  notifyTaskAssigned: boolean("notifyTaskAssigned").default(true),
+  notifyTaskCompleted: boolean("notifyTaskCompleted").default(true),
+  notifyTaskOverdue: boolean("notifyTaskOverdue").default(true),
+  notifyComments: boolean("notifyComments").default(true),
+  notifyMentions: boolean("notifyMentions").default(true),
+  notifyProjectUpdates: boolean("notifyProjectUpdates").default(true),
+  notifyDeadlines: boolean("notifyDeadlines").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type InsertNotificationPreference = typeof notificationPreferences.$inferInsert;
+
+/**
+ * Email digest queue
+ */
+export const emailDigestQueue = mysqlTable("email_digest_queue", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  scheduledFor: timestamp("scheduledFor").notNull(),
+  status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending"),
+  sentAt: timestamp("sentAt"),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type EmailDigestQueue = typeof emailDigestQueue.$inferSelect;
+export type InsertEmailDigestQueue = typeof emailDigestQueue.$inferInsert;

@@ -43,6 +43,10 @@ import {
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
 import { InlineEditableText } from '@/components/InlineEditableText';
+import { InlineDatePicker } from '@/components/InlineDatePicker';
+import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
+import { Calendar } from 'lucide-react';
 
 // Types
 interface Task {
@@ -52,6 +56,7 @@ interface Task {
   description?: string | null;
   notes?: string | null;
   summary?: string | null;
+  dueDate?: Date | null;
   sortOrder?: number | null;
 }
 
@@ -98,6 +103,7 @@ interface DraggableSidebarProps {
   onReorderTasks?: (sectionId: number, taskIds: number[]) => void;
   onReorderSections?: (blockId: number, sectionIds: number[]) => void;
   onUpdateTaskTitle?: (taskId: number, newTitle: string) => void;
+  onUpdateTaskDueDate?: (taskId: number, dueDate: Date | null) => void;
   onUpdateSectionTitle?: (sectionId: number, newTitle: string) => void;
   onUpdateBlockTitle?: (blockId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
@@ -109,13 +115,15 @@ function SortableTask({
   sectionId,
   isSelected,
   onSelect,
-  onUpdateTitle
+  onUpdateTitle,
+  onUpdateDueDate
 }: { 
   task: Task; 
   sectionId: number;
   isSelected: boolean;
   onSelect: () => void;
   onUpdateTitle?: (taskId: number, newTitle: string) => void;
+  onUpdateDueDate?: (taskId: number, dueDate: Date | null) => void;
 }) {
   const {
     attributes,
@@ -173,6 +181,12 @@ function SortableTask({
           className="truncate text-left flex-1"
           disabled={!onUpdateTitle}
         />
+        {/* Due date indicator */}
+        {task.dueDate && (
+          <span className="text-[10px] text-slate-500 flex-shrink-0">
+            {format(new Date(task.dueDate), 'd MMM', { locale: ru })}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -192,6 +206,7 @@ function SortableSection({
   onDelete,
   onMoveTask,
   onUpdateTaskTitle,
+  onUpdateTaskDueDate,
   onUpdateTitle,
   getContextContent,
 }: {
@@ -207,6 +222,7 @@ function SortableSection({
   onDelete: () => void;
   onMoveTask: (taskId: number, newSectionId: number, newSortOrder: number) => void;
   onUpdateTaskTitle?: (taskId: number, newTitle: string) => void;
+  onUpdateTaskDueDate?: (taskId: number, dueDate: Date | null) => void;
   onUpdateTitle?: (sectionId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
 }) {
@@ -326,6 +342,7 @@ function SortableSection({
                 isSelected={selectedTaskId === task.id}
                 onSelect={() => onSelectTask({ ...task, sectionId: section.id })}
                 onUpdateTitle={onUpdateTaskTitle}
+                onUpdateDueDate={onUpdateTaskDueDate}
               />
             ))}
           </SortableContext>
@@ -390,6 +407,7 @@ export function DraggableSidebar({
   onReorderTasks,
   onReorderSections,
   onUpdateTaskTitle,
+  onUpdateTaskDueDate,
   onUpdateSectionTitle,
   onUpdateBlockTitle,
   getContextContent,
@@ -628,6 +646,7 @@ export function DraggableSidebar({
                         onDelete={() => onDeleteSection(section.id)}
                         onMoveTask={onMoveTask}
                         onUpdateTaskTitle={onUpdateTaskTitle}
+                        onUpdateTaskDueDate={onUpdateTaskDueDate}
                         onUpdateTitle={onUpdateSectionTitle}
                         getContextContent={getContextContent}
                       />

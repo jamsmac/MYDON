@@ -516,22 +516,27 @@
 - [x] Show remaining AI requests in header
 
 
-## Phase 40: UX Improvements
-- [ ] Inline editing for task dates
-- [ ] Keyboard shortcuts (Cmd+K for AI, Cmd+N for new project)
-- [ ] Visual drop zone indicators
+## Phase 40: UX Improvements (Completed)
+- [x] Inline editing for task dates (dueDate field added)
+- [x] Keyboard shortcuts (Cmd+K for AI, Cmd+N for new project, Cmd+/ for search)
+- [x] Visual drop zone indicators (already in DraggableSidebar)
 
-## Phase 41: Collaboration
-- [ ] Invite team members by email
-- [ ] User roles (Owner, Editor, Viewer)
-- [ ] Comments on tasks
-- [ ] @mentions in comments
+## Phase 41: Collaboration (Completed)
+- [x] Invite team members by email
+- [x] User roles (Owner, Editor, Viewer)
+- [x] Comments on tasks
+- [x] @mentions in comments
 
-## Phase 42: Notifications
-- [ ] Notification center in header
-- [ ] Email digest (daily/weekly)
-- [ ] Telegram bot integration
-- [ ] Browser push notifications
+## Phase 42: Notifications (In Progress)
+- [x] Notification center in header
+- [x] Notifications database schema (notifications, notification_preferences, email_digest_queue)
+- [x] Notifications backend router (list, markAsRead, markAllAsRead, delete, clearAll)
+- [x] NotificationCenter component with bell icon and unread count
+- [x] Notification preferences page (/settings/notifications)
+- [x] Telegram integration backend (connect, disconnect, test)
+- [ ] Email digest (daily/weekly) - needs email service setup
+- [ ] Telegram bot webhook handler
+- [ ] Browser push notifications - service worker needed
 
 ## Phase 43: Calendar
 - [ ] Google Calendar sync

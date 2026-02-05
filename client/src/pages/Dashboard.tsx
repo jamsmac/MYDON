@@ -29,9 +29,11 @@ import { UpgradePrompt } from '@/components/UpgradePrompt';
 import { AIGoalGenerator } from '@/components/AIGoalGenerator';
 import { TemplateLibrary } from '@/components/TemplateLibrary';
 import { DailyBriefing } from '@/components/DailyBriefing';
+import { NotificationCenter } from '@/components/NotificationCenter';
 import { FloatingAIButton } from '@/components/AIAssistantButton';
 import { Link, useLocation } from 'wouter';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
+import { useKeyboardShortcuts, getShortcutDisplay } from '@/hooks/useKeyboardShortcuts';
 import { LayoutTemplate } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -53,6 +55,15 @@ export default function Dashboard() {
   const [dailyBriefingOpen, setDailyBriefingOpen] = useState(false);
   const [upgradePromptOpen, setUpgradePromptOpen] = useState(false);
   const [upgradePromptType, setUpgradePromptType] = useState<'project' | 'ai'>('project');
+  const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onOpenAI: () => setAiAssistantOpen(true),
+    onNewProject: () => setCreateDialogOpen(true),
+    onSearch: () => searchInputRef.current?.focus(),
+  });
 
   const { data: projects, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
     undefined,
@@ -196,6 +207,7 @@ export default function Dashboard() {
             >
               <Sparkles className="w-5 h-5" />
             </Button>
+            <NotificationCenter />
             <CreditsWidget />
             <UsageStats />
             <Link href="/settings">
@@ -337,8 +349,9 @@ export default function Dashboard() {
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input
+              ref={searchInputRef}
               type="text"
-              placeholder="Поиск проектов..."
+              placeholder="Поиск проектов... (/)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 pr-9 bg-slate-800 border-slate-600 text-white placeholder:text-slate-500 focus:border-amber-500"
@@ -552,7 +565,7 @@ export default function Dashboard() {
       />
 
       {/* Floating AI Assistant Button */}
-      <FloatingAIButton />
+      <FloatingAIButton open={aiAssistantOpen} onOpenChange={setAiAssistantOpen} />
       {/* Upgrade Prompt Dialog */}
       <UpgradePrompt
         open={upgradePromptOpen}
