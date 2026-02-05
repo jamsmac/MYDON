@@ -5,6 +5,7 @@ import { lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { Loader2 } from "lucide-react";
+import { AchievementNotificationProvider } from "@/components/gamification/AchievementNotificationProvider";
 
 // Eager load critical pages
 import Dashboard from "./pages/Dashboard";
@@ -80,6 +81,7 @@ function App() {
             }}
           />
           <Router />
+          <AchievementNotificationProvider />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

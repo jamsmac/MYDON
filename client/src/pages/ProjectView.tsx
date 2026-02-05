@@ -55,6 +55,7 @@ import {
   DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { useAchievementTrigger } from '@/hooks/useAchievementTrigger';
 import { Streamdown } from 'streamdown';
 import { DraggableSidebar } from '@/components/DraggableSidebar';
 import { TaskFiltersBar } from '@/components/TaskFiltersBar';
@@ -853,11 +854,15 @@ export default function ProjectView() {
     onError: (error) => toast.error('Ошибка: ' + error.message)
   });
 
+  const { handleAchievementResult } = useAchievementTrigger();
+
   const updateTask = trpc.task.update.useMutation({
     onSuccess: (data, variables) => {
       // Emit real-time update to other users
       emitTaskUpdated(variables);
       refetch();
+      // Check for new achievements
+      handleAchievementResult(data);
     },
     onError: (error) => toast.error('Ошибка: ' + error.message)
   });

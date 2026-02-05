@@ -25,6 +25,7 @@ import { restApiRouter } from "./restApiRouter";
 import { apiKeysRouter } from "./apiKeysRouter";
 import { timeTrackingRouter } from "./timeTrackingRouter";
 import { gamificationRouter } from "./gamificationRouter";
+import { checkAndAwardAchievements, type AchievementResult } from "./achievementService";
 import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
@@ -64,10 +65,18 @@ const projectRouter = router({
         });
       }
       
-      return db.createProject({
+      const project = await db.createProject({
         ...input,
         userId: ctx.user.id,
       });
+      
+      // Check achievements for project creation
+      const achievements = await checkAndAwardAchievements(ctx.user.id, "project_created");
+      
+      return {
+        ...project,
+        achievements,
+      };
     }),
 
   update: protectedProcedure
@@ -82,8 +91,24 @@ const projectRouter = router({
       targetDate: z.date().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { id, ...data } = input;
-      return db.updateProject(id, ctx.user.id, data);
+      const { id, status, ...rest } = input;
+      
+      // Get current project to check if status is changing to completed
+      const currentProject = await db.getProjectById(id, ctx.user.id);
+      const isCompletingProject = status === "completed" && currentProject?.status !== "completed";
+      
+      const updatedProject = await db.updateProject(id, ctx.user.id, { ...rest, status });
+      
+      // Check achievements if project was completed
+      let achievements: AchievementResult | null = null;
+      if (isCompletingProject) {
+        achievements = await checkAndAwardAchievements(ctx.user.id, "project_completed");
+      }
+      
+      return {
+        ...updatedProject,
+        achievements,
+      };
     }),
 
   delete: protectedProcedure
@@ -318,14 +343,31 @@ const taskRouter = router({
       dependencies: z.array(z.number()).nullable().optional(),
       sortOrder: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
-      const { id, dueDate, deadline, ...rest } = input;
+    .mutation(async ({ ctx, input }) => {
+      const { id, dueDate, deadline, status, ...rest } = input;
+      
+      // Get current task to check if status is changing to completed
+      const currentTask = await db.getTaskById(id);
+      const isCompletingTask = status === "completed" && currentTask?.status !== "completed";
+      
       const data = {
         ...rest,
+        ...(status !== undefined && { status }),
         ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
         ...(deadline !== undefined && { deadline: deadline ? new Date(deadline) : null }),
       };
-      return db.updateTask(id, data);
+      const updatedTask = await db.updateTask(id, data);
+      
+      // Check achievements if task was completed
+      let achievements: AchievementResult | null = null;
+      if (isCompletingTask) {
+        achievements = await checkAndAwardAchievements(ctx.user.id, "task_completed");
+      }
+      
+      return {
+        ...updatedTask,
+        achievements,
+      };
     }),
 
   delete: protectedProcedure

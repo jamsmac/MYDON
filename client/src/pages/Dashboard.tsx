@@ -42,6 +42,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { useAchievementTrigger } from '@/hooks/useAchievementTrigger';
 
 export default function Dashboard() {
   const { user, loading: authLoading, isAuthenticated, logout } = useAuth();
@@ -130,6 +131,8 @@ export default function Dashboard() {
     }
   };
 
+  const { handleAchievementResult } = useAchievementTrigger();
+
   const createProject = trpc.project.create.useMutation({
     onSuccess: (project) => {
       toast.success('Проект создан');
@@ -137,6 +140,8 @@ export default function Dashboard() {
       setNewProjectName('');
       setNewProjectDescription('');
       refetch();
+      // Check for new achievements
+      handleAchievementResult(project);
       navigate(`/project/${project.id}`);
     },
     onError: (error) => {
