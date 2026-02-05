@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean, index, decimal, date } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean, index, uniqueIndex, decimal, date } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -1281,3 +1281,361 @@ export const aiUsageStats = mysqlTable('ai_usage_stats', {
 }));
 export type AiUsageStat = typeof aiUsageStats.$inferSelect;
 export type InsertAiUsageStat = typeof aiUsageStats.$inferInsert;
+
+
+// ============================================================================
+// RELATIONS SYSTEM TABLES
+// ============================================================================
+
+/**
+ * Tag definitions - reusable labels for categorizing tasks
+ * Supports project-scoped and global tags with various types
+ */
+export const tags = mysqlTable("tags", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  // Scope - null projectId means global tag available to all projects
+  projectId: int("projectId"),
+  userId: int("userId").notNull(),
+  
+  // Tag identity
+  name: varchar("name", { length: 100 }).notNull(),
+  color: varchar("color", { length: 32 }).notNull().default("#6366f1"),
+  icon: varchar("icon", { length: 64 }),
+  description: text("description"),
+  
+  // Tag type for different use cases
+  tagType: mysqlEnum("tagType", [
+    "label", "category", "status", "sprint", "epic", "component", "custom"
+  ]).default("label"),
+  
+  // Usage tracking
+  usageCount: int("usageCount").default(0),
+  isArchived: boolean("isArchived").default(false),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  projectIdx: index("tags_project_idx").on(table.projectId),
+  userIdx: index("tags_user_idx").on(table.userId),
+  nameIdx: index("tags_name_idx").on(table.name),
+  typeIdx: index("tags_type_idx").on(table.tagType),
+}));
+
+export type Tag = typeof tags.$inferSelect;
+export type InsertTag = typeof tags.$inferInsert;
+
+/**
+ * Task-Tag junction table - many-to-many relationship
+ */
+export const taskTags = mysqlTable("task_tags", {
+  id: int("id").autoincrement().primaryKey(),
+  taskId: int("taskId").notNull(),
+  tagId: int("tagId").notNull(),
+  addedBy: int("addedBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  taskIdx: index("tt_task_idx").on(table.taskId),
+  tagIdx: index("tt_tag_idx").on(table.tagId),
+  uniqueTaskTag: uniqueIndex("tt_unique_idx").on(table.taskId, table.tagId),
+}));
+
+export type TaskTag = typeof taskTags.$inferSelect;
+export type InsertTaskTag = typeof taskTags.$inferInsert;
+
+/**
+ * Entity Relations - bidirectional relationships between any entities
+ */
+export const entityRelations = mysqlTable("entity_relations", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  // Source entity
+  sourceType: mysqlEnum("sourceType", [
+    "project", "block", "section", "task", "subtask"
+  ]).notNull(),
+  sourceId: int("sourceId").notNull(),
+  
+  // Target entity
+  targetType: mysqlEnum("targetType", [
+    "project", "block", "section", "task", "subtask"
+  ]).notNull(),
+  targetId: int("targetId").notNull(),
+  
+  // Type of relationship
+  relationType: mysqlEnum("relationType", [
+    "parent_child", "blocks", "blocked_by", "related_to", "duplicate_of",
+    "depends_on", "required_by", "subtask_of", "linked", "cloned_from", "moved_from"
+  ]).notNull(),
+  
+  // Bidirectional support
+  isBidirectional: boolean("isBidirectional").default(true),
+  reverseRelationType: varchar("reverseRelationType", { length: 50 }),
+  
+  createdBy: int("createdBy").notNull(),
+  
+  metadata: json("metadata").$type<{
+    label?: string;
+    color?: string;
+    notes?: string;
+    strength?: number;
+  }>(),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  sourceIdx: index("er_source_idx").on(table.sourceType, table.sourceId),
+  targetIdx: index("er_target_idx").on(table.targetType, table.targetId),
+  relationTypeIdx: index("er_relation_type_idx").on(table.relationType),
+  createdByIdx: index("er_created_by_idx").on(table.createdBy),
+}));
+
+export type EntityRelation = typeof entityRelations.$inferSelect;
+export type InsertEntityRelation = typeof entityRelations.$inferInsert;
+
+/**
+ * View Configs - user-defined view configurations
+ */
+export const viewConfigs = mysqlTable("view_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  
+  name: varchar("name", { length: 255 }).notNull(),
+  icon: varchar("icon", { length: 64 }).default("table"),
+  color: varchar("color", { length: 32 }),
+  description: text("description"),
+  
+  viewType: mysqlEnum("viewType", [
+    "table", "kanban", "calendar", "gallery", "timeline", "list", "board"
+  ]).notNull(),
+  
+  scope: mysqlEnum("scope", ["project", "block", "section", "filtered"]).default("project"),
+  scopeId: int("scopeId"),
+  
+  columns: json("columns").$type<{
+    id: string;
+    field: string;
+    width?: number;
+    isVisible: boolean;
+    sortOrder: number;
+  }[]>(),
+  
+  filters: json("filters").$type<{
+    id: string;
+    field: string;
+    operator: string;
+    value: unknown;
+    conjunction: "and" | "or";
+  }[]>(),
+  
+  sorts: json("sorts").$type<{ field: string; direction: "asc" | "desc" }[]>(),
+  
+  groupBy: varchar("groupBy", { length: 100 }),
+  subGroupBy: varchar("subGroupBy", { length: 100 }),
+  
+  // Calendar options
+  calendarDateField: varchar("calendarDateField", { length: 100 }),
+  calendarShowWeekends: boolean("calendarShowWeekends").default(true),
+  
+  // Gallery options
+  galleryCoverField: varchar("galleryCoverField", { length: 100 }),
+  galleryCardSize: mysqlEnum("galleryCardSize", ["small", "medium", "large"]).default("medium"),
+  
+  // Timeline options
+  timelineStartField: varchar("timelineStartField", { length: 100 }).default("startDate"),
+  timelineEndField: varchar("timelineEndField", { length: 100 }).default("deadline"),
+  timelineShowDependencies: boolean("timelineShowDependencies").default(true),
+  
+  // Layout options
+  showCompletedTasks: boolean("showCompletedTasks").default(true),
+  showSubtasks: boolean("showSubtasks").default(false),
+  showEmptyGroups: boolean("showEmptyGroups").default(true),
+  collapsedGroups: json("collapsedGroups").$type<string[]>(),
+  rowHeight: mysqlEnum("rowHeight", ["compact", "normal", "comfortable"]).default("normal"),
+  
+  isShared: boolean("isShared").default(false),
+  isDefault: boolean("isDefault").default(false),
+  isLocked: boolean("isLocked").default(false),
+  sortOrder: int("sortOrder").default(0),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  projectUserIdx: index("vc_project_user_idx").on(table.projectId, table.userId),
+  viewTypeIdx: index("vc_view_type_idx").on(table.viewType),
+  isDefaultIdx: index("vc_is_default_idx").on(table.isDefault),
+}));
+
+export type ViewConfig = typeof viewConfigs.$inferSelect;
+export type InsertViewConfig = typeof viewConfigs.$inferInsert;
+
+/**
+ * Kanban Columns - custom column configurations for Kanban boards
+ */
+export const kanbanColumns = mysqlTable("kanban_columns", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  viewConfigId: int("viewConfigId").notNull(),
+  
+  name: varchar("name", { length: 255 }).notNull(),
+  color: varchar("color", { length: 32 }),
+  icon: varchar("icon", { length: 64 }),
+  description: text("description"),
+  
+  columnType: mysqlEnum("columnType", [
+    "status", "priority", "assignee", "tag", "custom"
+  ]).notNull(),
+  
+  matchValue: varchar("matchValue", { length: 255 }),
+  matchField: varchar("matchField", { length: 100 }),
+  
+  customFilter: json("customFilter").$type<{
+    field: string;
+    operator: string;
+    value: unknown;
+  }[]>(),
+  
+  taskLimit: int("taskLimit"),
+  showLimitWarning: boolean("showLimitWarning").default(true),
+  limitWarningThreshold: int("limitWarningThreshold").default(80),
+  
+  isCollapsed: boolean("isCollapsed").default(false),
+  isHidden: boolean("isHidden").default(false),
+  allowDrop: boolean("allowDrop").default(true),
+  
+  autoActions: json("autoActions").$type<{
+    setStatus?: string;
+    setPriority?: string;
+    setAssignee?: number;
+    addTag?: number;
+    removeTag?: number;
+  }>(),
+  
+  defaultValues: json("defaultValues").$type<{
+    status?: string;
+    priority?: string;
+    assigneeId?: number;
+    tags?: number[];
+  }>(),
+  
+  sortOrder: int("sortOrder").default(0),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  viewConfigIdx: index("kc_view_config_idx").on(table.viewConfigId),
+  columnTypeIdx: index("kc_column_type_idx").on(table.columnType),
+}));
+
+export type KanbanColumn = typeof kanbanColumns.$inferSelect;
+export type InsertKanbanColumn = typeof kanbanColumns.$inferInsert;
+
+/**
+ * Lookup Fields - pull data from related entities
+ */
+export const lookupFields = mysqlTable("lookup_fields", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  entityType: mysqlEnum("entityType", ["project", "block", "section", "task"]).notNull(),
+  entityId: int("entityId"),
+  
+  name: varchar("name", { length: 100 }).notNull(),
+  displayName: varchar("displayName", { length: 255 }).notNull(),
+  description: text("description"),
+  
+  relationId: int("relationId"),
+  relationType: varchar("relationType", { length: 50 }),
+  
+  sourceProperty: varchar("sourceProperty", { length: 100 }).notNull(),
+  
+  displayFormat: mysqlEnum("displayFormat", [
+    "text", "badge", "avatar", "date", "datetime", "progress_bar",
+    "link", "list", "number", "currency", "percentage"
+  ]).default("text"),
+  
+  aggregation: mysqlEnum("aggregation", [
+    "first", "last", "all", "count", "comma_list", "unique"
+  ]).default("first"),
+  
+  formatOptions: json("formatOptions").$type<{
+    dateFormat?: string;
+    numberFormat?: string;
+    prefix?: string;
+    suffix?: string;
+    maxItems?: number;
+    emptyText?: string;
+  }>(),
+  
+  isVisible: boolean("isVisible").default(true),
+  sortOrder: int("sortOrder").default(0),
+  createdBy: int("createdBy").notNull(),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  entityIdx: index("lf_entity_idx").on(table.entityType, table.entityId),
+  relationTypeIdx: index("lf_relation_type_idx").on(table.relationType),
+}));
+
+export type LookupField = typeof lookupFields.$inferSelect;
+export type InsertLookupField = typeof lookupFields.$inferInsert;
+
+/**
+ * Rollup Fields - aggregate calculations from related entities
+ */
+export const rollupFields = mysqlTable("rollup_fields", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  entityType: mysqlEnum("entityType", ["project", "block", "section", "task"]).notNull(),
+  entityId: int("entityId"),
+  
+  name: varchar("name", { length: 100 }).notNull(),
+  displayName: varchar("displayName", { length: 255 }).notNull(),
+  description: text("description"),
+  
+  sourceRelationType: varchar("sourceRelationType", { length: 50 }).notNull(),
+  sourceProperty: varchar("sourceProperty", { length: 100 }).notNull(),
+  
+  aggregationFunction: mysqlEnum("aggregationFunction", [
+    "count", "count_values", "count_unique", "count_checked", "count_unchecked",
+    "sum", "average", "median", "min", "max", "range",
+    "percent_empty", "percent_not_empty", "percent_checked", "percent_unchecked",
+    "earliest_date", "latest_date", "date_range_days",
+    "show_original", "concatenate"
+  ]).notNull(),
+  
+  filterConditions: json("filterConditions").$type<{
+    field: string;
+    operator: string;
+    value: string | number | boolean | null;
+  }[]>(),
+  
+  displayFormat: mysqlEnum("displayFormat", [
+    "number", "percentage", "currency", "duration", "date", "progress_bar", "text", "fraction"
+  ]).default("number"),
+  
+  decimalPlaces: int("decimalPlaces").default(0),
+  prefix: varchar("prefix", { length: 20 }),
+  suffix: varchar("suffix", { length: 20 }),
+  
+  progressBarMax: int("progressBarMax"),
+  progressBarColor: varchar("progressBarColor", { length: 32 }),
+  
+  cachedValue: text("cachedValue"),
+  lastCalculatedAt: timestamp("lastCalculatedAt"),
+  cacheExpiresAt: timestamp("cacheExpiresAt"),
+  
+  isVisible: boolean("isVisible").default(true),
+  sortOrder: int("sortOrder").default(0),
+  createdBy: int("createdBy").notNull(),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  entityIdx: index("rf_entity_idx").on(table.entityType, table.entityId),
+  sourceRelationIdx: index("rf_source_relation_idx").on(table.sourceRelationType),
+}));
+
+export type RollupField = typeof rollupFields.$inferSelect;
+export type InsertRollupField = typeof rollupFields.$inferInsert;

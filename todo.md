@@ -1187,3 +1187,46 @@
 - [x] Auto-set project context when viewing ProjectView
 - [x] Auto-clear project context when leaving ProjectView
 - [x] 355 total tests passing
+
+
+### 58.9 AI Quick Prompts (Phase 9)
+- [ ] Create quick prompt buttons component
+- [ ] Add prompts: Analyze Progress, Suggest Next Tasks, Find Blockers, Generate Report
+- [ ] Show prompts only when project context is available
+- [ ] Integrate into AIChatWidget (all modes)
+- [ ] Auto-send prompt on click
+
+
+### 59. Relations System Implementation - Completed
+#### 59.1 Database Tables
+- [x] Add tags table to schema.ts
+- [x] Add taskTags junction table to schema.ts
+- [x] Add entityRelations table to schema.ts
+- [x] Add viewConfigs table to schema.ts
+- [x] Add kanbanColumns table to schema.ts
+- [x] Add lookupFields table to schema.ts
+- [x] Add rollupFields table to schema.ts
+- [x] Update relations.ts with new relations
+- [x] Database migration completed
+
+#### 59.2 Utility Services
+- [x] Create server/utils/relationResolver.ts (entity linking, unlinking, related entities)
+- [x] Create server/utils/lookupCalculator.ts (lookup field calculations)
+- [x] Create server/utils/rollupCalculator.ts (rollup aggregations: sum, avg, count, min, max, etc.)
+
+#### 59.3 tRPC Router
+- [x] Create server/relationsRouter.ts with 15 endpoints
+- [x] createRelationDefinition, getRelatedEntities, linkRecords, unlinkRecords
+- [x] createLookupField, calculateLookup, createRollupField, calculateRollup
+- [x] createTag, getTags, updateTag, deleteTag
+- [x] addTagToTask, removeTagFromTask, getTaskTags
+- [x] Integrated into appRouter
+
+#### 59.4 Frontend Components
+- [x] Create TagSelector component (tag management, create, add, remove)
+- [x] Create TagBadges component (compact tag display)
+- [x] Create RelationPicker component (entity linking UI)
+- [x] Create RelationBadges component (compact relation display)
+
+#### 59.5 Tests
+- [x] 379 total tests passing (24 new relations tests)
