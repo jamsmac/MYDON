@@ -99,6 +99,7 @@ interface DraggableSidebarProps {
   onReorderSections?: (blockId: number, sectionIds: number[]) => void;
   onUpdateTaskTitle?: (taskId: number, newTitle: string) => void;
   onUpdateSectionTitle?: (sectionId: number, newTitle: string) => void;
+  onUpdateBlockTitle?: (blockId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
 }
 
@@ -390,6 +391,7 @@ export function DraggableSidebar({
   onReorderSections,
   onUpdateTaskTitle,
   onUpdateSectionTitle,
+  onUpdateBlockTitle,
   getContextContent,
 }: DraggableSidebarProps) {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
@@ -532,9 +534,9 @@ export function DraggableSidebar({
           <div key={block.id} className="mb-1">
             {/* Block Header */}
             <div className="flex items-center group">
-              <button
+              <div
                 onClick={() => onToggleBlock(block.id)}
-                className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left hover:bg-slate-800 transition-colors"
+                className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 {expandedBlocks.has(block.id) ? (
                   <ChevronDown className="w-4 h-4 text-slate-500" />
@@ -544,8 +546,13 @@ export function DraggableSidebar({
                 <span className="text-amber-500 font-mono text-xs">
                   {String(index + 1).padStart(2, '0')}
                 </span>
-                <span className="text-slate-300 flex-1 truncate">{block.titleRu || block.title}</span>
-              </button>
+                <InlineEditableText
+                  value={block.titleRu || block.title}
+                  onSave={(newTitle) => onUpdateBlockTitle?.(block.id, newTitle)}
+                  className="text-slate-300 flex-1 truncate"
+                  disabled={!onUpdateBlockTitle}
+                />
+              </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button 

@@ -483,3 +483,10 @@
 - [x] Update SortableSection to use InlineEditableText
 - [x] Add updateSection mutation in ProjectView
 - [x] Test double-click editing for sections
+
+
+## Phase 37: Inline Block Editing (Completed)
+- [x] Add onUpdateBlockTitle callback to DraggableSidebar
+- [x] Update block rendering to use InlineEditableText
+- [x] Add updateBlock mutation in ProjectView
+- [x] Test double-click editing for blocks

@@ -454,6 +454,14 @@ export default function ProjectView() {
     onError: (error) => toast.error('Ошибка: ' + error.message)
   });
 
+  const updateBlock = trpc.block.update.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success('Блок обновлён');
+    },
+    onError: (error) => toast.error('Ошибка обновления: ' + error.message)
+  });
+
   const createSection = trpc.section.create.useMutation({
     onSuccess: () => {
       toast.success('Раздел создан');
@@ -959,6 +967,9 @@ export default function ProjectView() {
                 }}
                 onUpdateSectionTitle={(sectionId, newTitle) => {
                   updateSection.mutate({ id: sectionId, title: newTitle });
+                }}
+                onUpdateBlockTitle={(blockId, newTitle) => {
+                  updateBlock.mutate({ id: blockId, titleRu: newTitle });
                 }}
                 getContextContent={getContextContent}
               />
