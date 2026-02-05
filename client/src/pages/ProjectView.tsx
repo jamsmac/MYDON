@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { Streamdown } from 'streamdown';
+import { DraggableSidebar } from '@/components/DraggableSidebar';
 
 // ============ AI CHAT PANEL ============
 function AIChatPanel({ 
@@ -377,6 +378,7 @@ export default function ProjectView() {
     notes?: string | null;
     summary?: string | null;
     sectionId: number;
+    sortOrder?: number | null;
   } | null>(null);
 
   // Dialog states
@@ -458,6 +460,22 @@ export default function ProjectView() {
     onSuccess: () => {
       toast.success('Задача удалена');
       setSelectedTask(null);
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const moveTask = trpc.task.move.useMutation({
+    onSuccess: () => {
+      toast.success('Задача перемещена');
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const moveSection = trpc.section.move.useMutation({
+    onSuccess: () => {
+      toast.success('Раздел перемещён');
       refetch();
     },
     onError: (error) => toast.error('Ошибка: ' + error.message)
@@ -692,234 +710,62 @@ export default function ProjectView() {
               AI чат проекта
             </button>
 
-            {/* Blocks */}
+            {/* Draggable Blocks with Sections and Tasks */}
             {project.blocks && project.blocks.length > 0 ? (
-              project.blocks.map((block, index) => (
-                <div key={block.id} className="mb-1">
-                  {/* Block Header */}
-                  <div className="flex items-center group">
-                    <button
-                      onClick={() => toggleBlock(block.id)}
-                      className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left hover:bg-slate-800 transition-colors"
-                    >
-                      {expandedBlocks.has(block.id) ? (
-                        <ChevronDown className="w-4 h-4 text-slate-500" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-500" />
-                      )}
-                      <span className="text-amber-500 font-mono text-xs">
-                        {String(index + 1).padStart(2, '0')}
-                      </span>
-                      <span className="text-slate-300 flex-1 truncate">{block.titleRu || block.title}</span>
-                    </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 opacity-0 group-hover:opacity-100 text-slate-500"
-                        >
-                          <MoreVertical className="w-3 h-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent className="bg-slate-800 border-slate-700">
-                        <DropdownMenuItem 
-                          className="text-slate-300"
-                          onClick={() => {
-                            setTargetBlockId(block.id);
-                            setCreateSectionOpen(true);
-                          }}
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Добавить раздел
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-slate-700" />
-                        <DropdownMenuItem 
-                          className="text-red-400"
-                          onClick={() => {
-                            if (confirm('Удалить блок?')) {
-                              deleteBlock.mutate({ id: block.id });
-                            }
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Удалить блок
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  
-                  {/* Expanded Block Content */}
-                  {expandedBlocks.has(block.id) && (
-                    <div className="ml-6 pl-4 border-l border-slate-700">
-                      {/* Block AI Chat */}
-                      <button
-                        onClick={() => {
-                          setSelectedTask(null);
-                          setSelectedContext({ 
-                            type: 'block', 
-                            id: block.id, 
-                            title: block.titleRu || block.title,
-                            content: getContextContent('block', block.id)
-                          });
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors",
-                          selectedContext?.type === 'block' && selectedContext?.id === block.id
-                            ? "bg-amber-500/20 text-amber-400"
-                            : "text-slate-500 hover:bg-slate-800 hover:text-slate-300"
-                        )}
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        AI чат блока
-                      </button>
-                      
-                      {/* Sections */}
-                      {block.sections && block.sections.length > 0 ? (
-                        block.sections.map(section => (
-                          <div key={section.id}>
-                            <div className="flex items-center group">
-                              <button
-                                onClick={() => toggleSection(section.id)}
-                                className={cn(
-                                  "flex-1 flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors",
-                                  selectedContext?.type === 'section' && selectedContext?.id === section.id
-                                    ? "bg-slate-700 text-white"
-                                    : "text-slate-400 hover:bg-slate-800 hover:text-slate-300"
-                                )}
-                              >
-                                {expandedSections.has(section.id) ? (
-                                  <ChevronDown className="w-3 h-3 text-slate-500" />
-                                ) : (
-                                  <ChevronRight className="w-3 h-3 text-slate-500" />
-                                )}
-                                <FileText className="w-3 h-3" />
-                                <span className="truncate flex-1 text-left">{section.title}</span>
-                                <span className="text-slate-600">
-                                  {section.tasks?.length || 0}
-                                </span>
-                              </button>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 text-slate-500"
-                                  >
-                                    <MoreVertical className="w-3 h-3" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent className="bg-slate-800 border-slate-700">
-                                  <DropdownMenuItem 
-                                    className="text-slate-300"
-                                    onClick={() => {
-                                      setTargetSectionId(section.id);
-                                      setCreateTaskOpen(true);
-                                    }}
-                                  >
-                                    <Plus className="w-4 h-4 mr-2" />
-                                    Добавить задачу
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem 
-                                    className="text-slate-300"
-                                    onClick={() => {
-                                      setSelectedTask(null);
-                                      setSelectedContext({ 
-                                        type: 'section', 
-                                        id: section.id, 
-                                        title: section.title,
-                                        content: getContextContent('section', section.id)
-                                      });
-                                    }}
-                                  >
-                                    <MessageSquare className="w-4 h-4 mr-2" />
-                                    AI чат раздела
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator className="bg-slate-700" />
-                                  <DropdownMenuItem 
-                                    className="text-red-400"
-                                    onClick={() => {
-                                      if (confirm('Удалить раздел?')) {
-                                        deleteSection.mutate({ id: section.id });
-                                      }
-                                    }}
-                                  >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Удалить раздел
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                            
-                            {/* Tasks */}
-                            {expandedSections.has(section.id) && section.tasks && (
-                              <div className="ml-4 pl-2 border-l border-slate-800">
-                                {section.tasks.map(task => (
-                                  <button
-                                    key={task.id}
-                                    onClick={() => {
-                                      setSelectedTask({
-                                        ...task,
-                                        sectionId: section.id
-                                      });
-                                      setSelectedContext({
-                                        type: 'task',
-                                        id: task.id,
-                                        title: task.title,
-                                        content: getContextContent('task', task.id)
-                                      });
-                                    }}
-                                    className={cn(
-                                      "w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors",
-                                      selectedTask?.id === task.id
-                                        ? "bg-slate-700 text-white"
-                                        : "text-slate-500 hover:bg-slate-800 hover:text-slate-300"
-                                    )}
-                                  >
-                                    {task.status === 'completed' ? (
-                                      <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />
-                                    ) : task.status === 'in_progress' ? (
-                                      <Clock className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                                    ) : (
-                                      <Circle className="w-3 h-3 text-slate-500 flex-shrink-0" />
-                                    )}
-                                    <span className="truncate text-left">{task.title}</span>
-                                  </button>
-                                ))}
-                                {/* Add task button */}
-                                <button
-                                  onClick={() => {
-                                    setTargetSectionId(section.id);
-                                    setCreateTaskOpen(true);
-                                  }}
-                                  className="w-full flex items-center gap-2 px-2 py-1 rounded text-xs text-slate-600 hover:text-slate-400 hover:bg-slate-800 transition-colors"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                  Добавить задачу
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-xs text-slate-600 px-3 py-2">Нет разделов</p>
-                      )}
-                      
-                      {/* Add section button */}
-                      <button
-                        onClick={() => {
-                          setTargetBlockId(block.id);
-                          setCreateSectionOpen(true);
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs text-slate-600 hover:text-slate-400 hover:bg-slate-800 transition-colors"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Добавить раздел
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))
+              <DraggableSidebar
+                blocks={project.blocks.map(b => ({
+                  ...b,
+                  sections: b.sections?.map(s => ({
+                    ...s,
+                    sortOrder: s.sortOrder || 0,
+                    tasks: s.tasks?.map(t => ({
+                      ...t,
+                      sortOrder: t.sortOrder || 0
+                    }))
+                  }))
+                }))}
+                expandedBlocks={expandedBlocks}
+                expandedSections={expandedSections}
+                selectedContext={selectedContext}
+                selectedTask={selectedTask}
+                onToggleBlock={toggleBlock}
+                onToggleSection={toggleSection}
+                onSelectContext={setSelectedContext}
+                onSelectTask={(task) => {
+                  setSelectedTask(task);
+                  setSelectedContext({
+                    type: 'task',
+                    id: task.id,
+                    title: task.title,
+                    content: getContextContent('task', task.id)
+                  });
+                }}
+                onCreateSection={(blockId) => {
+                  setTargetBlockId(blockId);
+                  setCreateSectionOpen(true);
+                }}
+                onCreateTask={(sectionId) => {
+                  setTargetSectionId(sectionId);
+                  setCreateTaskOpen(true);
+                }}
+                onDeleteBlock={(id) => {
+                  if (confirm('Удалить блок?')) {
+                    deleteBlock.mutate({ id });
+                  }
+                }}
+                onDeleteSection={(id) => {
+                  if (confirm('Удалить раздел?')) {
+                    deleteSection.mutate({ id });
+                  }
+                }}
+                onMoveTask={(taskId, newSectionId, newSortOrder) => {
+                  moveTask.mutate({ id: taskId, sectionId: newSectionId, sortOrder: newSortOrder });
+                }}
+                onMoveSection={(sectionId, newBlockId, newSortOrder) => {
+                  moveSection.mutate({ id: sectionId, blockId: newBlockId, sortOrder: newSortOrder });
+                }}
+                getContextContent={getContextContent}
+              />
             ) : (
               <div className="text-center py-8 text-slate-500">
                 <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />

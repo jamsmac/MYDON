@@ -63,3 +63,11 @@
 - [ ] Notes storage in database
 - [ ] Documents storage in database
 - [ ] View saved notes/documents in task panel
+
+
+## Phase 7: Drag-and-Drop Feature
+- [ ] Install dnd-kit library
+- [ ] Implement drag-and-drop for tasks
+- [ ] Implement drag-and-drop for sections between blocks
+- [ ] Add visual feedback (drag handles, drop zones)
+- [ ] Update database when items are moved

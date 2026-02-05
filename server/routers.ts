@@ -148,6 +148,16 @@ const sectionRouter = router({
     .mutation(async ({ input }) => {
       return db.deleteSection(input.id);
     }),
+
+  move: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      blockId: z.number(),
+      sortOrder: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return db.moveSection(input.id, input.blockId, input.sortOrder);
+    }),
 });
 
 // ============ TASK ROUTER ============
@@ -191,6 +201,16 @@ const taskRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       return db.deleteTask(input.id);
+    }),
+
+  move: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      sectionId: z.number(),
+      sortOrder: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return db.moveTask(input.id, input.sectionId, input.sortOrder);
     }),
 });
 

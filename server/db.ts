@@ -221,6 +221,17 @@ export async function deleteSection(id: number): Promise<boolean> {
   return result[0].affectedRows > 0;
 }
 
+export async function moveSection(id: number, newBlockId: number, newSortOrder: number): Promise<Section | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  await db.update(sections)
+    .set({ blockId: newBlockId, sortOrder: newSortOrder, updatedAt: new Date() })
+    .where(eq(sections.id, id));
+  const [section] = await db.select().from(sections).where(eq(sections.id, id));
+  return section;
+}
+
 // ============ TASK QUERIES ============
 
 export async function createTask(data: InsertTask): Promise<Task> {
@@ -256,6 +267,17 @@ export async function deleteTask(id: number): Promise<boolean> {
 
   const result = await db.delete(tasks).where(eq(tasks.id, id));
   return result[0].affectedRows > 0;
+}
+
+export async function moveTask(id: number, newSectionId: number, newSortOrder: number): Promise<Task | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  await db.update(tasks)
+    .set({ sectionId: newSectionId, sortOrder: newSortOrder, updatedAt: new Date() })
+    .where(eq(tasks.id, id));
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+  return task;
 }
 
 // ============ SUBTASK QUERIES ============
