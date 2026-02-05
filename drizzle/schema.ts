@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean, index } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -130,7 +130,10 @@ export const projects = mysqlTable("projects", {
   targetDate: timestamp("targetDate"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("user_idx").on(table.userId),
+  statusIdx: index("project_status_idx").on(table.status),
+}));
 
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = typeof projects.$inferInsert;
@@ -257,7 +260,12 @@ export const tasks = mysqlTable("tasks", {
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  sectionIdx: index("section_idx").on(table.sectionId),
+  statusIdx: index("status_idx").on(table.status),
+  deadlineIdx: index("deadline_idx").on(table.deadline),
+  assignedToIdx: index("assigned_to_idx").on(table.assignedTo),
+}));
 
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = typeof tasks.$inferInsert;

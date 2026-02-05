@@ -134,6 +134,13 @@
       "when": 1770311141933,
       "tag": "0018_vengeful_wrecking_crew",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1770313053025,
+      "tag": "0019_bizarre_frightful_four",
+      "breakpoints": true
     }
   ]
 }

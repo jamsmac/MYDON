@@ -83,7 +83,6 @@ export async function ensureRoadmapFolder(): Promise<void> {
     await rclone(`mkdir "${RCLONE_REMOTE}:${ROADMAP_FOLDER}"`);
   } catch (error) {
     // Folder might already exist, which is fine
-    console.log('Roadmap folder check:', error);
   }
 }
 
@@ -135,7 +134,7 @@ export async function saveProjectToDrive(project: ProjectExport): Promise<{ succ
     try {
       link = (await rclone(`link "${remotePath}"`)).trim();
     } catch (e) {
-      console.log('Could not get shareable link:', e);
+      // Link generation is optional, continue without it
     }
     
     return {
@@ -251,7 +250,7 @@ export async function exportToGoogleDocs(
     try {
       link = (await rclone(`link "${remotePath}"`)).trim();
     } catch (e) {
-      console.log('Could not get shareable link:', e);
+      // Link generation is optional, continue without it
     }
     
     return {
