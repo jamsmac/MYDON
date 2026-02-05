@@ -14,6 +14,7 @@ import { generateMarkdownReport, generateHtmlReport } from "../export";
 import { parseRoadmap, generateMarkdownTemplate, generateJsonTemplate } from "../import";
 import { handleStripeWebhook } from "../stripe/webhookHandler";
 import { checkAiRequestLimit, incrementAiUsage } from "../limits/limitsService";
+import { initializeSocketServer } from "../realtime/socketServer";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -377,6 +378,9 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
   } else {
     serveStatic(app);
   }
+
+  // Initialize Socket.io for real-time features
+  initializeSocketServer(server);
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);

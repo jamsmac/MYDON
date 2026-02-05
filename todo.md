@@ -577,3 +577,17 @@
 - [x] Show keyboard hint in search button tooltip
 - [x] Escape key to close search bar
 - [x] Platform-aware shortcut display (⌘ on Mac, Ctrl on Windows/Linux)
+
+
+## Phase 46: Real-time Collaboration (In Progress)
+- [x] Install Socket.io server and client libraries
+- [x] Set up WebSocket server alongside Express
+- [x] Create socket authentication middleware
+- [x] Implement presence system (who is viewing project)
+- [x] Show online users avatars in project header (PresenceAvatars component)
+- [x] Implement live task updates (create, update, delete)
+- [x] Broadcast changes to all project viewers
+- [x] Add conflict resolution for simultaneous edits (EditingIndicator component)
+- [x] Show "editing" indicator when someone is editing a task
+- [ ] Add cursor/selection visibility (optional - future enhancement)
+- [ ] Write tests for real-time features

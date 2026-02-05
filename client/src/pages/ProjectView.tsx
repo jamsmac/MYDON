@@ -1,5 +1,7 @@
 import { useAuth } from '@/_core/hooks/useAuth';
 import { getLoginUrl } from '@/const';
+import { useSocket } from '@/hooks/useSocket';
+import { PresenceAvatars } from '@/components/PresenceAvatars';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -385,7 +387,36 @@ export default function ProjectView() {
   const params = useParams<{ id: string }>();
   const projectId = parseInt(params.id || '0');
   const [, navigate] = useLocation();
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { isAuthenticated, loading: authLoading, user } = useAuth();
+  
+  // Real-time collaboration
+  const {
+    isConnected,
+    presenceUsers,
+    editingTasks,
+    startEditingTask,
+    stopEditingTask,
+    emitTaskUpdated,
+    emitTaskCreated,
+    emitTaskDeleted,
+    isTaskBeingEdited,
+  } = useSocket({
+    projectId: isAuthenticated ? projectId : undefined,
+    onTaskChange: (event) => {
+      // Refetch project data when someone else makes changes
+      if (event.type === 'created') {
+        toast.info(`${event.createdBy} создал новую задачу`);
+      } else if (event.type === 'updated') {
+        toast.info(`${event.updatedBy} обновил задачу`);
+      } else if (event.type === 'deleted') {
+        toast.info(`${event.deletedBy} удалил задачу`);
+      }
+      refetch();
+    },
+    onTaskEditingConflict: (info) => {
+      toast.warning(`${info.editingBy} уже редактирует эту задачу`);
+    },
+  });
   
   const [expandedBlocks, setExpandedBlocks] = useState<Set<number>>(new Set());
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
@@ -482,8 +513,12 @@ export default function ProjectView() {
   });
 
   const createTask = trpc.task.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       toast.success('Задача создана');
+      // Emit real-time create to other users
+      if (data) {
+        emitTaskCreated(data, variables.sectionId);
+      }
       setCreateTaskOpen(false);
       setNewTaskTitle('');
       setNewTaskDescription('');
@@ -494,15 +529,21 @@ export default function ProjectView() {
   });
 
   const updateTask = trpc.task.update.useMutation({
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
+      // Emit real-time update to other users
+      emitTaskUpdated(variables);
       refetch();
     },
     onError: (error) => toast.error('Ошибка: ' + error.message)
   });
 
   const deleteTask = trpc.task.delete.useMutation({
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       toast.success('Задача удалена');
+      // Emit real-time delete to other users
+      if (selectedTask) {
+        emitTaskDeleted(variables.id, selectedTask.sectionId);
+      }
       setSelectedTask(null);
       refetch();
     },
@@ -875,6 +916,13 @@ export default function ProjectView() {
               {progress.completed} из {progress.total} задач
             </p>
           </div>
+
+          {/* Online Users */}
+          {presenceUsers.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-800">
+              <PresenceAvatars users={presenceUsers} size="sm" />
+            </div>
+          )}
         </div>
 
         {/* Blocks List */}
