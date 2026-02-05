@@ -602,3 +602,35 @@
 - [x] Debounce typing detection (2 second timeout)
 - [x] Show "User is typing..." with animated dots (Russian: "печатает")
 - [x] Filter out current user from typing display
+
+
+## Phase 47: Task Priority & Deadlines System (In Progress)
+### 1. Priority System
+- [x] Add priority field to tasks schema (critical, high, medium, low)
+- [x] Create PriorityBadge component with color coding
+- [x] Create PrioritySelector component for selection
+- [x] Add priority selection in TaskDetailPanel
+- [x] Show priority badges in task list sidebar
+- [ ] Add task sorting by priority
+
+### 2. Deadline System
+- [x] Add deadline field to tasks schema
+- [x] Create TaskDeadlineBadge component with status indication (overdue, due soon, on track)
+- [x] Create TaskDeadlineIndicator for compact sidebar display
+- [x] Add DatePicker for deadline selection in TaskDetailPanel
+- [x] Show deadline badges in task list sidebar
+- [ ] Add deadline filtering (today, this week, overdue)
+
+### 3. Task Dependencies
+- [x] Add dependencies field (array of task IDs) to schema
+- [x] Create UI for linking tasks in TaskDetailPanel
+- [x] Show dependency status (completed/pending) with visual indicators
+- [x] Show dependency icon (Link2) in task list sidebar
+- [ ] Block task completion if predecessors not done
+- [ ] Show dependency lines on Timeline
+
+### 4. Notifications
+- [x] Create deadline approaching notification helper
+- [x] Create overdue task notification helper
+- [x] Create task unblocked notification helper
+- [ ] Scheduled job to check deadlines and send notifications

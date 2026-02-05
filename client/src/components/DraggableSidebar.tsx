@@ -44,19 +44,24 @@ import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
 import { InlineEditableText } from '@/components/InlineEditableText';
 import { InlineDatePicker } from '@/components/InlineDatePicker';
+import { PriorityBadge } from '@/components/PriorityBadge';
+import { TaskDeadlineBadge, TaskDeadlineIndicator } from '@/components/TaskDeadlineBadge';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Calendar } from 'lucide-react';
+import { Calendar, AlertTriangle, Link2 } from 'lucide-react';
 
 // Types
 interface Task {
   id: number;
   title: string;
   status: string | null;
+  priority?: 'critical' | 'high' | 'medium' | 'low' | null;
   description?: string | null;
   notes?: string | null;
   summary?: string | null;
   dueDate?: Date | null;
+  deadline?: Date | string | null;
+  dependencies?: number[] | null;
   sortOrder?: number | null;
 }
 
@@ -181,8 +186,22 @@ function SortableTask({
           className="truncate text-left flex-1"
           disabled={!onUpdateTitle}
         />
+        {/* Priority indicator */}
+        {task.priority && task.priority !== 'medium' && (
+          <PriorityBadge priority={task.priority} size="sm" showLabel={false} />
+        )}
+        {/* Dependencies indicator */}
+        {task.dependencies && task.dependencies.length > 0 && (
+          <span className="flex items-center text-amber-500" title={`${task.dependencies.length} зависимостей`}>
+            <Link2 className="w-3 h-3" />
+          </span>
+        )}
+        {/* Deadline indicator */}
+        {task.deadline && (
+          <TaskDeadlineIndicator deadline={task.deadline} />
+        )}
         {/* Due date indicator */}
-        {task.dueDate && (
+        {!task.deadline && task.dueDate && (
           <span className="text-[10px] text-slate-500 flex-shrink-0">
             {format(new Date(task.dueDate), 'd MMM', { locale: ru })}
           </span>

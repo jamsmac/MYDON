@@ -181,9 +181,12 @@ export const tasks = mysqlTable("tasks", {
   title: varchar("title", { length: 500 }).notNull(),
   description: text("description"),
   status: mysqlEnum("status", ["not_started", "in_progress", "completed"]).default("not_started"),
+  priority: mysqlEnum("priority", ["critical", "high", "medium", "low"]).default("medium"),
   notes: text("notes"),
   summary: text("summary"), // AI-generated or user summary
   dueDate: timestamp("dueDate"), // Task due date for calendar and scheduling
+  deadline: timestamp("deadline"), // Hard deadline for task completion
+  dependencies: json("dependencies").$type<number[]>(), // Array of task IDs that must be completed first
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

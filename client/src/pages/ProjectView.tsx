@@ -33,6 +33,12 @@ import {
   Calendar
 } from 'lucide-react';
 import { Link, useParams, useLocation } from 'wouter';
+import { PriorityBadge, PrioritySelector, type Priority } from '@/components/PriorityBadge';
+import { TaskDeadlineBadge, getTaskDeadlineStatus } from '@/components/TaskDeadlineBadge';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
 import { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -239,6 +245,7 @@ function AIChatPanel({
 function TaskDetailPanel({
   task,
   projectId,
+  allTasks,
   onClose,
   onUpdate,
   onSaveNote,
@@ -252,12 +259,23 @@ function TaskDetailPanel({
     title: string;
     description?: string | null;
     status: string | null;
+    priority?: 'critical' | 'high' | 'medium' | 'low' | null;
     notes?: string | null;
     summary?: string | null;
+    deadline?: Date | string | null;
+    dependencies?: number[] | null;
   };
   projectId: number;
+  allTasks: { id: number; title: string; status: string | null }[];
   onClose: () => void;
-  onUpdate: (data: { status?: 'not_started' | 'in_progress' | 'completed'; notes?: string; summary?: string }) => void;
+  onUpdate: (data: { 
+    status?: 'not_started' | 'in_progress' | 'completed'; 
+    priority?: 'critical' | 'high' | 'medium' | 'low';
+    notes?: string; 
+    summary?: string;
+    deadline?: number | null;
+    dependencies?: number[] | null;
+  }) => void;
   onSaveNote: (content: string) => void;
   onSaveDocument: (content: string) => void;
   onTypingStart?: () => void;
@@ -316,6 +334,139 @@ function TaskDetailPanel({
                   </Button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Priority */}
+          <div>
+            <Label className="text-slate-400 text-xs mb-2 block">Приоритет</Label>
+            <PrioritySelector
+              value={task.priority}
+              onChange={(priority) => onUpdate({ priority })}
+            />
+          </div>
+
+          {/* Deadline */}
+          <div>
+            <Label className="text-slate-400 text-xs mb-2 block">Дедлайн</Label>
+            <div className="flex items-center gap-3">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "justify-start text-left font-normal border-slate-600",
+                      !task.deadline && "text-slate-500"
+                    )}
+                  >
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {task.deadline ? (
+                      format(new Date(task.deadline), "d MMMM yyyy", { locale: ru })
+                    ) : (
+                      "Выбрать дату"
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 bg-slate-800 border-slate-700" align="start">
+                  <CalendarComponent
+                    mode="single"
+                    selected={task.deadline ? new Date(task.deadline) : undefined}
+                    onSelect={(date) => onUpdate({ deadline: date ? date.getTime() : null })}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              {task.deadline && (
+                <>
+                  <TaskDeadlineBadge deadline={task.deadline} />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-400 hover:text-red-400"
+                    onClick={() => onUpdate({ deadline: null })}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Dependencies */}
+          <div>
+            <Label className="text-slate-400 text-xs mb-2 block">Зависимости (блокирующие задачи)</Label>
+            <div className="space-y-2">
+              {task.dependencies && task.dependencies.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {task.dependencies.map((depId) => {
+                    const depTask = allTasks.find(t => t.id === depId);
+                    if (!depTask) return null;
+                    const isCompleted = depTask.status === 'completed';
+                    return (
+                      <div
+                        key={depId}
+                        className={cn(
+                          "flex items-center gap-2 px-2 py-1 rounded-lg border text-sm",
+                          isCompleted
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                            : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                        )}
+                      >
+                        {isCompleted ? (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        ) : (
+                          <Clock className="w-3.5 h-3.5" />
+                        )}
+                        <span className="truncate max-w-[150px]">{depTask.title}</span>
+                        <button
+                          onClick={() => {
+                            const newDeps = task.dependencies?.filter(id => id !== depId) || [];
+                            onUpdate({ dependencies: newDeps.length > 0 ? newDeps : null });
+                          }}
+                          className="hover:text-red-400 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-slate-500 text-sm italic">Нет зависимостей</p>
+              )}
+              
+              {/* Add dependency dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="border-slate-600 text-slate-400">
+                    <Plus className="w-4 h-4 mr-1" />
+                    Добавить зависимость
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="bg-slate-800 border-slate-700 max-h-[300px] overflow-y-auto">
+                  {allTasks
+                    .filter(t => t.id !== task.id && !task.dependencies?.includes(t.id))
+                    .map((t) => (
+                      <DropdownMenuItem
+                        key={t.id}
+                        onClick={() => {
+                          const newDeps = [...(task.dependencies || []), t.id];
+                          onUpdate({ dependencies: newDeps });
+                        }}
+                        className="text-slate-300 hover:bg-slate-700"
+                      >
+                        <span className={cn(
+                          "w-2 h-2 rounded-full mr-2",
+                          t.status === 'completed' ? "bg-emerald-500" : "bg-slate-500"
+                        )} />
+                        <span className="truncate">{t.title}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  {allTasks.filter(t => t.id !== task.id && !task.dependencies?.includes(t.id)).length === 0 && (
+                    <div className="px-2 py-1.5 text-sm text-slate-500">Нет доступных задач</div>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
@@ -701,6 +852,20 @@ export default function ProjectView() {
       completed,
       percentage: total > 0 ? Math.round((completed / total) * 100) : 0
     };
+  }, [project]);
+
+  // Get all tasks for dependencies selection
+  const allTasks = useMemo(() => {
+    if (!project?.blocks) return [];
+    const tasks: { id: number; title: string; status: string | null }[] = [];
+    project.blocks.forEach(block => {
+      block.sections?.forEach(section => {
+        section.tasks?.forEach(task => {
+          tasks.push({ id: task.id, title: task.title, status: task.status });
+        });
+      });
+    });
+    return tasks;
   }, [project]);
 
   // Build context content for AI
@@ -1130,6 +1295,7 @@ export default function ProjectView() {
             <TaskDetailPanel
               task={selectedTask}
               projectId={projectId}
+              allTasks={allTasks}
               onClose={() => setSelectedTask(null)}
               onUpdate={(data) => {
                 updateTask.mutate({ id: selectedTask.id, ...data });

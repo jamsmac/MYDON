@@ -278,12 +278,19 @@ const taskRouter = router({
       title: z.string().min(1).max(500),
       description: z.string().optional(),
       status: z.enum(["not_started", "in_progress", "completed"]).optional(),
+      priority: z.enum(["critical", "high", "medium", "low"]).optional(),
       notes: z.string().optional(),
       summary: z.string().optional(),
+      deadline: z.number().nullable().optional(), // Unix timestamp
+      dependencies: z.array(z.number()).optional(),
       sortOrder: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
-      return db.createTask(input);
+      const { deadline, ...rest } = input;
+      return db.createTask({
+        ...rest,
+        ...(deadline !== undefined && { deadline: deadline ? new Date(deadline) : null }),
+      });
     }),
 
   update: protectedProcedure
@@ -292,16 +299,20 @@ const taskRouter = router({
       title: z.string().min(1).max(500).optional(),
       description: z.string().optional(),
       status: z.enum(["not_started", "in_progress", "completed"]).optional(),
+      priority: z.enum(["critical", "high", "medium", "low"]).optional(),
       notes: z.string().optional(),
       summary: z.string().optional(),
       dueDate: z.number().nullable().optional(), // Unix timestamp
+      deadline: z.number().nullable().optional(), // Unix timestamp for hard deadline
+      dependencies: z.array(z.number()).nullable().optional(),
       sortOrder: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
-      const { id, dueDate, ...rest } = input;
+      const { id, dueDate, deadline, ...rest } = input;
       const data = {
         ...rest,
         ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
+        ...(deadline !== undefined && { deadline: deadline ? new Date(deadline) : null }),
       };
       return db.updateTask(id, data);
     }),

@@ -338,3 +338,73 @@ export const notificationsRouter = router({
     return { success: true };
   }),
 });
+
+// ============ DEADLINE NOTIFICATION HELPERS ============
+
+// Create deadline approaching notification
+export async function createDeadlineApproachingNotification(
+  userId: number,
+  taskId: number,
+  taskTitle: string,
+  projectName: string,
+  deadline: Date,
+  daysRemaining: number
+) {
+  const urgency = daysRemaining <= 1 ? "🔴" : daysRemaining <= 3 ? "🟠" : "🟡";
+  const title = `${urgency} Дедлайн приближается`;
+  const message = daysRemaining === 0 
+    ? `Задача "${taskTitle}" должна быть выполнена сегодня!`
+    : daysRemaining === 1
+    ? `Задача "${taskTitle}" должна быть выполнена завтра!`
+    : `Задача "${taskTitle}" должна быть выполнена через ${daysRemaining} дней`;
+
+  return createNotification(userId, 'deadline', title, message, {
+    taskId,
+    taskTitle,
+    projectName,
+    deadline: deadline.toISOString(),
+    daysRemaining,
+  });
+}
+
+// Create overdue notification
+export async function createOverdueNotification(
+  userId: number,
+  taskId: number,
+  taskTitle: string,
+  projectName: string,
+  deadline: Date,
+  daysOverdue: number
+) {
+  const title = `⚠️ Задача просрочена`;
+  const message = daysOverdue === 1
+    ? `Задача "${taskTitle}" просрочена на 1 день`
+    : `Задача "${taskTitle}" просрочена на ${daysOverdue} дней`;
+
+  return createNotification(userId, 'overdue', title, message, {
+    taskId,
+    taskTitle,
+    projectName,
+    deadline: deadline.toISOString(),
+    daysOverdue,
+  });
+}
+
+// Create task unblocked notification
+export async function createTaskUnblockedNotification(
+  userId: number,
+  taskId: number,
+  taskTitle: string,
+  projectName: string,
+  unblockedByTaskTitle: string
+) {
+  const title = `✅ Задача разблокирована`;
+  const message = `Задача "${taskTitle}" теперь может быть выполнена (завершена "${unblockedByTaskTitle}")`;
+
+  return createNotification(userId, 'task_unblocked', title, message, {
+    taskId,
+    taskTitle,
+    projectName,
+    unblockedByTaskTitle,
+  });
+}
