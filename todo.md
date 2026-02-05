@@ -571,3 +571,9 @@
 - [x] Highlight matching text in search results
 - [x] Show search results count
 - [x] Search across title, message, project name, task name, and user name
+
+## Phase 42.3: Notification Search Keyboard Shortcut (Completed)
+- [x] Add Ctrl+F shortcut to open search when panel is open
+- [x] Show keyboard hint in search button tooltip
+- [x] Escape key to close search bar
+- [x] Platform-aware shortcut display (⌘ on Mac, Ctrl on Windows/Linux)

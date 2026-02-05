@@ -219,6 +219,33 @@ export function NotificationCenter() {
     }
   }, [open]);
 
+  // Keyboard shortcut: Ctrl+F or Cmd+F to open search when panel is open
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle when notification panel is open
+      if (!open) return;
+      
+      // Ctrl+F or Cmd+F to toggle search
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowSearch(true);
+        // Focus will be handled by the other useEffect
+      }
+      
+      // Escape to close search (if search is open) or close panel
+      if (e.key === 'Escape') {
+        if (showSearch) {
+          e.preventDefault();
+          setShowSearch(false);
+          setSearchQuery("");
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, showSearch]);
+
   // Fetch notifications
   const { data: notificationsData, refetch } = trpc.notifications.list.useQuery(
     { limit: 50, offset: 0 },
@@ -342,20 +369,29 @@ export function NotificationCenter() {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              {/* Search toggle button */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowSearch(!showSearch)}
-                className={cn(
-                  "h-8 px-2 transition-colors",
-                  showSearch 
-                    ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20" 
-                    : "text-slate-400 hover:text-white hover:bg-slate-800"
-                )}
-              >
-                <Search className="h-4 w-4" />
-              </Button>
+              {/* Search toggle button with keyboard hint */}
+              <div className="relative group">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowSearch(!showSearch)}
+                  className={cn(
+                    "h-8 px-2 transition-colors",
+                    showSearch 
+                      ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20" 
+                      : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  )}
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+                {/* Tooltip with keyboard shortcut */}
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-800 border border-slate-700 rounded-md text-xs text-slate-300 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                  Поиск
+                  <kbd className="ml-1.5 px-1.5 py-0.5 bg-slate-700 rounded text-[10px] font-mono text-slate-400">
+                    {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+F
+                  </kbd>
+                </div>
+              </div>
               {notifications.length > 0 && (
                 <>
                   <Button
