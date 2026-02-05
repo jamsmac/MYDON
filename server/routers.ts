@@ -28,6 +28,7 @@ import { gamificationRouter } from "./gamificationRouter";
 import { aiTrpcRouter } from "./aiTrpcRouter";
 import { relationsRouter } from './relationsRouter';
 import { aiDecisionRouter } from './aiDecisionRouter';
+import { aiSessionRouter } from './aiSessionRouter';
 import { getDefaultTags } from './utils/defaultTags';
 import { checkAndAwardAchievements, type AchievementResult } from "./achievementService";
 import * as schema from '../drizzle/schema';
@@ -1563,6 +1564,7 @@ export const appRouter = router({
   aiRouter: aiTrpcRouter,
   relations: relationsRouter,
   aiDecision: aiDecisionRouter,
+  aiSession: aiSessionRouter,
 });
 
 export type AppRouter = typeof appRouter;

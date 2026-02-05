@@ -1747,3 +1747,90 @@ export const aiDecisionRecords = mysqlTable("ai_decision_records", {
 
 export type AIDecisionRecord = typeof aiDecisionRecords.$inferSelect;
 export type InsertAIDecisionRecord = typeof aiDecisionRecords.$inferInsert;
+
+
+// ============================================================================
+// AI CHAT PERSISTENCE TABLES
+// ============================================================================
+
+/**
+ * AI Chat Sessions - persistent chat conversations
+ * Stores chat sessions that persist across browser sessions
+ */
+export const aiChatSessions = mysqlTable("ai_chat_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  // Session identity
+  sessionUuid: varchar("sessionUuid", { length: 36 }).notNull().unique(),
+  
+  // Owner
+  userId: int("userId").notNull(),
+  
+  // Context references (optional)
+  projectId: int("projectId"),
+  taskId: varchar("taskId", { length: 100 }),
+  
+  // Session metadata
+  title: varchar("title", { length: 255 }).default("Новый чат"),
+  
+  // Stats
+  messageCount: int("messageCount").default(0),
+  lastMessageAt: timestamp("lastMessageAt"),
+  
+  // Status
+  isArchived: boolean("isArchived").default(false),
+  isPinned: boolean("isPinned").default(false),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  userIdx: index("acs_user_idx").on(table.userId),
+  projectIdx: index("acs_project_idx").on(table.projectId),
+  sessionUuidIdx: uniqueIndex("acs_uuid_idx").on(table.sessionUuid),
+}));
+
+export type AIChatSession = typeof aiChatSessions.$inferSelect;
+export type InsertAIChatSession = typeof aiChatSessions.$inferInsert;
+
+/**
+ * AI Chat Messages - individual messages in chat sessions
+ */
+export const aiChatMessages = mysqlTable("ai_chat_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  // Parent session
+  sessionId: int("sessionId").notNull(),
+  
+  // Message content
+  role: mysqlEnum("role", ["user", "assistant", "system"]).notNull(),
+  content: text("content").notNull(),
+  
+  // Metadata
+  metadata: json("metadata").$type<{
+    model?: string;
+    tokens?: number;
+    creditsUsed?: number;
+    fromCache?: boolean;
+    executionTime?: number;
+    suggestedActions?: Array<{
+      id: string;
+      type: string;
+      title: string;
+      description?: string;
+      data?: Record<string, unknown>;
+      confidence: "high" | "medium" | "low";
+    }>;
+  }>(),
+  
+  // For tracking which messages have been finalized
+  isFinalized: boolean("isFinalized").default(false),
+  decisionRecordId: int("decisionRecordId"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  sessionIdx: index("acm_session_idx").on(table.sessionId),
+  roleIdx: index("acm_role_idx").on(table.role),
+}));
+
+export type AIChatMessage = typeof aiChatMessages.$inferSelect;
+export type InsertAIChatMessage = typeof aiChatMessages.$inferInsert;

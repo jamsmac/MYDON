@@ -1422,3 +1422,30 @@
 - [x] Include context in AI prompts via getContextForPrompt()
 - [x] Add getContextSummary() for human-readable context display
 - [x] 413 total tests passing
+
+
+## Phase 69: AI Session Persistence (Completed)
+- [x] Create ai_sessions table (id, userId, projectId, taskId, title, createdAt, updatedAt)
+- [x] Create ai_messages table (id, sessionId, role, content, metadata, createdAt)
+- [x] Create aiSessionRouter with endpoints:
+  - [x] createSession - create new chat session
+  - [x] getSessions - list user's sessions with filters
+  - [x] getSession - get session with messages
+  - [x] addMessage - add message to session
+  - [x] updateSession - update session title
+  - [x] deleteSession - delete session and messages
+  - [x] getOrCreateSession - get active session or create new
+  - [x] clearSession - clear all messages in session
+  - [x] markMessageFinalized - mark message as finalized
+- [x] Update FloatingAIChatContent to:
+  - [x] Load active session on mount
+  - [x] Save messages to database after each exchange
+  - [x] Auto-create session on first message
+- [x] Add session management UI:
+  - [x] Session list sidebar/dropdown
+  - [x] New session button
+  - [x] Session title editing
+  - [x] Delete session with confirmation
+  - [x] Switch between sessions
+  - [x] Pin/archive sessions
+- [x] 427 total tests passing
