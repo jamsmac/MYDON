@@ -1,0 +1,13 @@
+{
+  "query": "SHOW TABLES LIKE 'time_entries';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute SHOW TABLES LIKE 'time_entries';",
+  "rows": [
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (time_entries)": "time_entries"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (time_entries)\ntime_entries\n",
+  "stderr": "",
+  "execution_time_ms": 97
+}

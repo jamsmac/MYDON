@@ -1099,3 +1099,101 @@ export const apiUsage = mysqlTable("api_usage", {
 });
 export type ApiUsage = typeof apiUsage.$inferSelect;
 export type InsertApiUsage = typeof apiUsage.$inferInsert;
+
+/**
+ * Time Entries - for time tracking on tasks
+ */
+export const timeEntries = mysqlTable("time_entries", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  taskId: int("taskId").notNull(),
+  projectId: int("projectId").notNull(),
+  startTime: timestamp("startTime").notNull(),
+  endTime: timestamp("endTime"),
+  duration: int("duration"), // seconds
+  notes: text("notes"),
+  isRunning: boolean("isRunning").default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  userIdx: index("te_user_idx").on(table.userId),
+  taskIdx: index("te_task_idx").on(table.taskId),
+  projectIdx: index("te_project_idx").on(table.projectId),
+}));
+export type TimeEntry = typeof timeEntries.$inferSelect;
+export type InsertTimeEntry = typeof timeEntries.$inferInsert;
+
+/**
+ * Time Goals - daily/weekly time tracking goals
+ */
+export const timeGoals = mysqlTable("time_goals", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  projectId: int("projectId"),
+  targetHours: int("targetHours").notNull(), // Target hours per period
+  period: mysqlEnum("period", ["daily", "weekly", "monthly"]).default("daily"),
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type TimeGoal = typeof timeGoals.$inferSelect;
+export type InsertTimeGoal = typeof timeGoals.$inferInsert;
+
+/**
+ * Achievements - gamification achievement definitions
+ */
+export const achievementDefinitions = mysqlTable("achievement_definitions", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description").notNull(),
+  icon: varchar("icon", { length: 64 }).notNull(),
+  category: mysqlEnum("category", ["productivity", "collaboration", "milestone", "streak", "special"]).default("milestone"),
+  rarity: mysqlEnum("rarity", ["common", "uncommon", "rare", "epic", "legendary"]).default("common"),
+  points: int("points").default(10),
+  criteria: json("criteria").$type<{
+    type: string;
+    target: number;
+    timeframe?: string;
+  }>().notNull(),
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type AchievementDefinition = typeof achievementDefinitions.$inferSelect;
+export type InsertAchievementDefinition = typeof achievementDefinitions.$inferInsert;
+
+/**
+ * User Achievements - unlocked achievements per user
+ */
+export const userAchievements = mysqlTable("user_achievements", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  achievementId: int("achievementId").notNull(),
+  progress: int("progress").default(0),
+  unlockedAt: timestamp("unlockedAt"),
+  notifiedAt: timestamp("notifiedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("ua_user_idx").on(table.userId),
+  achievementIdx: index("ua_achievement_idx").on(table.achievementId),
+}));
+export type UserAchievement = typeof userAchievements.$inferSelect;
+export type InsertUserAchievement = typeof userAchievements.$inferInsert;
+
+/**
+ * User Stats - aggregate statistics for gamification
+ */
+export const userStats = mysqlTable("user_stats", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  totalPoints: int("totalPoints").default(0),
+  level: int("level").default(1),
+  tasksCompleted: int("tasksCompleted").default(0),
+  projectsCompleted: int("projectsCompleted").default(0),
+  totalTimeTracked: int("totalTimeTracked").default(0), // seconds
+  currentStreak: int("currentStreak").default(0), // days
+  longestStreak: int("longestStreak").default(0), // days
+  lastActivityDate: timestamp("lastActivityDate"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type UserStat = typeof userStats.$inferSelect;
+export type InsertUserStat = typeof userStats.$inferInsert;

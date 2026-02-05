@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `achievement_definitions` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `name` varchar(100) NOT NULL,\n  `description` text NOT NULL,\n  `icon` varchar(64) NOT NULL,\n  `category` enum('productivity','collaboration','milestone','streak','special') DEFAULT 'milestone',\n  `rarity` enum('common','uncommon','rare','epic','legendary') DEFAULT 'common',\n  `points` int DEFAULT 10,\n  `criteria` json NOT NULL,\n  `isActive` boolean DEFAULT true,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  CONSTRAINT `achievement_definitions_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute CREATE TABLE IF NOT EXISTS `achievement_definitions` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `name` varchar(100) NOT NULL,\n  `description` text NOT NULL,\n  `icon` varchar(64) NOT NULL,\n  `category` enum('productivity','collaboration','milestone','streak','special') DEFAULT 'milestone',\n  `rarity` enum('common','uncommon','rare','epic','legendary') DEFAULT 'common',\n  `points` int DEFAULT 10,\n  `criteria` json NOT NULL,\n  `isActive` boolean DEFAULT true,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  CONSTRAINT `achievement_definitions_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 54
+}

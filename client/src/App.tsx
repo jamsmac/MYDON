@@ -25,6 +25,7 @@ const CommunityTemplates = lazy(() => import("./pages/CommunityTemplates"));
 const WebhooksManagement = lazy(() => import("./pages/WebhooksManagement"));
 const ApiKeysManagement = lazy(() => import("./pages/ApiKeysManagement"));
 const ApiDocs = lazy(() => import("./pages/ApiDocs"));
+const GamificationPage = lazy(() => import("./pages/GamificationPage"));
 
 // Loading fallback component
 function PageLoader() {
@@ -57,6 +58,7 @@ function Router() {
         <Route path="/settings/webhooks" component={WebhooksManagement} />
         <Route path="/settings/api-keys" component={ApiKeysManagement} />
         <Route path="/api-docs" component={ApiDocs} />
+        <Route path="/achievements" component={GamificationPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

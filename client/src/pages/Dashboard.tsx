@@ -19,7 +19,8 @@ import {
   Upload,
   Search,
   X,
-  Sparkles
+  Sparkles,
+  Trophy
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
@@ -221,6 +222,16 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Link href="/achievements">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                title="Achievements"
+              >
+                <Trophy className="w-5 h-5" />
+              </Button>
+            </Link>
             <Button
               variant="ghost"
               size="icon"

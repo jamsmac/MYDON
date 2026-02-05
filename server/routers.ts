@@ -23,6 +23,8 @@ import { icalRouter } from "./icalRouter";
 import { webhookRouter } from "./webhookRouter";
 import { restApiRouter } from "./restApiRouter";
 import { apiKeysRouter } from "./apiKeysRouter";
+import { timeTrackingRouter } from "./timeTrackingRouter";
+import { gamificationRouter } from "./gamificationRouter";
 import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
@@ -1485,6 +1487,8 @@ export const appRouter = router({
   webhook: webhookRouter,
   restApi: restApiRouter,
   apiKeys: apiKeysRouter,
+  timeTracking: timeTrackingRouter,
+  gamification: gamificationRouter,
 });
 
 export type AppRouter = typeof appRouter;

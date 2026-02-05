@@ -1,0 +1,19 @@
+{
+  "query": "SHOW TABLES LIKE 'achievement_definitions'; SHOW TABLES LIKE 'user_achievements'; SHOW TABLES LIKE 'user_stats'; SHOW TABLES LIKE 'time_goals';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute SHOW TABLES LIKE 'achievement_definitions'; SHOW TABLES LIKE 'user_achievements'; SHOW TABLES LIKE 'user_stats'; SHOW TABLES LIKE 'time_goals';",
+  "rows": [
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (achievement_definitions)": "achievement_definitions"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (achievement_definitions)": "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (user_achievements)"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (achievement_definitions)": "user_achievements"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (achievement_definitions)\nachievement_definitions\nTables_in_U4oWTJpkwb9eRxq5w7WA9g (user_achievements)\nuser_achievements\n",
+  "stderr": "",
+  "execution_time_ms": 66
+}
