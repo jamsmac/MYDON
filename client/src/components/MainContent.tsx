@@ -1,6 +1,7 @@
 import { useRoadmap } from '@/contexts/RoadmapContext';
 import { useDeadlines } from '@/contexts/DeadlineContext';
-import { Task } from '@/data/roadmapData';
+import { useFilters, FilterType } from '@/contexts/FilterContext';
+import { Task, Block, Section } from '@/data/roadmapData';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,9 +10,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { TaskPanel } from './TaskPanel';
 import { DeadlinePicker } from './DeadlinePicker';
 import { DeadlineBadge } from './DeadlineBadge';
+import { FilterBar } from './FilterBar';
+import { useEffect, useMemo } from 'react';
 import { 
   Check, Clock, Circle, Download, FileText, 
-  ChevronRight, Sparkles, ArrowRight, AlertTriangle
+  ChevronRight, Sparkles, ArrowRight, AlertTriangle,
+  Filter, ListFilter
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -33,10 +37,110 @@ export function MainContent() {
     exportAllSummaries
   } = useRoadmap();
   const { getDeadlineStatus, getDaysRemaining, getBlockDeadline } = useDeadlines();
+  const { state: filterState, setFilterCounts } = useFilters();
 
   const selectedBlock = getSelectedBlock();
   const selectedSection = getSelectedSection();
   const selectedTask = getSelectedTask();
+
+  // Calculate filter counts for all tasks
+  const filterCounts = useMemo(() => {
+    const counts: Record<FilterType, number> = {
+      all: 0,
+      not_started: 0,
+      in_progress: 0,
+      completed: 0,
+      overdue: 0,
+    };
+
+    const countTasksRecursive = (tasks: Task[], blockId: string) => {
+      const isBlockOverdue = getDeadlineStatus(blockId) === 'overdue';
+      
+      tasks.forEach(task => {
+        counts.all++;
+        
+        if (task.status === 'not_started') counts.not_started++;
+        else if (task.status === 'in_progress') counts.in_progress++;
+        else if (task.status === 'completed') counts.completed++;
+        
+        // Count as overdue if block is overdue and task is not completed
+        if (isBlockOverdue && task.status !== 'completed') {
+          counts.overdue++;
+        }
+
+        if (task.subtasks) {
+          task.subtasks.forEach(subtask => {
+            counts.all++;
+            
+            if (subtask.status === 'not_started') counts.not_started++;
+            else if (subtask.status === 'in_progress') counts.in_progress++;
+            else if (subtask.status === 'completed') counts.completed++;
+            
+            if (isBlockOverdue && subtask.status !== 'completed') {
+              counts.overdue++;
+            }
+          });
+        }
+      });
+    };
+
+    state.blocks.forEach(block => {
+      block.sections.forEach(section => {
+        countTasksRecursive(section.tasks, block.id);
+      });
+    });
+
+    return counts;
+  }, [state.blocks, getDeadlineStatus]);
+
+  // Update filter counts in context
+  useEffect(() => {
+    setFilterCounts(filterCounts);
+  }, [filterCounts, setFilterCounts]);
+
+  // Filter tasks based on active filter
+  const filterTasks = (tasks: Task[], blockId: string): Task[] => {
+    if (filterState.activeFilter === 'all') return tasks;
+    
+    const isBlockOverdue = getDeadlineStatus(blockId) === 'overdue';
+    
+    return tasks.filter(task => {
+      const matchesFilter = checkTaskMatchesFilter(task, isBlockOverdue);
+      
+      // Also check if any subtask matches
+      if (task.subtasks && task.subtasks.length > 0) {
+        const hasMatchingSubtask = task.subtasks.some(st => checkTaskMatchesFilter(st, isBlockOverdue));
+        return matchesFilter || hasMatchingSubtask;
+      }
+      
+      return matchesFilter;
+    });
+  };
+
+  const checkTaskMatchesFilter = (task: Task, isBlockOverdue: boolean): boolean => {
+    switch (filterState.activeFilter) {
+      case 'not_started':
+        return task.status === 'not_started';
+      case 'in_progress':
+        return task.status === 'in_progress';
+      case 'completed':
+        return task.status === 'completed';
+      case 'overdue':
+        return isBlockOverdue && task.status !== 'completed';
+      default:
+        return true;
+    }
+  };
+
+  // Filter sections to only show those with matching tasks
+  const filterSections = (sections: Section[], blockId: string): Section[] => {
+    if (filterState.activeFilter === 'all') return sections;
+    
+    return sections.map(section => ({
+      ...section,
+      tasks: filterTasks(section.tasks, blockId)
+    })).filter(section => section.tasks.length > 0);
+  };
 
   const handleExportBlock = () => {
     if (!selectedBlock) return;
@@ -72,6 +176,10 @@ export function MainContent() {
   const deadlineStatus = getDeadlineStatus(selectedBlock.id);
   const daysRemaining = getDaysRemaining(selectedBlock.id);
   const deadline = getBlockDeadline(selectedBlock.id);
+  
+  // Get filtered sections
+  const filteredSections = filterSections(selectedBlock.sections, selectedBlock.id);
+  const hasFilteredResults = filteredSections.some(s => s.tasks.length > 0);
 
   return (
     <div className="flex-1 flex h-screen overflow-hidden">
@@ -156,30 +264,48 @@ export function MainContent() {
           </div>
         </header>
 
+        {/* Filter Bar */}
+        <div className="p-4 border-b border-border bg-background">
+          <FilterBar />
+        </div>
+
         {/* Tasks List */}
         <ScrollArea className="flex-1">
           <div className="p-6 space-y-6">
-            {selectedBlock.sections.map((section) => (
-              <div key={section.id} className="space-y-3">
-                <h2 className={cn(
-                  "font-mono font-semibold text-lg sticky top-0 bg-background py-2 z-10",
-                  selectedSection?.id === section.id && "text-primary"
-                )}>
-                  {section.title}
-                </h2>
-                
-                <div className="grid gap-3">
-                  {section.tasks.map((task) => (
-                    <TaskCard 
-                      key={task.id}
-                      task={task}
-                      isSelected={selectedTask?.id === task.id}
-                      onClick={() => selectTask(task.id)}
-                    />
-                  ))}
-                </div>
+            {!hasFilteredResults ? (
+              <div className="text-center py-12">
+                <ListFilter className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">
+                  Нет задач по выбранному фильтру
+                </h3>
+                <p className="text-muted-foreground">
+                  Попробуйте выбрать другой фильтр или снять ограничения
+                </p>
               </div>
-            ))}
+            ) : (
+              filteredSections.map((section) => (
+                <div key={section.id} className="space-y-3">
+                  <h2 className={cn(
+                    "font-mono font-semibold text-lg sticky top-0 bg-background py-2 z-10",
+                    selectedSection?.id === section.id && "text-primary"
+                  )}>
+                    {section.title}
+                  </h2>
+                  
+                  <div className="grid gap-3">
+                    {section.tasks.map((task) => (
+                      <TaskCard 
+                        key={task.id}
+                        task={task}
+                        isSelected={selectedTask?.id === task.id}
+                        onClick={() => selectTask(task.id)}
+                        isBlockOverdue={deadlineStatus === 'overdue'}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </ScrollArea>
       </div>
@@ -201,12 +327,24 @@ interface TaskCardProps {
   task: Task;
   isSelected: boolean;
   onClick: () => void;
+  isBlockOverdue?: boolean;
 }
 
-function TaskCard({ task, isSelected, onClick }: TaskCardProps) {
+function TaskCard({ task, isSelected, onClick, isBlockOverdue = false }: TaskCardProps) {
   const { updateTaskStatus } = useRoadmap();
   
+  const isTaskOverdue = isBlockOverdue && task.status !== 'completed';
+  
   const getStatusConfig = (status: Task['status']) => {
+    if (isTaskOverdue) {
+      return { 
+        label: 'Просрочено', 
+        icon: AlertTriangle, 
+        className: 'bg-red-100 text-red-700',
+        ringClass: 'ring-red-500'
+      };
+    }
+    
     switch (status) {
       case 'completed':
         return { 
@@ -250,7 +388,8 @@ function TaskCard({ task, isSelected, onClick }: TaskCardProps) {
     <Card 
       className={cn(
         "task-card cursor-pointer transition-all duration-200",
-        isSelected && "ring-2 ring-primary shadow-lg"
+        isSelected && "ring-2 ring-primary shadow-lg",
+        isTaskOverdue && "border-red-300 bg-red-50/50"
       )}
       onClick={onClick}
     >
@@ -274,12 +413,19 @@ function TaskCard({ task, isSelected, onClick }: TaskCardProps) {
 
           {/* Content */}
           <div className="flex-1 min-w-0">
-            <h3 className={cn(
-              "font-medium text-foreground",
-              task.status === 'completed' && "line-through text-muted-foreground"
-            )}>
-              {task.title}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className={cn(
+                "font-medium text-foreground",
+                task.status === 'completed' && "line-through text-muted-foreground"
+              )}>
+                {task.title}
+              </h3>
+              {isTaskOverdue && (
+                <Badge variant="destructive" className="text-xs">
+                  Просрочено
+                </Badge>
+              )}
+            </div>
             
             {task.description && (
               <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
@@ -290,9 +436,17 @@ function TaskCard({ task, isSelected, onClick }: TaskCardProps) {
             {/* Subtasks progress */}
             {totalSubtasks > 0 && (
               <div className="flex items-center gap-2 mt-2">
-                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className={cn(
+                  "flex-1 h-1.5 rounded-full overflow-hidden",
+                  isTaskOverdue ? "bg-red-200" : "bg-muted"
+                )}>
                   <div 
-                    className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-300"
+                    className={cn(
+                      "h-full transition-all duration-300",
+                      isTaskOverdue 
+                        ? "bg-red-500"
+                        : "bg-gradient-to-r from-amber-500 to-emerald-500"
+                    )}
                     style={{ width: `${(completedSubtasks / totalSubtasks) * 100}%` }}
                   />
                 </div>
@@ -330,11 +484,97 @@ function TaskCard({ task, isSelected, onClick }: TaskCardProps) {
 function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
   const { state, getOverallProgress, selectBlock, getBlockProgress } = useRoadmap();
   const { getDeadlineStatus, getDaysRemaining, getBlockDeadline } = useDeadlines();
+  const { state: filterState, setFilter, getFilterLabel, setFilterCounts } = useFilters();
   const overall = getOverallProgress();
 
   // Count urgent deadlines
   const overdueBlocks = state.blocks.filter(b => getDeadlineStatus(b.id) === 'overdue');
   const dueSoonBlocks = state.blocks.filter(b => getDeadlineStatus(b.id) === 'due_soon');
+
+  // Calculate filter counts for welcome screen
+  const filterCounts = useMemo(() => {
+    const counts: Record<FilterType, number> = {
+      all: 0,
+      not_started: 0,
+      in_progress: 0,
+      completed: 0,
+      overdue: 0,
+    };
+
+    state.blocks.forEach(block => {
+      const isBlockOverdue = getDeadlineStatus(block.id) === 'overdue';
+      
+      block.sections.forEach(section => {
+        section.tasks.forEach(task => {
+          counts.all++;
+          
+          if (task.status === 'not_started') counts.not_started++;
+          else if (task.status === 'in_progress') counts.in_progress++;
+          else if (task.status === 'completed') counts.completed++;
+          
+          if (isBlockOverdue && task.status !== 'completed') {
+            counts.overdue++;
+          }
+
+          if (task.subtasks) {
+            task.subtasks.forEach(subtask => {
+              counts.all++;
+              
+              if (subtask.status === 'not_started') counts.not_started++;
+              else if (subtask.status === 'in_progress') counts.in_progress++;
+              else if (subtask.status === 'completed') counts.completed++;
+              
+              if (isBlockOverdue && subtask.status !== 'completed') {
+                counts.overdue++;
+              }
+            });
+          }
+        });
+      });
+    });
+
+    return counts;
+  }, [state.blocks, getDeadlineStatus]);
+
+  // Update filter counts
+  useEffect(() => {
+    setFilterCounts(filterCounts);
+  }, [filterCounts, setFilterCounts]);
+
+  // Filter blocks based on active filter
+  const filteredBlocks = useMemo(() => {
+    if (filterState.activeFilter === 'all') return state.blocks;
+    
+    return state.blocks.filter(block => {
+      const isBlockOverdue = getDeadlineStatus(block.id) === 'overdue';
+      
+      // Check if any task in the block matches the filter
+      return block.sections.some(section => 
+        section.tasks.some(task => {
+          const taskMatches = checkTaskMatchesFilter(task.status, isBlockOverdue);
+          const subtaskMatches = task.subtasks?.some(st => 
+            checkTaskMatchesFilter(st.status, isBlockOverdue)
+          );
+          return taskMatches || subtaskMatches;
+        })
+      );
+    });
+  }, [state.blocks, filterState.activeFilter, getDeadlineStatus]);
+
+  const checkTaskMatchesFilter = (status: Task['status'], isBlockOverdue: boolean): boolean => {
+    switch (filterState.activeFilter) {
+      case 'not_started':
+        return status === 'not_started';
+      case 'in_progress':
+        return status === 'in_progress';
+      case 'completed':
+        return status === 'completed';
+      case 'overdue':
+        return isBlockOverdue && status !== 'completed';
+      default:
+        return true;
+    }
+  };
 
   return (
     <div className="flex-1 overflow-auto">
@@ -378,17 +618,20 @@ function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
         <div className="p-4 bg-gradient-to-r from-red-50 to-amber-50 border-b border-amber-200">
           <div className="container flex flex-wrap gap-4">
             {overdueBlocks.length > 0 && (
-              <div className="flex items-center gap-3 px-4 py-2 bg-red-100 rounded-lg">
+              <button 
+                onClick={() => setFilter('overdue')}
+                className="flex items-center gap-3 px-4 py-2 bg-red-100 rounded-lg hover:bg-red-200 transition-colors"
+              >
                 <AlertTriangle className="w-5 h-5 text-red-600" />
-                <div>
+                <div className="text-left">
                   <p className="font-medium text-red-800">
                     {overdueBlocks.length} {overdueBlocks.length === 1 ? 'блок просрочен' : 'блоков просрочено'}
                   </p>
                   <p className="text-sm text-red-600">
-                    {overdueBlocks.map(b => b.titleRu).join(', ')}
+                    Нажмите для фильтрации
                   </p>
                 </div>
-              </div>
+              </button>
             )}
             {dueSoonBlocks.length > 0 && (
               <div className="flex items-center gap-3 px-4 py-2 bg-amber-100 rounded-lg">
@@ -409,9 +652,21 @@ function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
 
       {/* Content */}
       <div className="p-8">
+        {/* Filter Bar */}
+        <div className="mb-6">
+          <FilterBar />
+        </div>
+
         {/* Quick Actions */}
         <div className="flex items-center justify-between mb-8">
-          <h2 className="font-mono text-xl font-semibold">Блоки дорожной карты</h2>
+          <h2 className="font-mono text-xl font-semibold">
+            Блоки дорожной карты
+            {filterState.activeFilter !== 'all' && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({filteredBlocks.length} из {state.blocks.length})
+              </span>
+            )}
+          </h2>
           <Button variant="outline" onClick={onExportAll}>
             <Download className="w-4 h-4 mr-2" />
             Экспорт всего отчета
@@ -419,75 +674,90 @@ function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
         </div>
 
         {/* Blocks Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {state.blocks.map((block) => {
-            const progress = getBlockProgress(block.id);
-            const deadlineStatus = getDeadlineStatus(block.id);
-            const daysRemaining = getDaysRemaining(block.id);
-            const deadline = getBlockDeadline(block.id);
+        {filteredBlocks.length === 0 ? (
+          <div className="text-center py-12">
+            <Filter className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">
+              Нет блоков по выбранному фильтру
+            </h3>
+            <p className="text-muted-foreground mb-4">
+              Попробуйте выбрать другой фильтр
+            </p>
+            <Button variant="outline" onClick={() => setFilter('all')}>
+              Показать все блоки
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredBlocks.map((block) => {
+              const progress = getBlockProgress(block.id);
+              const deadlineStatus = getDeadlineStatus(block.id);
+              const daysRemaining = getDaysRemaining(block.id);
+              const deadline = getBlockDeadline(block.id);
 
-            return (
-              <Card 
-                key={block.id}
-                className={cn(
-                  "task-card cursor-pointer group",
-                  deadlineStatus === 'overdue' && "ring-2 ring-red-400 bg-red-50",
-                  deadlineStatus === 'due_soon' && "ring-2 ring-amber-400 bg-amber-50"
-                )}
-                onClick={() => selectBlock(block.id)}
-              >
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <Badge variant="outline" className="font-mono">
-                      {String(block.number).padStart(2, '0')}
-                    </Badge>
-                    <div className="flex items-center gap-2">
-                      {deadline && (
-                        <DeadlineBadge blockId={block.id} size="sm" />
-                      )}
-                      <Badge variant="secondary" className="text-xs">
-                        {block.duration}
+              return (
+                <Card 
+                  key={block.id}
+                  className={cn(
+                    "task-card cursor-pointer group",
+                    deadlineStatus === 'overdue' && "ring-2 ring-red-400 bg-red-50",
+                    deadlineStatus === 'due_soon' && "ring-2 ring-amber-400 bg-amber-50"
+                  )}
+                  onClick={() => selectBlock(block.id)}
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className="font-mono">
+                        {String(block.number).padStart(2, '0')}
                       </Badge>
-                    </div>
-                  </div>
-                  <CardTitle className="font-mono text-lg mt-2 group-hover:text-primary transition-colors">
-                    {block.titleRu}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    {block.title}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div className={cn(
-                      "flex-1 h-2 bg-muted rounded-full overflow-hidden",
-                      deadlineStatus === 'overdue' && "bg-red-200"
-                    )}>
-                      <div 
-                        className={cn(
-                          "h-full transition-all duration-300",
-                          deadlineStatus === 'overdue' 
-                            ? "bg-red-500"
-                            : "bg-gradient-to-r from-amber-500 to-emerald-500"
+                      <div className="flex items-center gap-2">
+                        {deadline && (
+                          <DeadlineBadge blockId={block.id} size="sm" />
                         )}
-                        style={{ width: `${progress.percentage}%` }}
-                      />
+                        <Badge variant="secondary" className="text-xs">
+                          {block.duration}
+                        </Badge>
+                      </div>
                     </div>
-                    <span className="text-sm font-mono text-muted-foreground">
-                      {progress.percentage}%
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between mt-3">
-                    <span className="text-xs text-muted-foreground">
-                      {progress.completed}/{progress.total} задач
-                    </span>
-                    <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                    <CardTitle className="font-mono text-lg mt-2 group-hover:text-primary transition-colors">
+                      {block.titleRu}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      {block.title}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <div className={cn(
+                        "flex-1 h-2 bg-muted rounded-full overflow-hidden",
+                        deadlineStatus === 'overdue' && "bg-red-200"
+                      )}>
+                        <div 
+                          className={cn(
+                            "h-full transition-all duration-300",
+                            deadlineStatus === 'overdue' 
+                              ? "bg-red-500"
+                              : "bg-gradient-to-r from-amber-500 to-emerald-500"
+                          )}
+                          style={{ width: `${progress.percentage}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-mono text-muted-foreground">
+                        {progress.percentage}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between mt-3">
+                      <span className="text-xs text-muted-foreground">
+                        {progress.completed}/{progress.total} задач
+                      </span>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
 
         {/* Progress Illustration */}
         <div className="mt-12 rounded-xl overflow-hidden">
