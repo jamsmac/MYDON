@@ -339,3 +339,12 @@
 - [ ] UI: Export to slides format (using slides mode) - placeholder added
 - [x] UI: Add "Generate Pitch Deck" button to project view
 - [x] Test full pitch deck generation flow
+
+
+## Phase 24: PowerPoint Export for Pitch Deck
+- [x] Install pptxgenjs library for PPTX generation
+- [x] Create server-side PPTX generation utility
+- [x] Create backend endpoint for exporting pitch deck to PPTX
+- [x] Update PitchDeckGenerator UI with download button
+- [x] Style slides with professional design (colors, fonts, layouts)
+- [x] Test export and download functionality

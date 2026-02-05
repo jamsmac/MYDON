@@ -75,8 +75,38 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
     setCurrentSlide(0);
   };
 
+  const exportMutation = trpc.pitchDeck.exportPptx.useMutation({
+    onSuccess: (data) => {
+      // Convert base64 to blob and download
+      const byteCharacters = atob(data.data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: data.mimeType });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success('Презентация скачана!');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Ошибка экспорта');
+    },
+  });
+
   const handleExport = () => {
-    toast.info('Экспорт в разработке. Скоро будет доступен!');
+    if (generatedDeck) {
+      exportMutation.mutate({ id: generatedDeck.id });
+    }
   };
 
   const nextSlide = () => {
@@ -144,7 +174,7 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-slate-900 border-slate-700">
+      <DialogContent className="max-w-4xl max-h-[85vh] bg-slate-900 border-slate-700 flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Presentation className="w-6 h-6 text-amber-400" />
@@ -153,7 +183,7 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
         </DialogHeader>
 
         {!generatedDeck ? (
-          <div className="space-y-6">
+          <div className="space-y-6 overflow-y-auto flex-1">
             {/* Generate New */}
             <div className="bg-slate-800/50 rounded-lg p-6 border border-slate-700">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -227,7 +257,7 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
             ) : null}
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto flex-1">
             {/* Slide Preview */}
             <div className="relative">
               {renderSlide(generatedDeck.slides[currentSlide])}
@@ -274,8 +304,8 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
               ))}
             </div>
 
-            {/* Actions */}
-            <div className="flex justify-between items-center pt-4 border-t border-slate-700">
+            {/* Actions - sticky at bottom */}
+            <div className="flex justify-between items-center pt-4 border-t border-slate-700 bg-slate-900 sticky bottom-0 pb-2">
               <Button
                 variant="outline"
                 onClick={() => setGeneratedDeck(null)}
@@ -284,11 +314,21 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
               </Button>
               <div className="flex gap-2">
                 <Button
-                  variant="outline"
                   onClick={handleExport}
+                  disabled={exportMutation.isPending}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  Экспорт
+                  {exportMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Генерация...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4 mr-2" />
+                      Скачать PowerPoint
+                    </>
+                  )}
                 </Button>
               </div>
             </div>

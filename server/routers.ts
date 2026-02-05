@@ -1193,6 +1193,25 @@ Make the content realistic and compelling based on the project's roadmap. Use ac
     .mutation(async ({ ctx, input }) => {
       return db.deletePitchDeck(input.id, ctx.user.id);
     }),
+
+  exportPptx: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const pitchDeck = await db.getPitchDeckById(input.id, ctx.user.id);
+      if (!pitchDeck) {
+        throw new Error('Pitch deck not found');
+      }
+
+      const { generatePptx } = await import('./pptxExport');
+      const buffer = await generatePptx(pitchDeck as any);
+      
+      // Return base64 encoded buffer
+      return {
+        filename: `${pitchDeck.title.replace(/[^a-zA-Z0-9]/g, '_')}.pptx`,
+        data: buffer.toString('base64'),
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      };
+    }),
 });
 
 // ============ MAIN ROUTER ============
