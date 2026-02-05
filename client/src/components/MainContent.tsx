@@ -11,6 +11,7 @@ import { TaskPanel } from './TaskPanel';
 import { DeadlinePicker } from './DeadlinePicker';
 import { DeadlineBadge } from './DeadlineBadge';
 import { FilterBar } from './FilterBar';
+import { CalendarExport } from './CalendarExport';
 import { useEffect, useMemo } from 'react';
 import { 
   Check, Clock, Circle, Download, FileText, 
@@ -239,6 +240,7 @@ export function MainContent() {
               </div>
               <div className="flex flex-col gap-2">
                 <DeadlinePicker blockId={selectedBlock.id} blockTitle={selectedBlock.titleRu} />
+                <CalendarExport variant="single" block={selectedBlock} />
                 <Button variant="outline" size="sm" onClick={handleExportBlock}>
                   <Download className="w-4 h-4 mr-2" />
                   Экспорт
@@ -667,10 +669,13 @@ function WelcomeScreen({ onExportAll }: { onExportAll: () => void }) {
               </span>
             )}
           </h2>
-          <Button variant="outline" onClick={onExportAll}>
-            <Download className="w-4 h-4 mr-2" />
-            Экспорт всего отчета
-          </Button>
+          <div className="flex items-center gap-2">
+            <CalendarExport variant="all" />
+            <Button variant="outline" onClick={onExportAll}>
+              <Download className="w-4 h-4 mr-2" />
+              Экспорт отчета
+            </Button>
+          </div>
         </div>
 
         {/* Blocks Grid */}
