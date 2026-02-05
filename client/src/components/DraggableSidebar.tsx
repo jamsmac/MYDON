@@ -46,11 +46,18 @@ import { InlineEditableText } from '@/components/InlineEditableText';
 import { InlineDatePicker } from '@/components/InlineDatePicker';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import { TaskDeadlineBadge, TaskDeadlineIndicator } from '@/components/TaskDeadlineBadge';
+import { SubtaskProgress } from '@/components/SubtaskProgress';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Calendar, AlertTriangle, Link2 } from 'lucide-react';
 
 // Types
+interface Subtask {
+  id: number;
+  title: string;
+  status: 'not_started' | 'in_progress' | 'completed' | null;
+}
+
 interface Task {
   id: number;
   title: string;
@@ -63,6 +70,7 @@ interface Task {
   deadline?: Date | string | null;
   dependencies?: number[] | null;
   sortOrder?: number | null;
+  subtasks?: Subtask[];
 }
 
 interface Section {
@@ -196,6 +204,14 @@ function SortableTask({
           <span className="flex items-center text-amber-500" title={`${task.dependencies.length} зависимостей`}>
             <Link2 className="w-3 h-3" />
           </span>
+        )}
+        {/* Subtask progress indicator */}
+        {task.subtasks && task.subtasks.length > 0 && (
+          <SubtaskProgress
+            completed={task.subtasks.filter(s => s.status === 'completed').length}
+            total={task.subtasks.length}
+            showIcon={false}
+          />
         )}
         {/* Deadline indicator */}
         {task.deadline && (

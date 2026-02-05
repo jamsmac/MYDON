@@ -698,3 +698,11 @@
 - [x] Add subtasks section to TaskDetailPanel (before Comments)
 - [x] Connect subtask CRUD operations (create, update, delete, reorder)
 - [x] Test subtask management - all 113 tests passing
+
+
+## Phase 48.4: Subtask Progress Indicator in Task List (Completed)
+- [x] Subtasks already fetched with task data (getFullProject includes subtasks)
+- [x] Created SubtaskProgress component with tooltip
+- [x] Added SubtaskProgress to SortableTask in DraggableSidebar
+- [x] Show "completed/total" format with color coding (green=all done, amber=partial, gray=none)
+- [x] All 113 tests passing
