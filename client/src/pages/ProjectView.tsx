@@ -288,6 +288,7 @@ function SubtasksSection({ taskId }: { taskId: number }) {
       onUpdateSubtask={(id, data) => updateSubtask.mutate({ id, ...data })}
       onDeleteSubtask={(id) => deleteSubtask.mutate({ id })}
       onReorderSubtasks={(subtaskIds) => reorderSubtasks.mutate({ taskId, subtaskIds })}
+      onRefresh={() => utils.subtask.list.invalidate({ taskId })}
       isLoading={isLoading || createSubtask.isPending || updateSubtask.isPending || deleteSubtask.isPending}
     />
   );

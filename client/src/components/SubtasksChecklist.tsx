@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
+import { SubtaskTemplateSelector } from './SubtaskTemplateSelector';
 import { 
   Plus, 
   GripVertical, 
@@ -28,6 +29,7 @@ interface SubtasksChecklistProps {
   onUpdateSubtask: (id: number, data: { title?: string; status?: 'not_started' | 'completed' }) => void;
   onDeleteSubtask: (id: number) => void;
   onReorderSubtasks: (subtaskIds: number[]) => void;
+  onRefresh?: () => void;
   isLoading?: boolean;
 }
 
@@ -38,6 +40,7 @@ export function SubtasksChecklist({
   onUpdateSubtask,
   onDeleteSubtask,
   onReorderSubtasks,
+  onRefresh,
   isLoading
 }: SubtasksChecklistProps) {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
@@ -111,17 +114,24 @@ export function SubtasksChecklist({
             </span>
           )}
         </div>
-        {!isAddingNew && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsAddingNew(true)}
-            className="h-7 px-2 text-xs text-slate-400 hover:text-white"
-          >
-            <Plus className="w-3 h-3 mr-1" />
-            Добавить
-          </Button>
-        )}
+        <div className="flex items-center gap-1">
+          <SubtaskTemplateSelector
+            taskId={taskId}
+            currentSubtasks={subtasks.map(s => ({ title: s.title }))}
+            onApplyTemplate={() => onRefresh?.()}
+          />
+          {!isAddingNew && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsAddingNew(true)}
+              className="h-7 px-2 text-xs text-slate-400 hover:text-white"
+            >
+              <Plus className="w-3 h-3 mr-1" />
+              Добавить
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Progress bar */}

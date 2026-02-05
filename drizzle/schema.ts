@@ -212,6 +212,38 @@ export type Subtask = typeof subtasks.$inferSelect;
 export type InsertSubtask = typeof subtasks.$inferInsert;
 
 /**
+ * Subtask Templates - reusable sets of subtasks for recurring tasks
+ */
+export const subtaskTemplates = mysqlTable("subtask_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 100 }), // e.g., "Development", "Design", "Marketing"
+  isPublic: boolean("isPublic").default(false), // Share with team
+  usageCount: int("usageCount").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SubtaskTemplate = typeof subtaskTemplates.$inferSelect;
+export type InsertSubtaskTemplate = typeof subtaskTemplates.$inferInsert;
+
+/**
+ * Subtask Template Items - individual items within a template
+ */
+export const subtaskTemplateItems = mysqlTable("subtask_template_items", {
+  id: int("id").autoincrement().primaryKey(),
+  templateId: int("templateId").notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  sortOrder: int("sortOrder").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SubtaskTemplateItem = typeof subtaskTemplateItems.$inferSelect;
+export type InsertSubtaskTemplateItem = typeof subtaskTemplateItems.$inferInsert;
+
+/**
  * Chat messages - AI conversations at any level (project, block, section, task)
  */
 export const chatMessages = mysqlTable("chat_messages", {

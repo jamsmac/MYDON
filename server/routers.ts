@@ -451,6 +451,61 @@ const subtaskRouter = router({
     .mutation(async ({ input }) => {
       return db.reorderSubtasks(input.taskId, input.subtaskIds);
     }),
+
+  // Template procedures
+  listTemplates: protectedProcedure
+    .query(async ({ ctx }) => {
+      return db.getSubtaskTemplatesByUser(ctx.user.id);
+    }),
+
+  createTemplate: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(255),
+      items: z.array(z.string().min(1).max(500)),
+      description: z.string().max(1000).optional(),
+      category: z.string().max(100).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return db.createSubtaskTemplate(
+        ctx.user.id,
+        input.name,
+        input.items,
+        input.description,
+        input.category
+      );
+    }),
+
+  saveAsTemplate: protectedProcedure
+    .input(z.object({
+      taskId: z.number(),
+      name: z.string().min(1).max(255),
+      description: z.string().max(1000).optional(),
+      category: z.string().max(100).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return db.saveSubtasksAsTemplate(
+        input.taskId,
+        ctx.user.id,
+        input.name,
+        input.description,
+        input.category
+      );
+    }),
+
+  applyTemplate: protectedProcedure
+    .input(z.object({
+      templateId: z.number(),
+      taskId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return db.applySubtaskTemplate(input.templateId, input.taskId, ctx.user.id);
+    }),
+
+  deleteTemplate: protectedProcedure
+    .input(z.object({ templateId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return db.deleteSubtaskTemplate(input.templateId, ctx.user.id);
+    }),
 });
 
 // ============ AI SETTINGS ROUTER ============

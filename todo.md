@@ -706,3 +706,17 @@
 - [x] Added SubtaskProgress to SortableTask in DraggableSidebar
 - [x] Show "completed/total" format with color coding (green=all done, amber=partial, gray=none)
 - [x] All 113 tests passing
+
+
+## Phase 48.5: Subtask Templates System (Completed)
+- [x] Create subtask_templates table in database schema
+- [x] Create subtask_template_items table for template items
+- [x] Add backend CRUD for templates (create, list, delete, saveAsTemplate, applyTemplate)
+- [x] Add "Apply template" procedure with usage count tracking
+- [x] Create SubtaskTemplateSelector component with dropdown menu
+- [x] Add "Save as template" dialog with name, category, description
+- [x] Add "Manage templates" dialog for viewing/deleting templates
+- [x] Group templates by category with icons (Development, Design, Marketing, etc.)
+- [x] Show usage count and item count for each template
+- [x] Integrate template selector into SubtasksChecklist header
+- [x] All 113 tests passing

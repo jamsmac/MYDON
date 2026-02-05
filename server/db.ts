@@ -7,6 +7,8 @@ import {
   sections, InsertSection, Section,
   tasks, InsertTask, Task,
   subtasks, InsertSubtask, Subtask,
+  subtaskTemplates, InsertSubtaskTemplate, SubtaskTemplate,
+  subtaskTemplateItems, InsertSubtaskTemplateItem, SubtaskTemplateItem,
   aiSettings, InsertAiSetting, AiSetting,
   aiPreferences, InsertAiPreference, AiPreference,
   userCredits, InsertUserCredits, UserCredits,
@@ -334,6 +336,152 @@ export async function reorderSubtasks(taskId: number, subtaskIds: number[]): Pro
   }
 
   return true;
+}
+
+// ============ SUBTASK TEMPLATE QUERIES ============
+
+export async function createSubtaskTemplate(
+  userId: number,
+  name: string,
+  items: string[],
+  description?: string,
+  category?: string
+): Promise<SubtaskTemplate | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.insert(subtaskTemplates).values({
+    userId,
+    name,
+    description,
+    category,
+  });
+
+  const templateId = result[0].insertId;
+
+  // Insert template items
+  for (let i = 0; i < items.length; i++) {
+    await db.insert(subtaskTemplateItems).values({
+      templateId,
+      title: items[i],
+      sortOrder: i,
+    });
+  }
+
+  const [template] = await db.select().from(subtaskTemplates).where(eq(subtaskTemplates.id, templateId));
+  return template;
+}
+
+export async function getSubtaskTemplatesByUser(userId: number): Promise<(SubtaskTemplate & { items: SubtaskTemplateItem[] })[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const templates = await db.select().from(subtaskTemplates)
+    .where(eq(subtaskTemplates.userId, userId))
+    .orderBy(desc(subtaskTemplates.usageCount));
+
+  const templatesWithItems = await Promise.all(
+    templates.map(async (template) => {
+      const items = await db.select().from(subtaskTemplateItems)
+        .where(eq(subtaskTemplateItems.templateId, template.id))
+        .orderBy(asc(subtaskTemplateItems.sortOrder));
+      return { ...template, items };
+    })
+  );
+
+  return templatesWithItems;
+}
+
+export async function getSubtaskTemplateById(
+  templateId: number,
+  userId: number
+): Promise<(SubtaskTemplate & { items: SubtaskTemplateItem[] }) | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [template] = await db.select().from(subtaskTemplates)
+    .where(and(eq(subtaskTemplates.id, templateId), eq(subtaskTemplates.userId, userId)));
+
+  if (!template) return null;
+
+  const items = await db.select().from(subtaskTemplateItems)
+    .where(eq(subtaskTemplateItems.templateId, templateId))
+    .orderBy(asc(subtaskTemplateItems.sortOrder));
+
+  return { ...template, items };
+}
+
+export async function deleteSubtaskTemplate(templateId: number, userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  // Delete items first
+  await db.delete(subtaskTemplateItems).where(eq(subtaskTemplateItems.templateId, templateId));
+
+  // Delete template
+  const result = await db.delete(subtaskTemplates)
+    .where(and(eq(subtaskTemplates.id, templateId), eq(subtaskTemplates.userId, userId)));
+
+  return result[0].affectedRows > 0;
+}
+
+export async function applySubtaskTemplate(templateId: number, taskId: number, userId: number): Promise<Subtask[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Get template with items
+  const template = await getSubtaskTemplateById(templateId, userId);
+  if (!template) return [];
+
+  // Get current max sortOrder for existing subtasks
+  const existingSubtasks = await getSubtasksByTask(taskId);
+  const maxSortOrder = existingSubtasks.length > 0 
+    ? Math.max(...existingSubtasks.map(s => s.sortOrder || 0)) + 1 
+    : 0;
+
+  // Create subtasks from template items
+  const createdSubtasks: Subtask[] = [];
+  for (let i = 0; i < template.items.length; i++) {
+    const result = await db.insert(subtasks).values({
+      taskId,
+      title: template.items[i].title,
+      sortOrder: maxSortOrder + i,
+      status: 'not_started',
+    });
+    const [subtask] = await db.select().from(subtasks).where(eq(subtasks.id, result[0].insertId));
+    createdSubtasks.push(subtask);
+  }
+
+  // Increment usage count
+  await db.update(subtaskTemplates)
+    .set({ usageCount: (template.usageCount || 0) + 1 })
+    .where(eq(subtaskTemplates.id, templateId));
+
+  return createdSubtasks;
+}
+
+export async function saveSubtasksAsTemplate(
+  taskId: number,
+  userId: number,
+  name: string,
+  description?: string,
+  category?: string
+): Promise<SubtaskTemplate | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Get existing subtasks from task
+  const taskSubtasks = await getSubtasksByTask(taskId);
+  if (taskSubtasks.length === 0) return null;
+
+  // Create template with items
+  return createSubtaskTemplate(
+    userId,
+    name,
+    taskSubtasks.map(s => s.title),
+    description,
+    category
+  );
 }
 
 // ============ AI SETTINGS QUERIES ============
