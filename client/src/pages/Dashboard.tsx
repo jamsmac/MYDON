@@ -21,7 +21,8 @@ import {
   X,
   Sparkles,
   Trophy,
-  Bot
+  Bot,
+  Brain
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
@@ -260,6 +261,11 @@ export default function Dashboard() {
             <NotificationCenter />
             <CreditsWidget />
             <UsageStats />
+            <Link href="/decisions">
+              <Button variant="ghost" size="icon" className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10" title="AI Решения">
+                <Brain className="w-5 h-5" />
+              </Button>
+            </Link>
             <Link href="/settings">
               <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
                 <Settings className="w-5 h-5" />

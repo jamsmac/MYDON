@@ -1354,3 +1354,22 @@
   - [x] Docked panel width
   - [x] Chat history (last 50 messages)
 - [x] 21 tests passing for floatingChat
+
+
+### Part 4: Decision Log Dashboard
+- [x] Create DecisionLogDashboard page component at /decisions
+- [x] Display all finalized decisions in card/list view
+- [x] Add filters:
+  - [x] By decision type (technical/business/design/etc)
+  - [x] By status (active/implemented/obsolete)
+  - [x] By importance (critical/high/medium/low)
+- [x] Add search by content
+- [x] Add timeline view showing decisions chronologically
+- [x] Add export options:
+  - [x] Export as Markdown
+- [x] Add decision detail modal/panel
+- [x] Add quick actions (mark implemented, archive, delete)
+- [x] Add statistics summary (total, by type, by status)
+- [x] Add route /decisions to App.tsx
+- [x] Add navigation link in Dashboard header
+- [x] 413 total tests passing
