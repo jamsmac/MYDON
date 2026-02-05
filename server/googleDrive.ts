@@ -1,5 +1,5 @@
 /**
- * Google Drive Integration for MAYDON Roadmap Hub
+ * Google Drive Integration for MYDON Roadmap Hub
  * Uses rclone for file operations with Google Drive
  */
 
@@ -12,7 +12,7 @@ const execAsync = promisify(exec);
 
 const RCLONE_CONFIG = '/home/ubuntu/.gdrive-rclone.ini';
 const RCLONE_REMOTE = 'manus_google_drive';
-const ROADMAP_FOLDER = 'MAYDON_Roadmaps';
+const ROADMAP_FOLDER = 'MYDON_Roadmaps';
 
 interface DriveFile {
   name: string;
@@ -76,7 +76,7 @@ async function rclone(command: string): Promise<string> {
 }
 
 /**
- * Ensure the MAYDON_Roadmaps folder exists in Google Drive
+ * Ensure the MYDON_Roadmaps folder exists in Google Drive
  */
 export async function ensureRoadmapFolder(): Promise<void> {
   try {
@@ -319,7 +319,7 @@ function generateProjectMarkdown(project: ProjectExport): string {
   
   // Footer
   lines.push('---');
-  lines.push(`*Экспортировано из MAYDON Roadmap Hub ${new Date().toLocaleString('ru-RU')}*`);
+  lines.push(`*Экспортировано из MYDON Roadmap Hub ${new Date().toLocaleString('ru-RU')}*`);
   
   return lines.join('\n');
 }

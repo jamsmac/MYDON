@@ -1,0 +1,23 @@
+{
+  "query": "SELECT * FROM projects ORDER BY id DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute SELECT * FROM projects ORDER BY id DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "1",
+      "userId": "1",
+      "name": "TechRent Uzbekistan → MAYDON",
+      "description": "Крупнейшая диверсифицированная компания по аренде спецтехники полного спектра в Узбекистане с последующей интеграцией в экосистему MAYDON",
+      "icon": "folder",
+      "color": "#f59e0b",
+      "status": "active",
+      "startDate": "2026-02-05 00:00:00",
+      "targetDate": "2031-02-05 00:00:00",
+      "createdAt": "2026-02-05 06:49:51",
+      "updatedAt": "2026-02-05 08:48:17"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tuserId\tname\tdescription\ticon\tcolor\tstatus\tstartDate\ttargetDate\tcreatedAt\tupdatedAt\n1\t1\tTechRent Uzbekistan → MAYDON\tКрупнейшая диверсифицированная компания по аренде спецтехники полного спектра в Узбекистане с последующей интеграцией в экосистему MAYDON\tfolder\t#f59e0b\tactive\t2026-02-05 00:00:00\t2031-02-05 00:00:00\t2026-02-05 06:49:51\t2026-02-05 08:48:17\n",
+  "stderr": "",
+  "execution_time_ms": 72
+}

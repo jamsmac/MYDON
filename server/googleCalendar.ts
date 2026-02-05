@@ -1,5 +1,5 @@
 /**
- * Google Calendar Integration for MAYDON Roadmap Hub
+ * Google Calendar Integration for MYDON Roadmap Hub
  * Uses MCP server for Google Calendar operations
  */
 

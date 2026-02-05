@@ -18,11 +18,13 @@ import {
   Calendar,
   Upload,
   Search,
-  X
+  X,
+  Sparkles
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
 import { CreditsWidget } from '@/components/CreditsWidget';
+import { AIGoalGenerator } from '@/components/AIGoalGenerator';
 import { Link, useLocation } from 'wouter';
 import { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -40,6 +42,7 @@ export default function Dashboard() {
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed' | 'overdue'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [aiGeneratorOpen, setAiGeneratorOpen] = useState(false);
 
   const { data: projects, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
     undefined,
@@ -135,7 +138,7 @@ export default function Dashboard() {
             <div className="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <FolderKanban className="w-8 h-8 text-amber-500" />
             </div>
-            <CardTitle className="text-2xl text-white">MAYDON Roadmap Hub</CardTitle>
+            <CardTitle className="text-2xl text-white">MYDON Roadmap Hub</CardTitle>
             <CardDescription className="text-slate-400">
               Платформа управления проектами с AI-ассистентом
             </CardDescription>
@@ -163,7 +166,7 @@ export default function Dashboard() {
               <FolderKanban className="w-5 h-5 text-amber-500" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-white font-mono">MAYDON</h1>
+              <h1 className="text-lg font-semibold text-white font-mono">MYDON</h1>
               <p className="text-xs text-slate-500">Roadmap Hub</p>
             </div>
           </div>
@@ -327,6 +330,14 @@ export default function Dashboard() {
           <div className="flex gap-2">
             <Button 
               variant="outline" 
+              className="border-purple-500/50 text-purple-400 hover:bg-purple-500/20 hover:border-purple-500"
+              onClick={() => setAiGeneratorOpen(true)}
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              AI Генератор
+            </Button>
+            <Button 
+              variant="outline" 
               className="border-slate-600 text-slate-300 hover:bg-slate-700"
               onClick={() => setImportDialogOpen(true)}
             >
@@ -386,6 +397,16 @@ export default function Dashboard() {
 
         {/* Import Dialog */}
         <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+        
+        {/* AI Goal Generator */}
+        <AIGoalGenerator 
+          open={aiGeneratorOpen} 
+          onOpenChange={setAiGeneratorOpen}
+          onProjectCreated={() => {
+            refetch();
+            setAiGeneratorOpen(false);
+          }}
+        />
 
         {/* Projects Grid */}
         {projectsLoading ? (

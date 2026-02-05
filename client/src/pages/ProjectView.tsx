@@ -751,7 +751,7 @@ export default function ProjectView() {
                       // Then open NotebookLM
                       window.open('https://notebooklm.google.com/', '_blank');
                       toast.success('Проект сохранён! Добавьте файл из Google Drive в NotebookLM', {
-                        description: 'Папка: MAYDON_Roadmaps',
+                        description: 'Папка: MYDON_Roadmaps',
                         duration: 10000,
                       });
                     } catch (e) {

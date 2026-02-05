@@ -63,6 +63,71 @@ const projectRouter = router({
     .mutation(async ({ ctx, input }) => {
       return db.deleteProject(input.id, ctx.user.id);
     }),
+
+  createFromRoadmap: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(255),
+      description: z.string().optional(),
+      blocks: z.array(z.object({
+        title: z.string(),
+        description: z.string().optional(),
+        duration: z.string().optional(),
+        sections: z.array(z.object({
+          title: z.string(),
+          tasks: z.array(z.object({
+            title: z.string(),
+            description: z.string().optional(),
+          })).optional(),
+        })).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Create project
+      const project = await db.createProject({
+        name: input.name,
+        description: input.description,
+        userId: ctx.user.id,
+      });
+
+      // Create blocks, sections, and tasks
+      for (let blockIndex = 0; blockIndex < input.blocks.length; blockIndex++) {
+        const blockData = input.blocks[blockIndex];
+        const block = await db.createBlock({
+          projectId: project.id,
+          number: blockIndex + 1,
+          title: blockData.title,
+          description: blockData.description,
+          duration: blockData.duration,
+          sortOrder: blockIndex,
+        });
+
+        if (blockData.sections) {
+          for (let sectionIndex = 0; sectionIndex < blockData.sections.length; sectionIndex++) {
+            const sectionData = blockData.sections[sectionIndex];
+            const section = await db.createSection({
+              blockId: block.id,
+              title: sectionData.title,
+              sortOrder: sectionIndex,
+            });
+
+            if (sectionData.tasks) {
+              for (let taskIndex = 0; taskIndex < sectionData.tasks.length; taskIndex++) {
+                const taskData = sectionData.tasks[taskIndex];
+                await db.createTask({
+                  sectionId: section.id,
+                  title: taskData.title,
+                  description: taskData.description,
+                  sortOrder: taskIndex,
+                  status: 'not_started',
+                });
+              }
+            }
+          }
+        }
+      }
+
+      return project;
+    }),
 });
 
 // ============ BLOCK ROUTER ============
@@ -534,7 +599,7 @@ const chatRouter = router({
       );
 
       // Build messages for LLM
-      const systemPrompt = `Ты AI-ассистент для управления проектами и дорожными картами в платформе MAYDON Roadmap Hub.
+      const systemPrompt = `Ты AI-ассистент для управления проектами и дорожными картами в платформе MYDON Roadmap Hub.
 Ты помогаешь пользователю планировать, анализировать и выполнять задачи.
 ${input.projectContext ? `Контекст проекта: ${input.projectContext}` : ""}
 
@@ -804,6 +869,90 @@ const calendarRouter = router({
     }),
 });
 
+// ============ AI GENERATION ROUTER ============
+const aiGenerationRouter = router({
+  generateRoadmap: protectedProcedure
+    .input(z.object({
+      goal: z.string().min(1),
+      category: z.string(),
+      answers: z.record(z.string(), z.string()),
+    }))
+    .mutation(async ({ input }) => {
+      const prompt = `You are an expert project planner. Generate a detailed roadmap for the following goal.
+
+Goal: ${input.goal}
+Category: ${input.category}
+Additional context:
+${Object.entries(input.answers).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
+
+Generate a structured roadmap in JSON format with the following structure:
+{
+  "name": "Project name (short, descriptive)",
+  "description": "Brief project description",
+  "blocks": [
+    {
+      "title": "Block title",
+      "description": "Block description",
+      "duration": "Estimated duration (e.g., '2 weeks')",
+      "sections": [
+        {
+          "title": "Section title",
+          "tasks": [
+            { "title": "Task title", "description": "Task description" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+Create 4-8 blocks covering all phases needed to achieve the goal. Each block should have 2-4 sections with 3-6 tasks each.
+Respond ONLY with valid JSON, no additional text.`;
+
+      const response = await invokeLLM({
+        messages: [
+          { role: 'system', content: 'You are a project planning expert. Always respond with valid JSON only.' },
+          { role: 'user', content: prompt },
+        ],
+      });
+
+      const rawContent = response.choices[0]?.message?.content || '{}';
+      const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+      
+      // Parse JSON from response
+      try {
+        // Try to extract JSON from the response
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        }
+        return JSON.parse(content);
+      } catch (e) {
+        // Return a default structure if parsing fails
+        return {
+          name: input.goal.slice(0, 50),
+          description: input.goal,
+          blocks: [
+            {
+              title: 'Планирование',
+              description: 'Начальный этап планирования',
+              duration: '1 неделя',
+              sections: [
+                {
+                  title: 'Анализ',
+                  tasks: [
+                    { title: 'Определить цели', description: 'Чётко сформулировать цели проекта' },
+                    { title: 'Собрать информацию', description: 'Исследовать тему' },
+                  ],
+                },
+              ],
+            },
+          ],
+        };
+      }
+    }),
+});
+
 // ============ MAIN ROUTER ============
 export const appRouter = router({
   system: systemRouter,
@@ -827,6 +976,7 @@ export const appRouter = router({
   chat: chatRouter,
   drive: driveRouter,
   calendar: calendarRouter,
+  ai: aiGenerationRouter,
 });
 
 export type AppRouter = typeof appRouter;

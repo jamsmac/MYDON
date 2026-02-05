@@ -1,5 +1,5 @@
 /* 
- * MAYDON Roadmap Hub - Home Page
+ * MYDON Roadmap Hub - Home Page
  * Design: Industrial Blueprint
  * - Primary: Deep slate (#1e293b) for authority
  * - Accent: Amber (#f59e0b) for progress, Emerald (#10b981) for completion

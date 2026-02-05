@@ -221,7 +221,7 @@ export function generateMarkdownReport(project: Project): string {
 
   // Footer
   md += `\n---\n\n`;
-  md += `*Этот отчёт был автоматически сгенерирован платформой MAYDON Roadmap Hub*\n`;
+  md += `*Этот отчёт был автоматически сгенерирован платформой MYDON Roadmap Hub*\n`;
 
   return md;
 }
@@ -628,7 +628,7 @@ export function generateHtmlReport(project: Project): string {
 
   html += `
   <div class="footer">
-    <p>Этот отчёт был автоматически сгенерирован платформой MAYDON Roadmap Hub</p>
+    <p>Этот отчёт был автоматически сгенерирован платформой MYDON Roadmap Hub</p>
   </div>
 </body>
 </html>

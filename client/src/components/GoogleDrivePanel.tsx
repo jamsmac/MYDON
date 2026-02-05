@@ -156,7 +156,7 @@ export function GoogleDrivePanel({ projectId, projectName }: GoogleDrivePanelPro
                 Файлы в Google Drive
               </DialogTitle>
               <DialogDescription>
-                Папка: MAYDON_Roadmaps
+                Папка: MYDON_Roadmaps
               </DialogDescription>
             </DialogHeader>
 

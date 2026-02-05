@@ -65,7 +65,7 @@ async function startServer() {
       const history = await db.getChatHistory(contextType, contextId, user.id, 10);
 
       // Build messages for LLM
-      const systemPrompt = `Ты AI-ассистент для управления проектами и дорожными картами в платформе MAYDON Roadmap Hub.
+      const systemPrompt = `Ты AI-ассистент для управления проектами и дорожными картами в платформе MYDON Roadmap Hub.
 Ты помогаешь пользователю планировать, анализировать и выполнять задачи.
 ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
 

@@ -10,7 +10,7 @@ vi.mock('child_process', () => ({
     }
     // Simulate successful rclone commands
     if (cmd.includes('lsd')) {
-      callback(null, '          -1 2026-02-05 12:00:00        -1 MAYDON_Roadmaps\n', '');
+      callback(null, '          -1 2026-02-05 12:00:00        -1 MYDON_Roadmaps\n', '');
     } else if (cmd.includes('copyto') || cmd.includes('mkdir')) {
       callback(null, '', '');
     } else if (cmd.includes('link')) {

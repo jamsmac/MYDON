@@ -1,4 +1,4 @@
-# MAYDON Roadmap Hub - TODO
+# MYDON Roadmap Hub - TODO
 
 ## Phase 1: Core Infrastructure
 - [x] Database schema for multi-project (projects, blocks, sections, tasks, subtasks)
@@ -275,3 +275,25 @@
 - [ ] Context-aware notifications
 - [ ] Streak tracking for recurring tasks
 - [ ] Adaptive frequency (not spammy)
+
+
+## Phase 19: Rename to MYDON
+- [x] Update all MAYDON references to MYDON in codebase
+- [x] Update Google Drive folder name to MYDON_Roadmaps
+- [x] Update export reports footer
+- [x] Update AI assistant system prompts
+- [x] Add AI Generator component to Dashboard
+- [x] Test AI roadmap generation
+
+
+## Phase 20: AI Goal Generator (Completed)
+- [x] Create AIGoalGenerator component with multi-step dialog
+- [x] Step 1: Category selection (Business, Career, Education, Health, Finance)
+- [x] Step 2: Goal description input with examples
+- [x] Step 3: Clarifying questions based on category
+- [x] Step 4: AI roadmap generation with loading state
+- [x] Step 5: Preview generated roadmap structure
+- [x] Create project from generated roadmap (blocks, sections, tasks)
+- [x] Integration with credit system (uses platform AI)
+- [x] Backend generateRoadmap procedure with structured JSON output
+- [x] Backend createFromRoadmap procedure to save to database
