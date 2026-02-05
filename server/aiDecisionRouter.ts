@@ -429,6 +429,92 @@ ${input.aiResponse}
     }),
 
   /**
+   * Generate suggested actions from AI response
+   */
+  generateSuggestedActions: protectedProcedure
+    .input(z.object({
+      aiResponse: z.string(),
+      projectId: z.number().optional(),
+      taskId: z.string().optional(),
+      context: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const prompt = `Проанализируй ответ AI и предложи конкретные действия для пользователя.
+
+ОТВЕТ AI:
+${input.aiResponse}
+
+${input.context ? `КОНТЕКСТ: ${input.context}\n\n` : ""}Верни JSON массив предложенных действий в формате:
+[
+  {
+    "id": "unique-id",
+    "type": "create_subtask|set_deadline|update_status|add_tag|create_note|set_priority",
+    "title": "Краткое название действия",
+    "description": "Подробное описание",
+    "data": { "key": "value" },
+    "confidence": "high|medium|low"
+  }
+]
+
+Типы действий:
+- create_subtask: создать подзадачу (data: { title: "название" })
+- set_deadline: установить дедлайн (data: { deadline: "дата" })
+- update_status: изменить статус (data: { status: "in_progress|done|blocked" })
+- add_tag: добавить тег (data: { tagName: "название" })
+- set_priority: установить приоритет (data: { priority: "high|medium|low" })
+- create_note: создать заметку (data: { content: "текст" })
+
+Правила:
+- Максимум 5 действий
+- confidence: high для явных рекомендаций, medium для неявных, low для опциональных
+- Извлекай конкретные данные из ответа (даты, названия, теги)
+- Если нет явных действий, верни пустой массив []`;
+
+      try {
+        const response = await invokeLLM({
+          messages: [
+            { role: "system", content: "Ты помощник для извлечения действий из AI ответов. Отвечай только валидным JSON массивом." },
+            { role: "user", content: prompt },
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "suggested_actions",
+              strict: true,
+              schema: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    type: { type: "string", enum: ["create_subtask", "set_deadline", "update_status", "add_tag", "create_note", "set_priority"] },
+                    title: { type: "string" },
+                    description: { type: "string" },
+                    data: { type: "object", additionalProperties: true },
+                    confidence: { type: "string", enum: ["high", "medium", "low"] },
+                  },
+                  required: ["id", "type", "title", "confidence"],
+                  additionalProperties: false,
+                },
+              },
+            },
+          },
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+          return [];
+        }
+
+        const actions = JSON.parse(typeof content === "string" ? content : JSON.stringify(content));
+        return Array.isArray(actions) ? actions.slice(0, 5) : [];
+      } catch (error) {
+        console.error("[AIDecision] Failed to generate suggested actions:", error);
+        return [];
+      }
+    }),
+
+  /**
    * Get decision statistics
    */
   getStats: protectedProcedure

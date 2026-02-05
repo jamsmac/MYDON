@@ -1373,3 +1373,21 @@
 - [x] Add route /decisions to App.tsx
 - [x] Add navigation link in Dashboard header
 - [x] 413 total tests passing
+
+### Part 3: AI Suggested Actions
+- [x] Create SuggestedActions component with 7 action types:
+  - [x] create_subtask: Создать подзадачу
+  - [x] set_deadline: Установить дедлайн
+  - [x] update_status: Обновить статус
+  - [x] add_tag: Добавить тег
+  - [x] set_priority: Установить приоритет
+  - [x] create_note: Создать заметку
+  - [x] assign_task: Назначить задачу
+- [x] Add generateSuggestedActions endpoint to aiDecisionRouter (AI-powered)
+- [x] Create parseActionsFromResponse helper (fast local parsing)
+- [x] Two-stage generation: fast local + AI-powered refinement
+- [x] Integrate SuggestedActions into FloatingAIChatContent
+- [x] Show confidence indicators (high/medium/low) with colors
+- [x] Execute actions on click with toast feedback
+- [x] Compact and expanded view modes
+- [x] 413 total tests passing

@@ -27,6 +27,7 @@ import {
   RotateCcw
 } from "lucide-react";
 import { AIResponseActions } from "./AIResponseActions";
+import { SuggestedActions, parseActionsFromResponse, type SuggestedAction } from "./SuggestedActions";
 import { useAIContext } from "@/hooks/useAIContext";
 
 interface Message {
@@ -35,6 +36,7 @@ interface Message {
   content: string;
   timestamp: Date;
   question?: string; // For AI responses, store the original question
+  suggestedActions?: SuggestedAction[]; // AI-generated action suggestions
 }
 
 interface FloatingAIChatContentProps {
@@ -105,10 +107,16 @@ export function FloatingAIChatContent({
     }
   }, [messages]);
 
+  // Suggested actions mutation
+  const suggestedActionsMutation = trpc.aiDecision.generateSuggestedActions.useMutation();
+
   // Chat mutation
   const chatMutation = trpc.aiRouter.quickChat.useMutation({
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       const lastUserMessage = messages.filter(m => m.role === "user").pop();
+      
+      // Parse actions from response (fast, local)
+      const localActions = parseActionsFromResponse(data.content, { projectId, taskId });
       
       const aiMessage: Message = {
         id: Date.now().toString(),
@@ -116,11 +124,33 @@ export function FloatingAIChatContent({
         content: data.content,
         timestamp: new Date(),
         question: lastUserMessage?.content,
+        suggestedActions: localActions,
       };
       
       setMessages(prev => [...prev, aiMessage]);
       setIsLoading(false);
       onNewMessage?.();
+
+      // Try to get AI-generated actions (slower, more accurate)
+      try {
+        const aiActions = await suggestedActionsMutation.mutateAsync({
+          aiResponse: data.content,
+          projectId,
+          taskId,
+        });
+        
+        if (aiActions && aiActions.length > 0) {
+          // Update message with AI-generated actions
+          setMessages(prev => prev.map(m => 
+            m.id === aiMessage.id 
+              ? { ...m, suggestedActions: aiActions }
+              : m
+          ));
+        }
+      } catch (error) {
+        // Keep local actions if AI generation fails
+        console.log("Using local action parsing");
+      }
     },
     onError: (error) => {
       toast.error("Ошибка AI", {
@@ -243,6 +273,18 @@ export function FloatingAIChatContent({
                   {message.role === "assistant" ? (
                     <div className="prose prose-sm dark:prose-invert max-w-none">
                       <Streamdown>{message.content}</Streamdown>
+                      
+                      {/* Suggested Actions */}
+                      {message.suggestedActions && message.suggestedActions.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          <SuggestedActions
+                            actions={message.suggestedActions}
+                            projectId={projectId}
+                            taskId={taskId}
+                            compact
+                          />
+                        </div>
+                      )}
                       
                       {/* Quick Actions for AI responses */}
                       <AIResponseActions
