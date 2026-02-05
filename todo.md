@@ -1090,3 +1090,14 @@
 ### 57.5.3 Tests
 - [x] 19 achievement integration tests
 - [x] 307 total tests passing
+
+
+## Phase 58: AI Router System with Caching
+### 58.1 Database Tables (Completed)
+- [x] Add aiCache table (cache AI requests with MD5 keys)
+- [x] Add aiRequests table (history of all requests)
+- [x] Add aiSessions table (chat sessions)
+- [x] Add aiUsageStats table (daily usage statistics)
+- [x] Add indexes for query optimization
+- [x] Add relations for new tables
+- [x] Database already synced (9 AI tables exist)

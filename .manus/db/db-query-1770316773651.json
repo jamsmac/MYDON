@@ -1,0 +1,37 @@
+{
+  "query": "SHOW TABLES LIKE 'ai_%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute SHOW TABLES LIKE 'ai_%';",
+  "rows": [
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_agents"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_chat_history"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_integrations"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_preferences"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_request_logs"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_settings"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_skills"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_suggestions"
+    },
+    {
+      "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)": "ai_usage_tracking"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_U4oWTJpkwb9eRxq5w7WA9g (ai_%)\nai_agents\nai_chat_history\nai_integrations\nai_preferences\nai_request_logs\nai_settings\nai_skills\nai_suggestions\nai_usage_tracking\n",
+  "stderr": "",
+  "execution_time_ms": 103
+}

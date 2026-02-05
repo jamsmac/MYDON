@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean, index } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean, index, decimal, date } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -1197,3 +1197,87 @@ export const userStats = mysqlTable("user_stats", {
 });
 export type UserStat = typeof userStats.$inferSelect;
 export type InsertUserStat = typeof userStats.$inferInsert;
+
+
+// ============ AI ROUTER SYSTEM TABLES ============
+
+/**
+ * AI Cache - Cache AI requests with MD5 keys for faster responses
+ */
+export const aiCache = mysqlTable('ai_cache', {
+  id: int('id').primaryKey().autoincrement(),
+  cacheKey: varchar('cache_key', { length: 32 }).notNull().unique(),
+  prompt: text('prompt').notNull(),
+  response: text('response').notNull(),
+  model: varchar('model', { length: 50 }).notNull(),
+  taskType: varchar('task_type', { length: 20 }),
+  tokens: int('tokens'),
+  cost: decimal('cost', { precision: 10, scale: 6 }),
+  hitCount: int('hit_count').default(0),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  cacheKeyIdx: index('ai_cache_key_idx').on(table.cacheKey),
+  expiresAtIdx: index('ai_expires_at_idx').on(table.expiresAt),
+}));
+export type AiCache = typeof aiCache.$inferSelect;
+export type InsertAiCache = typeof aiCache.$inferInsert;
+
+/**
+ * AI Requests - History of all AI requests
+ */
+export const aiRequests = mysqlTable('ai_requests', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('user_id').notNull(),
+  sessionId: varchar('session_id', { length: 36 }),
+  prompt: text('prompt').notNull(),
+  response: text('response').notNull(),
+  model: varchar('model', { length: 50 }).notNull(),
+  taskType: varchar('task_type', { length: 20 }),
+  tokens: int('tokens'),
+  cost: decimal('cost', { precision: 10, scale: 6 }),
+  fromCache: boolean('from_cache').default(false),
+  executionTime: int('execution_time'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  userIdIdx: index('ai_requests_user_id_idx').on(table.userId),
+  sessionIdIdx: index('ai_requests_session_id_idx').on(table.sessionId),
+}));
+export type AiRequest = typeof aiRequests.$inferSelect;
+export type InsertAiRequest = typeof aiRequests.$inferInsert;
+
+/**
+ * AI Sessions - Chat sessions for AI conversations
+ */
+export const aiSessions = mysqlTable('ai_sessions', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  userId: int('user_id').notNull(),
+  title: varchar('title', { length: 255 }).default('New Chat'),
+  projectId: int('project_id'),
+  lastMessageAt: timestamp('last_message_at'),
+  messageCount: int('message_count').default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  userIdIdx: index('ai_sessions_user_id_idx').on(table.userId),
+}));
+export type AiSession = typeof aiSessions.$inferSelect;
+export type InsertAiSession = typeof aiSessions.$inferInsert;
+
+/**
+ * AI Usage Stats - Daily usage statistics per user
+ */
+export const aiUsageStats = mysqlTable('ai_usage_stats', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('user_id').notNull(),
+  date: date('date').notNull(),
+  totalRequests: int('total_requests').default(0),
+  cachedRequests: int('cached_requests').default(0),
+  totalTokens: int('total_tokens').default(0),
+  totalCost: decimal('total_cost', { precision: 10, scale: 4 }).default('0.0000'),
+  modelUsage: json('model_usage').$type<Record<string, number>>(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  userIdDateIdx: index('ai_usage_user_date_idx').on(table.userId, table.date),
+}));
+export type AiUsageStat = typeof aiUsageStats.$inferSelect;
+export type InsertAiUsageStat = typeof aiUsageStats.$inferInsert;
