@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Офлайн - MYDON</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #e2e8f0;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 400px;
+    }
+    .icon {
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 2rem;
+      background: rgba(245, 158, 11, 0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .icon svg {
+      width: 60px;
+      height: 60px;
+      stroke: #f59e0b;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+      color: #f8fafc;
+    }
+    p {
+      color: #94a3b8;
+      margin-bottom: 2rem;
+      line-height: 1.6;
+    }
+    .retry-btn {
+      background: #f59e0b;
+      color: #0f172a;
+      border: none;
+      padding: 0.875rem 2rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .retry-btn:hover {
+      background: #fbbf24;
+      transform: translateY(-2px);
+    }
+    .retry-btn:active {
+      transform: translateY(0);
+    }
+    .status {
+      margin-top: 2rem;
+      padding: 1rem;
+      background: rgba(30, 41, 59, 0.5);
+      border-radius: 0.5rem;
+      font-size: 0.875rem;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
+      </svg>
+    </div>
+    <h1>Нет подключения к сети</h1>
+    <p>Проверьте подключение к интернету и попробуйте снова. Некоторые функции могут быть недоступны в офлайн-режиме.</p>
+    <button class="retry-btn" onclick="window.location.reload()">
+      Попробовать снова
+    </button>
+    <div class="status" id="status">
+      Проверка соединения...
+    </div>
+  </div>
+  <script>
+    function checkOnline() {
+      const status = document.getElementById('status');
+      if (navigator.onLine) {
+        status.innerHTML = '✓ Соединение восстановлено. <a href="/" style="color: #f59e0b;">Перейти на главную</a>';
+        status.style.color = '#10b981';
+      } else {
+        status.textContent = '✗ Нет соединения';
+        status.style.color = '#ef4444';
+      }
+    }
+    
+    window.addEventListener('online', checkOnline);
+    window.addEventListener('offline', checkOnline);
+    checkOnline();
+  </script>
+</body>
+</html>

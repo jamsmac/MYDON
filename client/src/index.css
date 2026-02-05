@@ -283,3 +283,215 @@
 .animate-check-bounce {
   animation: checkBounce 0.3s ease-out;
 }
+
+
+/* ===== Mobile & PWA Styles ===== */
+
+/* Safe area insets for notched devices */
+.pt-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pb-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pl-safe-left {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+.pr-safe-right {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Touch-friendly sizing */
+@media (pointer: coarse) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Larger tap targets for buttons */
+  button, 
+  [role="button"],
+  a {
+    min-height: 44px;
+  }
+  
+  /* Prevent text selection on touch */
+  .no-select {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Smooth scrolling for mobile */
+.scroll-smooth {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Hide scrollbar on mobile but keep functionality */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Pull to refresh indicator */
+.pull-indicator {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  transition: transform 0.2s ease;
+}
+.pull-indicator.active {
+  transform: translateX(-50%) rotate(180deg);
+}
+
+/* Mobile-specific animations */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out;
+}
+
+/* Bottom sheet styles */
+.bottom-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--background);
+  border-top-left-radius: 1rem;
+  border-top-right-radius: 1rem;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.bottom-sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: var(--muted);
+  border-radius: 2px;
+  margin: 8px auto;
+}
+
+/* Responsive container adjustments */
+@media (max-width: 640px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  /* Stack buttons on mobile */
+  .button-group-mobile {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .button-group-mobile > * {
+    width: 100%;
+  }
+}
+
+/* Landscape mode adjustments */
+@media (max-height: 500px) and (orientation: landscape) {
+  .landscape-compact {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  
+  .landscape-hide {
+    display: none;
+  }
+}
+
+/* PWA standalone mode adjustments */
+@media (display-mode: standalone) {
+  .pwa-only {
+    display: block;
+  }
+  
+  .browser-only {
+    display: none;
+  }
+}
+
+/* Haptic feedback simulation (visual) */
+.haptic-feedback:active {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
+
+/* Swipe action colors */
+.swipe-complete {
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+}
+
+.swipe-delete {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
+.swipe-edit {
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+}
+
+/* Mobile card shadows */
+@media (max-width: 768px) {
+  .card {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+}
+
+/* Floating action button */
+.fab {
+  position: fixed;
+  bottom: 5rem;
+  right: 1rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+  z-index: 40;
+}
+
+@media (min-width: 768px) {
+  .fab {
+    bottom: 2rem;
+    right: 2rem;
+  }
+}
