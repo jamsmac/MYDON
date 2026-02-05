@@ -10,6 +10,7 @@ import { streamLLM } from "./llmStream";
 import { getUserFromRequest } from "./context";
 import * as db from "../db";
 import { serveStatic, setupVite } from "./vite";
+import { generateMarkdownReport, generateHtmlReport } from "../export";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -142,6 +143,61 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
       }
     }
   });
+  // Export endpoints
+  app.get("/api/export/markdown/:projectId", async (req, res) => {
+    try {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const projectId = parseInt(req.params.projectId);
+      const project = await db.getFullProject(projectId, user.id);
+      
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      const markdown = generateMarkdownReport(project as any);
+      
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${project.name.replace(/[^a-zA-Z0-9а-яА-Я]/g, '_')}_report.md"`);
+      res.send(markdown);
+    } catch (error) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: "Failed to export project" });
+    }
+  });
+
+  app.get("/api/export/html/:projectId", async (req, res) => {
+    try {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const projectId = parseInt(req.params.projectId);
+      const project = await db.getFullProject(projectId, user.id);
+      
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      const html = generateHtmlReport(project as any);
+      
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${project.name.replace(/[^a-zA-Z0-9а-яА-Я]/g, '_')}_report.html"`);
+      res.send(html);
+    } catch (error) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: "Failed to export project" });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

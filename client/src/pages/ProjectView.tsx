@@ -23,7 +23,9 @@ import {
   Save,
   X,
   Bookmark,
-  Copy
+  Copy,
+  Download,
+  FileDown
 } from 'lucide-react';
 import { Link, useParams, useLocation } from 'wouter';
 import { useState, useMemo } from 'react';
@@ -658,6 +660,28 @@ export default function ProjectView() {
                   <Edit className="w-4 h-4 mr-2" />
                   Редактировать
                 </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-slate-700" />
+                <DropdownMenuItem 
+                  className="text-slate-300"
+                  onClick={() => {
+                    window.open(`/api/export/markdown/${projectId}`, '_blank');
+                    toast.success('Экспорт в Markdown начат');
+                  }}
+                >
+                  <FileDown className="w-4 h-4 mr-2" />
+                  Экспорт в Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-slate-300"
+                  onClick={() => {
+                    window.open(`/api/export/html/${projectId}`, '_blank');
+                    toast.success('Экспорт в HTML начат');
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Экспорт в HTML/PDF
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-slate-700" />
                 <DropdownMenuItem 
                   className="text-red-400"
                   onClick={() => {

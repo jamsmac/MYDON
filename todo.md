@@ -78,3 +78,11 @@
 - [ ] Frontend streaming handler
 - [ ] Real-time text rendering with Streamdown
 - [ ] Loading states and error handling
+
+
+## Phase 9: Project Export Feature
+- [ ] Server-side Markdown export endpoint
+- [ ] Server-side PDF export endpoint
+- [ ] Export UI with format selection
+- [ ] Include all blocks, sections, tasks, notes, and documents
+- [ ] Progress statistics in export
