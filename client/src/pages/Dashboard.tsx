@@ -24,6 +24,8 @@ import {
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
 import { CreditsWidget } from '@/components/CreditsWidget';
+import { UsageStats } from '@/components/UsageStats';
+import { UpgradePrompt } from '@/components/UpgradePrompt';
 import { AIGoalGenerator } from '@/components/AIGoalGenerator';
 import { TemplateLibrary } from '@/components/TemplateLibrary';
 import { DailyBriefing } from '@/components/DailyBriefing';
@@ -49,6 +51,8 @@ export default function Dashboard() {
   const [aiGeneratorOpen, setAiGeneratorOpen] = useState(false);
   const [templateLibraryOpen, setTemplateLibraryOpen] = useState(false);
   const [dailyBriefingOpen, setDailyBriefingOpen] = useState(false);
+  const [upgradePromptOpen, setUpgradePromptOpen] = useState(false);
+  const [upgradePromptType, setUpgradePromptType] = useState<'project' | 'ai'>('project');
 
   const { data: projects, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
     undefined,
@@ -108,7 +112,12 @@ export default function Dashboard() {
       navigate(`/project/${project.id}`);
     },
     onError: (error) => {
-      toast.error('Ошибка создания проекта: ' + error.message);
+      if (error.message.includes('лимит') || error.message.includes('Лимит')) {
+        setUpgradePromptType('project');
+        setUpgradePromptOpen(true);
+      } else {
+        toast.error('Ошибка создания проекта: ' + error.message);
+      }
     }
   });
 
@@ -188,6 +197,7 @@ export default function Dashboard() {
               <Sparkles className="w-5 h-5" />
             </Button>
             <CreditsWidget />
+            <UsageStats />
             <Link href="/settings">
               <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
                 <Settings className="w-5 h-5" />
@@ -543,6 +553,12 @@ export default function Dashboard() {
 
       {/* Floating AI Assistant Button */}
       <FloatingAIButton />
+      {/* Upgrade Prompt Dialog */}
+      <UpgradePrompt
+        open={upgradePromptOpen}
+        onOpenChange={setUpgradePromptOpen}
+        type={upgradePromptType}
+      />
     </div>
   );
 }

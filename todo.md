@@ -501,3 +501,48 @@
 - [x] Update user subscription status on payment success
 - [x] Add subscription management UI (cancel, upgrade)
 - [x] Show current plan in user profile
+
+
+## Phase 39: Subscription Limits System (Completed)
+- [x] Create limits configuration file with plan-based restrictions
+- [x] Add daily AI usage tracking table to database
+- [x] Create checkLimit middleware for backend procedures
+- [x] Implement project count limit (3 for free, unlimited for paid)
+- [x] Implement AI requests limit (10/day for free, unlimited for paid)
+- [x] Add limit check before project creation
+- [x] Add limit check before AI operations
+- [x] Create UI component for showing usage stats
+- [x] Add upgrade prompts when limits reached
+- [x] Show remaining AI requests in header
+
+
+## Phase 40: UX Improvements
+- [ ] Inline editing for task dates
+- [ ] Keyboard shortcuts (Cmd+K for AI, Cmd+N for new project)
+- [ ] Visual drop zone indicators
+
+## Phase 41: Collaboration
+- [ ] Invite team members by email
+- [ ] User roles (Owner, Editor, Viewer)
+- [ ] Comments on tasks
+- [ ] @mentions in comments
+
+## Phase 42: Notifications
+- [ ] Notification center in header
+- [ ] Email digest (daily/weekly)
+- [ ] Telegram bot integration
+- [ ] Browser push notifications
+
+## Phase 43: Calendar
+- [ ] Google Calendar sync
+- [ ] Built-in calendar view
+- [ ] Drag tasks to reschedule
+
+## Phase 44: Import/Export
+- [ ] Import from Notion/Trello
+- [ ] Export to PDF report
+- [ ] Automatic backups
+
+## Phase 45: Analytics
+- [ ] Task completion charts
+- [ ] Audit log

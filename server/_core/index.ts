@@ -13,6 +13,7 @@ import { serveStatic, setupVite } from "./vite";
 import { generateMarkdownReport, generateHtmlReport } from "../export";
 import { parseRoadmap, generateMarkdownTemplate, generateJsonTemplate } from "../import";
 import { handleStripeWebhook } from "../stripe/webhookHandler";
+import { checkAiRequestLimit, incrementAiUsage } from "../limits/limitsService";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -56,6 +57,17 @@ async function startServer() {
       }
 
       const { contextType, contextId, content, projectContext } = req.body;
+
+      // Check AI request limit
+      const limitCheck = await checkAiRequestLimit(user.id);
+      if (!limitCheck.allowed) {
+        res.status(403).json({ 
+          error: limitCheck.message,
+          limitReached: true,
+          remaining: 0
+        });
+        return;
+      }
 
       // Save user message
       const userMessage = await db.createChatMessage({
@@ -135,6 +147,9 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
         provider: "manus",
         model: "gemini-2.5-flash",
       });
+
+      // Increment AI usage counter
+      await incrementAiUsage(user.id);
 
       // Send final event with message ID
       res.write(`\ndata: {"type":"done","assistantMessageId":${assistantMessage.id}}\n\n`);

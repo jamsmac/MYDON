@@ -626,3 +626,19 @@ export const aiRequestLogs = mysqlTable("ai_request_logs", {
 
 export type AIRequestLog = typeof aiRequestLogs.$inferSelect;
 export type InsertAIRequestLog = typeof aiRequestLogs.$inferInsert;
+
+
+/**
+ * Daily AI usage tracking for subscription limits
+ */
+export const aiUsageTracking = mysqlTable("ai_usage_tracking", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD format
+  requestCount: int("requestCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AiUsageTracking = typeof aiUsageTracking.$inferSelect;
+export type InsertAiUsageTracking = typeof aiUsageTracking.$inferInsert;

@@ -10,6 +10,9 @@ import * as googleCalendar from "./googleCalendar";
 import { subscriptionRouter, aiIntegrationsRouter } from "./subscriptionRouter";
 import { agentsRouter, skillsRouter, mcpServersRouter, orchestratorRouter } from "./orchestratorRouter";
 import { stripeRouter } from "./stripe/stripeRouter";
+import { checkProjectLimit, checkAiRequestLimit, incrementAiUsage, getUserUsageStats } from "./limits/limitsService";
+import { limitsRouter } from "./limits/limitsRouter";
+import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
 const projectRouter = router({
@@ -39,6 +42,15 @@ const projectRouter = router({
       targetDate: z.date().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check project limit before creation
+      const limitCheck = await checkProjectLimit(ctx.user.id);
+      if (!limitCheck.allowed) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: limitCheck.message || 'Project limit reached',
+        });
+      }
+      
       return db.createProject({
         ...input,
         userId: ctx.user.id,
@@ -1364,6 +1376,7 @@ export const appRouter = router({
   mcpServers: mcpServersRouter,
   orchestrator: orchestratorRouter,
   stripe: stripeRouter,
+  limits: limitsRouter,
 });
 
 export type AppRouter = typeof appRouter;
