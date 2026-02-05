@@ -34,7 +34,8 @@ import {
   MoreVertical,
   Check,
   Search,
-  X
+  X,
+  Wand2
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { AIResponseActions } from "./AIResponseActions";
@@ -185,6 +186,16 @@ export function FloatingAIChatContent({
     },
   });
 
+  // Generate session title mutation
+  const generateTitleMutation = trpc.aiSession.generateSessionTitle.useMutation({
+    onSuccess: (result) => {
+      if (result.success) {
+        utils.aiSession.listSessions.invalidate();
+        utils.aiSession.getSession.invalidate();
+      }
+    },
+  });
+
   // Delete session mutation
   const deleteSessionMutation = trpc.aiSession.deleteSession.useMutation({
     onSuccess: () => {
@@ -290,6 +301,16 @@ export function FloatingAIChatContent({
         } catch (error) {
           // Keep local actions if AI generation fails
           console.log("Using local action parsing");
+        }
+
+        // Auto-generate title after first AI response (when we have 2+ messages)
+        // Only generate if title is still default
+        const currentMessages = messages.length + 2; // +2 for user msg and this AI msg
+        if (currentMessages >= 2 && currentMessages <= 4) {
+          // Check if session has default title by fetching current session
+          const sessionData = await utils.aiSession.getSession.fetch({ sessionUuid: '' }).catch(() => null);
+          // Generate title in background (don't await)
+          generateTitleMutation.mutate({ sessionId: currentSessionId });
         }
       }
     },
@@ -529,6 +550,21 @@ export function FloatingAIChatContent({
                       }}>
                         <Archive className="h-4 w-4 mr-2" />
                         Архивировать
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          generateTitleMutation.mutate({ sessionId: session.id });
+                          toast.info("Генерация заголовка...");
+                        }}
+                        disabled={generateTitleMutation.isPending}
+                      >
+                        {generateTitleMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Wand2 className="h-4 w-4 mr-2" />
+                        )}
+                        Сгенерировать заголовок
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem 

@@ -1464,3 +1464,17 @@
   - [x] Show match type indicator (title/content)
 - [x] Add tests for search functionality
 - [x] 430 total tests passing
+
+
+## Phase 71: AI Session Auto-Title Generation (Completed)
+- [x] Add generateSessionTitle endpoint to aiSessionRouter
+  - [x] Accept sessionId and use first few messages as context
+  - [x] Use LLM to generate concise, meaningful title
+  - [x] Update session title in database
+- [x] Integrate auto-title in FloatingAIChatContent:
+  - [x] Trigger title generation after first AI response
+  - [x] Show loading state while generating
+  - [x] Update UI with new title
+- [x] Add manual "regenerate title" option in session menu (Wand2 icon)
+- [x] Add tests for title generation
+- [x] 432 total tests passing

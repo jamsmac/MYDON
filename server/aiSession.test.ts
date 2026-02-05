@@ -404,4 +404,31 @@ describe('aiSessionRouter', () => {
       }
     });
   });
+
+  describe('generateSessionTitle', () => {
+    it('should generate a title for a session', async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      
+      const result = await caller.aiSession.generateSessionTitle({
+        sessionId: 1,
+      });
+
+      expect(result).toBeDefined();
+      expect(typeof result.success).toBe('boolean');
+      expect(typeof result.title).toBe('string');
+    });
+
+    it('should return success false when not enough messages', async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      
+      // Mock returns session but with insufficient messages
+      const result = await caller.aiSession.generateSessionTitle({ sessionId: 1 });
+      
+      // Should return success: false when there aren't enough messages
+      expect(result.success).toBe(false);
+      expect(result.title).toBeDefined();
+    });
+  });
 });

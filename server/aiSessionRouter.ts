@@ -11,6 +11,7 @@ import { aiChatSessions, aiChatMessages } from "../drizzle/schema";
 import { eq, and, desc, sql, like, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { v4 as uuidv4 } from "uuid";
+import { invokeLLM } from "./_core/llm";
 
 // Helper to get db with null check
 async function getDatabase() {
@@ -548,6 +549,96 @@ export const aiSessionRouter = router({
         .where(eq(aiChatSessions.id, input.sessionId));
 
       return { success: true, message: "История очищена" };
+    }),
+
+  /**
+   * Generate a title for a session using AI based on initial messages
+   */
+  generateSessionTitle: protectedProcedure
+    .input(z.object({
+      sessionId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDatabase();
+
+      // Get session to verify ownership
+      const session = await db.select()
+        .from(aiChatSessions)
+        .where(and(
+          eq(aiChatSessions.id, input.sessionId),
+          eq(aiChatSessions.userId, ctx.user.id)
+        ))
+        .limit(1);
+
+      if (!session.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Сессия не найдена" });
+      }
+
+      // Get first few messages from the session
+      const messages = await db.select()
+        .from(aiChatMessages)
+        .where(eq(aiChatMessages.sessionId, input.sessionId))
+        .orderBy(aiChatMessages.createdAt)
+        .limit(6);
+
+      if (messages.length < 2) {
+        // Not enough messages to generate a meaningful title
+        return { 
+          success: false, 
+          title: session[0].title,
+          message: "Недостаточно сообщений для генерации заголовка" 
+        };
+      }
+
+      // Build conversation context for title generation
+      const conversationContext = messages
+        .map(m => `${m.role === "user" ? "Пользователь" : "AI"}: ${m.content.substring(0, 200)}`)
+        .join("\n");
+
+      try {
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: `Ты генератор заголовков для чат-сессий. Твоя задача - создать краткий, информативный заголовок на основе содержания разговора.
+
+Правила:
+- Заголовок должен быть на том же языке, что и разговор
+- Максимум 50 символов
+- Отражай главную тему или вопрос пользователя
+- Не используй кавычки или спецсимволы
+- Верни ТОЛЬКО заголовок, без пояснений`,
+            },
+            {
+              role: "user",
+              content: `Создай заголовок для этого разговора:\n\n${conversationContext}`,
+            },
+          ],
+          maxTokens: 60,
+        });
+
+        const rawContent = response.choices[0]?.message?.content;
+        const generatedTitle = (typeof rawContent === "string" ? rawContent.trim() : "Новый чат") || "Новый чат";
+        
+        // Clean up the title (remove quotes if present)
+        const cleanTitle = generatedTitle
+          .replace(/^["'«“]+|["'»”]+$/g, "")
+          .substring(0, 50);
+
+        // Update session title
+        await db.update(aiChatSessions)
+          .set({ title: cleanTitle })
+          .where(eq(aiChatSessions.id, input.sessionId));
+
+        return { success: true, title: cleanTitle };
+      } catch (error) {
+        console.error("[AI Session] Title generation failed:", error);
+        return { 
+          success: false, 
+          title: session[0].title,
+          message: "Не удалось сгенерировать заголовок" 
+        };
+      }
     }),
 });
 
