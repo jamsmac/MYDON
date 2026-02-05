@@ -15,6 +15,7 @@ import NotificationSettings from "./pages/NotificationSettings";
 import TeamManagement from "./pages/TeamManagement";
 import JoinProject from "./pages/JoinProject";
 import Analytics from "./pages/Analytics";
+import CommunityTemplates from "./pages/CommunityTemplates";
 
 function Router() {
   return (
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/project/:id/team" component={TeamManagement} />
       <Route path="/project/:id/analytics" component={Analytics} />
       <Route path="/join/:code" component={JoinProject} />
+      <Route path="/templates" component={CommunityTemplates} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

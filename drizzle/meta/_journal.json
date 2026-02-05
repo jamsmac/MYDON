@@ -113,6 +113,13 @@
       "when": 1770307382242,
       "tag": "0015_white_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1770308897582,
+      "tag": "0016_medical_bug",
+      "breakpoints": true
     }
   ]
 }

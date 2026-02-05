@@ -377,8 +377,22 @@ export const projectTemplates = mysqlTable("project_templates", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// Type for template variable
+export type TemplateVariable = {
+  name: string; // Variable name (e.g., "projectName")
+  type: 'text' | 'number' | 'date' | 'select' | 'multiselect';
+  label: string; // Display label
+  labelRu?: string; // Russian label
+  description?: string;
+  defaultValue?: string;
+  options?: string[]; // For select/multiselect types
+  required?: boolean;
+  placeholder?: string;
+};
+
 // Type for template structure JSON
 export type TemplateStructure = {
+  variables?: TemplateVariable[]; // Template variables for parameterization
   blocks: {
     title: string;
     description?: string;
@@ -389,6 +403,8 @@ export type TemplateStructure = {
       tasks: {
         title: string;
         description?: string;
+        priority?: 'critical' | 'high' | 'medium' | 'low';
+        estimatedDays?: number;
       }[];
     }[];
   }[];
@@ -396,6 +412,56 @@ export type TemplateStructure = {
 
 export type ProjectTemplate = typeof projectTemplates.$inferSelect;
 export type InsertProjectTemplate = typeof projectTemplates.$inferInsert;
+
+/**
+ * Template Tags - for categorizing and searching templates
+ */
+export const templateTags = mysqlTable("template_tags", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 64 }).notNull().unique(),
+  nameRu: varchar("nameRu", { length: 64 }),
+  usageCount: int("usageCount").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type TemplateTag = typeof templateTags.$inferSelect;
+export type InsertTemplateTag = typeof templateTags.$inferInsert;
+
+/**
+ * Template to Tags mapping (many-to-many)
+ */
+export const templateToTags = mysqlTable("template_to_tags", {
+  id: int("id").autoincrement().primaryKey(),
+  templateId: int("templateId").notNull(),
+  tagId: int("tagId").notNull(),
+});
+
+/**
+ * Template Ratings - user ratings for templates
+ */
+export const templateRatings = mysqlTable("template_ratings", {
+  id: int("id").autoincrement().primaryKey(),
+  templateId: int("templateId").notNull(),
+  userId: int("userId").notNull(),
+  rating: int("rating").notNull(), // 1-5
+  review: text("review"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type TemplateRating = typeof templateRatings.$inferSelect;
+export type InsertTemplateRating = typeof templateRatings.$inferInsert;
+
+/**
+ * Template Downloads - tracks template usage
+ */
+export const templateDownloads = mysqlTable("template_downloads", {
+  id: int("id").autoincrement().primaryKey(),
+  templateId: int("templateId").notNull(),
+  userId: int("userId").notNull(),
+  createdProjectId: int("createdProjectId"), // Project created from template
+  downloadedAt: timestamp("downloadedAt").defaultNow().notNull(),
+});
+export type TemplateDownload = typeof templateDownloads.$inferSelect;
+export type InsertTemplateDownload = typeof templateDownloads.$inferInsert;
 
 
 /**
