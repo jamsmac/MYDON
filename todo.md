@@ -466,3 +466,13 @@
 - [x] Add visual feedback during drag (ghost element, drop zones)
 - [x] Backend: Update sortOrder on task/section reorder
 - [x] Persist drag changes to database
+
+
+## Phase 35: Inline Task Editing (Completed)
+- [x] Create InlineEditableText component
+- [x] Add double-click handler to task title
+- [x] Show input field on double-click
+- [x] Save on Enter or blur
+- [x] Cancel on Escape
+- [x] Update task title via API
+- [x] Add visual feedback during editing

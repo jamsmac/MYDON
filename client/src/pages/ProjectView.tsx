@@ -946,6 +946,9 @@ export default function ProjectView() {
                 onReorderSections={(blockId, sectionIds) => {
                   reorderSections.mutate({ blockId, sectionIds });
                 }}
+                onUpdateTaskTitle={(taskId, newTitle) => {
+                  updateTask.mutate({ id: taskId, title: newTitle });
+                }}
                 getContextContent={getContextContent}
               />
             ) : (

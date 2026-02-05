@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
+import { InlineEditableText } from '@/components/InlineEditableText';
 
 // Types
 interface Task {
@@ -96,6 +97,7 @@ interface DraggableSidebarProps {
   onMoveSection: (sectionId: number, newBlockId: number, newSortOrder: number) => void;
   onReorderTasks?: (sectionId: number, taskIds: number[]) => void;
   onReorderSections?: (blockId: number, sectionIds: number[]) => void;
+  onUpdateTaskTitle?: (taskId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
 }
 
@@ -104,12 +106,14 @@ function SortableTask({
   task, 
   sectionId,
   isSelected,
-  onSelect 
+  onSelect,
+  onUpdateTitle
 }: { 
   task: Task; 
   sectionId: number;
   isSelected: boolean;
   onSelect: () => void;
+  onUpdateTitle?: (taskId: number, newTitle: string) => void;
 }) {
   const {
     attributes,
@@ -145,10 +149,10 @@ function SortableTask({
       >
         <GripVertical className="w-3 h-3" />
       </button>
-      <button
+      <div
         onClick={onSelect}
         className={cn(
-          "flex-1 flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors",
+          "flex-1 flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors cursor-pointer",
           isSelected
             ? "bg-slate-700 text-white"
             : "text-slate-500 hover:bg-slate-800 hover:text-slate-300"
@@ -161,8 +165,13 @@ function SortableTask({
         ) : (
           <Circle className="w-3 h-3 text-slate-500 flex-shrink-0" />
         )}
-        <span className="truncate text-left">{task.title}</span>
-      </button>
+        <InlineEditableText
+          value={task.title}
+          onSave={(newTitle) => onUpdateTitle?.(task.id, newTitle)}
+          className="truncate text-left flex-1"
+          disabled={!onUpdateTitle}
+        />
+      </div>
     </div>
   );
 }
@@ -180,6 +189,7 @@ function SortableSection({
   onCreateTask,
   onDelete,
   onMoveTask,
+  onUpdateTaskTitle,
   getContextContent,
 }: {
   section: Section;
@@ -193,6 +203,7 @@ function SortableSection({
   onCreateTask: () => void;
   onDelete: () => void;
   onMoveTask: (taskId: number, newSectionId: number, newSortOrder: number) => void;
+  onUpdateTaskTitle?: (taskId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
 }) {
   const {
@@ -305,6 +316,7 @@ function SortableSection({
                 sectionId={section.id}
                 isSelected={selectedTaskId === task.id}
                 onSelect={() => onSelectTask({ ...task, sectionId: section.id })}
+                onUpdateTitle={onUpdateTaskTitle}
               />
             ))}
           </SortableContext>
@@ -368,6 +380,7 @@ export function DraggableSidebar({
   onMoveSection,
   onReorderTasks,
   onReorderSections,
+  onUpdateTaskTitle,
   getContextContent,
 }: DraggableSidebarProps) {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
@@ -598,6 +611,7 @@ export function DraggableSidebar({
                         onCreateTask={() => onCreateTask(section.id)}
                         onDelete={() => onDeleteSection(section.id)}
                         onMoveTask={onMoveTask}
+                        onUpdateTaskTitle={onUpdateTaskTitle}
                         getContextContent={getContextContent}
                       />
                     ))
