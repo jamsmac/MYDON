@@ -32,8 +32,11 @@ import {
   Pin,
   Archive,
   MoreVertical,
-  Check
+  Check,
+  Search,
+  X
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { AIResponseActions } from "./AIResponseActions";
 import { SuggestedActions, parseActionsFromResponse, type SuggestedAction } from "./SuggestedActions";
 import { useAIContext } from "@/hooks/useAIContext";
@@ -79,6 +82,19 @@ interface FloatingAIChatContentProps {
 
 type ViewMode = "chat" | "sessions";
 
+interface SearchResult {
+  id: number;
+  sessionUuid: string;
+  title: string | null;
+  messageCount: number | null;
+  lastMessageAt: Date | null;
+  isPinned: boolean | null;
+  isArchived: boolean | null;
+  createdAt: Date;
+  matchType: "title" | "content";
+  snippet?: string;
+}
+
 export function FloatingAIChatContent({
   projectId,
   taskId,
@@ -90,8 +106,11 @@ export function FloatingAIChatContent({
   const [isLoading, setIsLoading] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const utils = trpc.useUtils();
 
@@ -128,8 +147,18 @@ export function FloatingAIChatContent({
   const sessionsQuery = trpc.aiSession.listSessions.useQuery(
     { projectId, limit: 20 },
     { 
-      enabled: viewMode === "sessions",
+      enabled: viewMode === "sessions" && !searchQuery,
       staleTime: 30000,
+    }
+  );
+
+  // Search sessions query
+  const searchQuery_trimmed = searchQuery.trim();
+  const searchSessionsQuery = trpc.aiSession.searchSessions.useQuery(
+    { query: searchQuery_trimmed, projectId, limit: 20 },
+    {
+      enabled: viewMode === "sessions" && searchQuery_trimmed.length > 0,
+      staleTime: 10000,
     }
   );
 
@@ -350,6 +379,22 @@ export function FloatingAIChatContent({
 
   // Sessions list view
   if (viewMode === "sessions") {
+    // Determine which data to show
+    const isSearchActive = searchQuery_trimmed.length > 0;
+    const displayData = isSearchActive ? searchSessionsQuery.data : sessionsQuery.data;
+    const isLoadingData = isSearchActive ? searchSessionsQuery.isLoading : sessionsQuery.isLoading;
+
+    // Helper to highlight search matches
+    const highlightMatch = (text: string, query: string) => {
+      if (!query || !text) return text;
+      const parts = text.split(new RegExp(`(${query})`, 'gi'));
+      return parts.map((part, i) => 
+        part.toLowerCase() === query.toLowerCase() 
+          ? <mark key={i} className="bg-amber-500/30 text-foreground rounded px-0.5">{part}</mark>
+          : part
+      );
+    };
+
     return (
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Header */}
@@ -358,27 +403,65 @@ export function FloatingAIChatContent({
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0"
-            onClick={() => setViewMode("chat")}
+            onClick={() => {
+              setViewMode("chat");
+              setSearchQuery("");
+            }}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <h3 className="font-medium">История чатов</h3>
         </div>
 
+        {/* Search input */}
+        <div className="px-3 py-2 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Поиск по чатам..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 pr-8 h-9 text-sm"
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+                onClick={() => setSearchQuery("")}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+
         {/* Sessions list */}
         <ScrollArea className="flex-1">
           <div className="p-2 space-y-1">
-            {sessionsQuery.isLoading ? (
+            {isLoadingData ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : sessionsQuery.data?.length === 0 ? (
+            ) : !displayData || displayData.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">Нет сохраненных чатов</p>
+                {isSearchActive ? (
+                  <>
+                    <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">Ничего не найдено</p>
+                    <p className="text-xs mt-1">Попробуйте другой запрос</p>
+                  </>
+                ) : (
+                  <>
+                    <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">Нет сохраненных чатов</p>
+                  </>
+                )}
               </div>
             ) : (
-              sessionsQuery.data?.map((session) => (
+              displayData.map((session) => (
                 <div
                   key={session.id}
                   className={cn(
@@ -392,13 +475,28 @@ export function FloatingAIChatContent({
                       {session.isPinned && (
                         <Pin className="h-3 w-3 text-amber-500 flex-shrink-0" />
                       )}
-                      <p className="text-sm font-medium truncate">{session.title}</p>
+                      <p className="text-sm font-medium truncate">
+                        {isSearchActive && (session as SearchResult).matchType === "title" 
+                          ? highlightMatch(session.title || "", searchQuery_trimmed)
+                          : session.title}
+                      </p>
                     </div>
+                    {/* Show snippet for content matches */}
+                    {isSearchActive && (session as SearchResult).matchType === "content" && (session as SearchResult).snippet && (
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2 italic">
+                        {highlightMatch((session as SearchResult).snippet || "", searchQuery_trimmed)}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {session.messageCount ?? 0} {(session.messageCount ?? 0) === 1 ? "сообщение" : 
                         (session.messageCount ?? 0) < 5 ? "сообщения" : "сообщений"}
                       {session.lastMessageAt && (
                         <> • {new Date(session.lastMessageAt).toLocaleDateString("ru-RU")}</>
+                      )}
+                      {isSearchActive && (session as SearchResult).matchType && (
+                        <> • <span className="text-amber-500">
+                          {(session as SearchResult).matchType === "title" ? "в заголовке" : "в сообщении"}
+                        </span></>
                       )}
                     </p>
                   </div>

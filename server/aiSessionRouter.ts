@@ -8,7 +8,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
 import { aiChatSessions, aiChatMessages } from "../drizzle/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, like, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { v4 as uuidv4 } from "uuid";
 
@@ -394,6 +394,121 @@ export const aiSessionRouter = router({
         .where(eq(aiChatMessages.id, input.messageId));
 
       return { success: true };
+    }),
+
+  /**
+   * Search sessions by title or message content
+   */
+  searchSessions: protectedProcedure
+    .input(z.object({
+      query: z.string().min(1),
+      projectId: z.number().optional(),
+      limit: z.number().default(20),
+    }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDatabase();
+      const searchTerm = `%${input.query}%`;
+      
+      // Build conditions
+      const conditions = [eq(aiChatSessions.userId, ctx.user.id)];
+      
+      if (input.projectId) {
+        conditions.push(eq(aiChatSessions.projectId, input.projectId));
+      }
+
+      // Search in session titles
+      const titleMatches = await db.select()
+        .from(aiChatSessions)
+        .where(and(
+          ...conditions,
+          like(aiChatSessions.title, searchTerm)
+        ))
+        .orderBy(desc(aiChatSessions.lastMessageAt))
+        .limit(input.limit);
+
+      // Search in message content
+      const messageMatches = await db.select({
+        session: aiChatSessions,
+        matchedContent: aiChatMessages.content,
+      })
+        .from(aiChatMessages)
+        .innerJoin(aiChatSessions, eq(aiChatMessages.sessionId, aiChatSessions.id))
+        .where(and(
+          eq(aiChatSessions.userId, ctx.user.id),
+          input.projectId ? eq(aiChatSessions.projectId, input.projectId) : sql`1=1`,
+          like(aiChatMessages.content, searchTerm)
+        ))
+        .orderBy(desc(aiChatMessages.createdAt))
+        .limit(input.limit);
+
+      // Combine and deduplicate results
+      const seenIds = new Set<number>();
+      const results: Array<{
+        id: number;
+        sessionUuid: string;
+        title: string | null;
+        messageCount: number | null;
+        lastMessageAt: Date | null;
+        isPinned: boolean | null;
+        isArchived: boolean | null;
+        createdAt: Date;
+        matchType: "title" | "content";
+        snippet?: string;
+      }> = [];
+
+      // Add title matches first
+      for (const session of titleMatches) {
+        if (!seenIds.has(session.id)) {
+          seenIds.add(session.id);
+          results.push({
+            id: session.id,
+            sessionUuid: session.sessionUuid,
+            title: session.title,
+            messageCount: session.messageCount,
+            lastMessageAt: session.lastMessageAt,
+            isPinned: session.isPinned,
+            isArchived: session.isArchived,
+            createdAt: session.createdAt,
+            matchType: "title",
+          });
+        }
+      }
+
+      // Add content matches
+      for (const match of messageMatches) {
+        if (!seenIds.has(match.session.id)) {
+          seenIds.add(match.session.id);
+          // Create snippet from matched content
+          const content = match.matchedContent;
+          const queryLower = input.query.toLowerCase();
+          const contentLower = content.toLowerCase();
+          const matchIndex = contentLower.indexOf(queryLower);
+          let snippet = "";
+          
+          if (matchIndex !== -1) {
+            const start = Math.max(0, matchIndex - 30);
+            const end = Math.min(content.length, matchIndex + input.query.length + 30);
+            snippet = (start > 0 ? "..." : "") + 
+                      content.substring(start, end) + 
+                      (end < content.length ? "..." : "");
+          }
+          
+          results.push({
+            id: match.session.id,
+            sessionUuid: match.session.sessionUuid,
+            title: match.session.title,
+            messageCount: match.session.messageCount,
+            lastMessageAt: match.session.lastMessageAt,
+            isPinned: match.session.isPinned,
+            isArchived: match.session.isArchived,
+            createdAt: match.session.createdAt,
+            matchType: "content",
+            snippet,
+          });
+        }
+      }
+
+      return results.slice(0, input.limit);
     }),
 
   /**

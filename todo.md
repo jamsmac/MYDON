@@ -1449,3 +1449,18 @@
   - [x] Switch between sessions
   - [x] Pin/archive sessions
 - [x] 427 total tests passing
+
+
+## Phase 70: AI Session Search (Completed)
+- [x] Add searchSessions endpoint to aiSessionRouter
+  - [x] Search by session title
+  - [x] Search by message content
+  - [x] Return matching sessions with snippet preview
+- [x] Update FloatingAIChatContent sessions view:
+  - [x] Add search input field
+  - [x] Filter sessions as user types
+  - [x] Highlight matching text in results
+  - [x] Show "no results" state
+  - [x] Show match type indicator (title/content)
+- [x] Add tests for search functionality
+- [x] 430 total tests passing

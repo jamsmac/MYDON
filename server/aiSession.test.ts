@@ -19,6 +19,22 @@ vi.mock('./db', () => ({
       from: vi.fn(() => ({
         innerJoin: vi.fn(() => ({
           where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve([{
+                session: {
+                  id: 1,
+                  sessionUuid: 'test-uuid-123',
+                  userId: 1,
+                  title: 'Test Session',
+                  messageCount: 5,
+                  lastMessageAt: new Date(),
+                  isPinned: false,
+                  isArchived: false,
+                  createdAt: new Date(),
+                },
+                matchedContent: 'This is a test message content',
+              }])),
+            })),
             limit: vi.fn(() => Promise.resolve([{
               message: { id: 1, sessionId: 1 },
               session: { id: 1, userId: 1 },
@@ -27,9 +43,24 @@ vi.mock('./db', () => ({
         })),
         where: vi.fn(() => ({
           orderBy: vi.fn(() => ({
-            limit: vi.fn(() => ({
-              offset: vi.fn(() => Promise.resolve([])),
-            })),
+            limit: vi.fn((n) => {
+              // If called with offset, it's for listSessions
+              // If called without offset, it's for searchSessions title matches
+              return {
+                offset: vi.fn(() => Promise.resolve([])),
+                then: (resolve: Function) => resolve([{
+                  id: 1,
+                  sessionUuid: 'test-uuid-123',
+                  userId: 1,
+                  title: 'Test Session',
+                  messageCount: 5,
+                  lastMessageAt: new Date(),
+                  isPinned: false,
+                  isArchived: false,
+                  createdAt: new Date(),
+                }]),
+              };
+            }),
           })),
           limit: vi.fn(() => Promise.resolve([{
             id: 1,
@@ -328,6 +359,49 @@ describe('aiSessionRouter', () => {
       });
 
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('searchSessions', () => {
+    it('should search sessions by query', async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      
+      const result = await caller.aiSession.searchSessions({
+        query: 'test',
+        limit: 20,
+      });
+
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('should search sessions with projectId filter', async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      
+      const result = await caller.aiSession.searchSessions({
+        query: 'test',
+        projectId: 1,
+        limit: 10,
+      });
+
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('should return results with matchType', async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      
+      const result = await caller.aiSession.searchSessions({
+        query: 'chat',
+        limit: 5,
+      });
+
+      expect(Array.isArray(result)).toBe(true);
+      // Results should have matchType field
+      if (result.length > 0) {
+        expect(['title', 'content']).toContain(result[0].matchType);
+      }
     });
   });
 });
