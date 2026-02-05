@@ -112,6 +112,7 @@ interface DraggableSidebarProps {
   onUpdateSectionTitle?: (sectionId: number, newTitle: string) => void;
   onUpdateBlockTitle?: (blockId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
+  filteredTaskIds?: Set<number>;
 }
 
 // Sortable Task Item
@@ -228,6 +229,7 @@ function SortableSection({
   onUpdateTaskDueDate,
   onUpdateTitle,
   getContextContent,
+  filteredTaskIds,
 }: {
   section: Section;
   blockId: number;
@@ -244,6 +246,7 @@ function SortableSection({
   onUpdateTaskDueDate?: (taskId: number, dueDate: Date | null) => void;
   onUpdateTitle?: (sectionId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
+  filteredTaskIds?: Set<number>;
 }) {
   const {
     attributes,
@@ -353,7 +356,9 @@ function SortableSection({
       {isExpanded && (
         <div className="ml-4 pl-2 border-l border-slate-800">
           <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
-            {section.tasks?.map(task => (
+            {section.tasks
+              ?.filter(task => !filteredTaskIds || filteredTaskIds.size === 0 || filteredTaskIds.has(task.id))
+              .map(task => (
               <SortableTask
                 key={task.id}
                 task={task}
@@ -430,6 +435,7 @@ export function DraggableSidebar({
   onUpdateSectionTitle,
   onUpdateBlockTitle,
   getContextContent,
+  filteredTaskIds,
 }: DraggableSidebarProps) {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const [activeType, setActiveType] = useState<'task' | 'section' | null>(null);
@@ -668,6 +674,7 @@ export function DraggableSidebar({
                         onUpdateTaskDueDate={onUpdateTaskDueDate}
                         onUpdateTitle={onUpdateSectionTitle}
                         getContextContent={getContextContent}
+                        filteredTaskIds={filteredTaskIds}
                       />
                     ))
                   ) : (

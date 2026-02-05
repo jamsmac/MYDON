@@ -672,3 +672,11 @@
 - [x] Show progress indicator (3/5 completed) with SubtaskProgress
 - [x] Add drag&drop for reordering subtasks (Reorder from framer-motion)
 - [x] Add reorderSubtasks API endpoint
+
+
+## Phase 48.1: TaskFiltersBar Integration (Completed)
+- [x] Import TaskFiltersBar in ProjectView
+- [x] Add filter/sort state management (filteredTaskIds state)
+- [x] Place TaskFiltersBar above DraggableSidebar
+- [x] Apply filters and sorting to task list (via filteredTaskIds prop)
+- [x] Test filter and sort functionality - all 113 tests passing

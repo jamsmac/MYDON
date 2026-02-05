@@ -1243,6 +1243,7 @@ export default function ProjectView() {
                   updateBlock.mutate({ id: blockId, titleRu: newTitle });
                 }}
                 getContextContent={getContextContent}
+                filteredTaskIds={filteredTaskIds}
               />
             ) : (
               <div className="text-center py-8 text-slate-500">
