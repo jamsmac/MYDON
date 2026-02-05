@@ -18,6 +18,7 @@ import { teamRouter } from "./teamRouter";
 import { analyticsRouter } from "./analyticsRouter";
 import { analyticsExportRouter } from "./analyticsExport";
 import { templateEnhancedRouter } from "./templateEnhancedRouter";
+import { aiEnhancementsRouter } from "./aiEnhancementsRouter";
 import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
@@ -1475,6 +1476,7 @@ export const appRouter = router({
   analytics: analyticsRouter,
   analyticsExport: analyticsExportRouter,
   templateEnhanced: templateEnhancedRouter,
+  aiEnhancements: aiEnhancementsRouter,
 });
 
 export type AppRouter = typeof appRouter;

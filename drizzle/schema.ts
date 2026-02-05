@@ -928,3 +928,85 @@ export const emailDigestQueue = mysqlTable("email_digest_queue", {
 
 export type EmailDigestQueue = typeof emailDigestQueue.$inferSelect;
 export type InsertEmailDigestQueue = typeof emailDigestQueue.$inferInsert;
+
+
+/**
+ * AI Chat History - stores conversation history per project
+ */
+export const aiChatHistory = mysqlTable("ai_chat_history", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  projectId: int("projectId"),
+  blockId: int("blockId"),
+  sectionId: int("sectionId"),
+  taskId: int("taskId"),
+  role: mysqlEnum("role", ["user", "assistant", "system"]).notNull(),
+  content: text("content").notNull(),
+  model: varchar("model", { length: 100 }),
+  creditsUsed: int("creditsUsed").default(0),
+  metadata: json("metadata"), // Additional context like command used
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type AiChatHistory = typeof aiChatHistory.$inferSelect;
+export type InsertAiChatHistory = typeof aiChatHistory.$inferInsert;
+
+/**
+ * AI Suggestions - cached suggestions for tasks
+ */
+export const aiSuggestions = mysqlTable("ai_suggestions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  projectId: int("projectId"),
+  taskId: int("taskId"),
+  suggestionType: mysqlEnum("suggestionType", ["title", "description", "subtasks", "priority", "deadline", "similar"]).notNull(),
+  suggestion: json("suggestion").notNull(), // The actual suggestion content
+  confidence: int("confidence").default(0), // 0-100 confidence score
+  accepted: boolean("accepted").default(false),
+  dismissed: boolean("dismissed").default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt"), // Suggestions can expire
+});
+export type AiSuggestion = typeof aiSuggestions.$inferSelect;
+export type InsertAiSuggestion = typeof aiSuggestions.$inferInsert;
+
+/**
+ * Project Risks - detected risks for projects
+ */
+export const projectRisks = mysqlTable("project_risks", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  blockId: int("blockId"),
+  taskId: int("taskId"),
+  riskType: mysqlEnum("riskType", ["blocked", "overdue", "dependency", "resource", "scope", "deadline", "quality"]).notNull(),
+  severity: mysqlEnum("severity", ["low", "medium", "high", "critical"]).default("medium"),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  recommendation: text("recommendation"),
+  status: mysqlEnum("status", ["open", "mitigated", "resolved", "accepted"]).default("open"),
+  detectedAt: timestamp("detectedAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ProjectRisk = typeof projectRisks.$inferSelect;
+export type InsertProjectRisk = typeof projectRisks.$inferInsert;
+
+/**
+ * Executive Summaries - generated project summaries
+ */
+export const executiveSummaries = mysqlTable("executive_summaries", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  summary: text("summary").notNull(),
+  keyMetrics: json("keyMetrics"), // { tasksCompleted, tasksTotal, progress, velocity, etc. }
+  risks: json("risks"), // Array of risk summaries
+  achievements: json("achievements"), // Array of recent achievements
+  recommendations: json("recommendations"), // AI recommendations
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt"), // Summaries can be regenerated
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ExecutiveSummary = typeof executiveSummaries.$inferSelect;
+export type InsertExecutiveSummary = typeof executiveSummaries.$inferInsert;

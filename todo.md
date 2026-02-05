@@ -875,3 +875,38 @@
 - [x] Copy project as template (createFromProject)
 - [x] Category and tag filters with search
 - [x] 205 tests passing
+
+
+## Phase 52: AI Enhancements (Completed)
+### 52.1 Smart Suggestions
+- [x] SmartSuggestions component for task creation
+- [x] AI suggestions with title, description, priority, subtasks
+- [x] Similar task detection (findSimilarTasks API)
+### 52.2 Auto-Priority Detection
+- [x] PriorityDetector component with auto-detection
+- [x] Keyword-based detection (urgent, critical, etc.)
+- [x] Deadline proximity analysis
+- [x] Confidence score display
+### 52.3 Risk Detection
+- [x] RiskDetectionPanel component
+- [x] Detect overdue tasks with severity levels
+- [x] Detect blocked tasks (dependencies)
+- [x] Scope creep detection (too many in-progress)
+- [x] Risk status management (open/mitigated/resolved/accepted)
+### 52.4 Executive Summary
+- [x] ExecutiveSummary component with dialog
+- [x] Key metrics display (progress, tasks, risks)
+- [x] Achievements, challenges, recommendations
+- [x] Export to Markdown
+### 52.5 Quick Commands
+- [x] QuickCommands component with popover
+- [x] /summarize - context summary
+- [x] /analyze - SWOT analysis
+- [x] /suggest - improvement suggestions
+- [x] /risks - risk analysis
+### 52.6 Chat History
+- [x] AIChatHistory component
+- [x] Search through conversations
+- [x] Export to Markdown/JSON
+- [x] AIToolbar integration component
+- [x] 218 tests passing
