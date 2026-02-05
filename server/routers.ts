@@ -237,6 +237,16 @@ const sectionRouter = router({
     .mutation(async ({ input }) => {
       return db.convertSectionToTask(input.sectionId, input.targetSectionId);
     }),
+
+  // Reorder sections within a block
+  reorder: protectedProcedure
+    .input(z.object({
+      blockId: z.number(),
+      sectionIds: z.array(z.number()),
+    }))
+    .mutation(async ({ input }) => {
+      return db.reorderSections(input.blockId, input.sectionIds);
+    }),
 });
 
 // ============ TASK ROUTER ============
@@ -346,6 +356,16 @@ const taskRouter = router({
     .input(z.object({ taskId: z.number() }))
     .mutation(async ({ input }) => {
       return db.duplicateTask(input.taskId);
+    }),
+
+  // Reorder tasks within a section
+  reorder: protectedProcedure
+    .input(z.object({
+      sectionId: z.number(),
+      taskIds: z.array(z.number()),
+    }))
+    .mutation(async ({ input }) => {
+      return db.reorderTasks(input.sectionId, input.taskIds);
     }),
 });
 

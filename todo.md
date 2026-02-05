@@ -453,3 +453,16 @@
 - [x] UI: Multi-select mode for bulk operations
 - [x] UI: Bulk action toolbar
 - [ ] Quick inline editing for task names
+
+
+## Phase 34: Drag & Drop Functionality (Completed)
+- [x] Install @dnd-kit/core and @dnd-kit/sortable libraries
+- [x] Create DraggableTask component with drag handle
+- [x] Create DroppableSection component for task drops
+- [x] Implement task reordering within same section
+- [x] Implement task moving between different sections
+- [x] Create DraggableSection component
+- [x] Implement section reordering within blocks
+- [x] Add visual feedback during drag (ghost element, drop zones)
+- [x] Backend: Update sortOrder on task/section reorder
+- [x] Persist drag changes to database

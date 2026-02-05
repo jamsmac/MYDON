@@ -1387,3 +1387,32 @@ export async function duplicateTask(taskId: number): Promise<Task> {
   
   return newTask;
 }
+
+
+// ============ DRAG & DROP REORDER FUNCTIONS ============
+
+export async function reorderTasks(sectionId: number, taskIds: number[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Update sortOrder for each task based on position in array
+  for (let i = 0; i < taskIds.length; i++) {
+    await db
+      .update(tasks)
+      .set({ sortOrder: i, updatedAt: new Date() })
+      .where(and(eq(tasks.id, taskIds[i]), eq(tasks.sectionId, sectionId)));
+  }
+}
+
+export async function reorderSections(blockId: number, sectionIds: number[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Update sortOrder for each section based on position in array
+  for (let i = 0; i < sectionIds.length; i++) {
+    await db
+      .update(sections)
+      .set({ sortOrder: i, updatedAt: new Date() })
+      .where(and(eq(sections.id, sectionIds[i]), eq(sections.blockId, blockId)));
+  }
+}

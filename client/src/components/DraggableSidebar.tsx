@@ -94,6 +94,8 @@ interface DraggableSidebarProps {
   onDeleteSection: (id: number) => void;
   onMoveTask: (taskId: number, newSectionId: number, newSortOrder: number) => void;
   onMoveSection: (sectionId: number, newBlockId: number, newSortOrder: number) => void;
+  onReorderTasks?: (sectionId: number, taskIds: number[]) => void;
+  onReorderSections?: (blockId: number, sectionIds: number[]) => void;
   getContextContent: (type: string, id: number) => string;
 }
 
@@ -364,6 +366,8 @@ export function DraggableSidebar({
   onDeleteSection,
   onMoveTask,
   onMoveSection,
+  onReorderTasks,
+  onReorderSections,
   getContextContent,
 }: DraggableSidebarProps) {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
@@ -414,14 +418,11 @@ export function DraggableSidebar({
       const sourceSectionId = activeData.sectionId;
       
       let targetSectionId: number;
-      let newSortOrder: number;
 
       if (overData.type === 'task') {
         targetSectionId = overData.sectionId;
-        newSortOrder = overData.task.sortOrder;
       } else if (overData.type === 'section') {
         targetSectionId = overData.section.id;
-        newSortOrder = (overData.section.tasks?.length || 0) + 1;
       } else {
         setActiveId(null);
         setActiveType(null);
@@ -429,7 +430,31 @@ export function DraggableSidebar({
         return;
       }
 
-      if (sourceSectionId !== targetSectionId || activeData.task.sortOrder !== newSortOrder) {
+      // Same section - reorder tasks
+      if (sourceSectionId === targetSectionId && onReorderTasks) {
+        const section = blocks
+          .flatMap(b => b.sections || [])
+          .find(s => s.id === sourceSectionId);
+        
+        if (section?.tasks) {
+          const oldIndex = section.tasks.findIndex(t => t.id === taskId);
+          const newIndex = overData.type === 'task' 
+            ? section.tasks.findIndex(t => t.id === overData.task.id)
+            : section.tasks.length;
+          
+          if (oldIndex !== -1 && oldIndex !== newIndex) {
+            const newOrder = arrayMove(section.tasks, oldIndex, newIndex);
+            onReorderTasks(sourceSectionId, newOrder.map(t => t.id));
+          }
+        }
+      } else if (sourceSectionId !== targetSectionId) {
+        // Different section - move task
+        const targetSection = blocks
+          .flatMap(b => b.sections || [])
+          .find(s => s.id === targetSectionId);
+        const newSortOrder = overData.type === 'task'
+          ? (targetSection?.tasks?.findIndex(t => t.id === overData.task.id) ?? 0)
+          : (targetSection?.tasks?.length || 0);
         onMoveTask(taskId, targetSectionId, newSortOrder);
       }
     }
@@ -439,21 +464,26 @@ export function DraggableSidebar({
       const sectionId = activeData.section.id;
       const sourceBlockId = activeData.blockId;
       
-      let targetBlockId: number;
-      let newSortOrder: number;
-
       if (overData.type === 'section') {
-        targetBlockId = overData.blockId;
-        newSortOrder = overData.section.sortOrder;
-      } else {
-        setActiveId(null);
-        setActiveType(null);
-        setActiveItem(null);
-        return;
-      }
-
-      if (sourceBlockId !== targetBlockId || activeData.section.sortOrder !== newSortOrder) {
-        onMoveSection(sectionId, targetBlockId, newSortOrder);
+        const targetBlockId = overData.blockId;
+        
+        // Same block - reorder sections
+        if (sourceBlockId === targetBlockId && onReorderSections) {
+          const block = blocks.find(b => b.id === sourceBlockId);
+          if (block?.sections) {
+            const oldIndex = block.sections.findIndex(s => s.id === sectionId);
+            const newIndex = block.sections.findIndex(s => s.id === overData.section.id);
+            
+            if (oldIndex !== -1 && oldIndex !== newIndex) {
+              const newOrder = arrayMove(block.sections, oldIndex, newIndex);
+              onReorderSections(sourceBlockId, newOrder.map(s => s.id));
+            }
+          }
+        } else if (sourceBlockId !== targetBlockId) {
+          // Different block - move section
+          const newSortOrder = overData.section.sortOrder;
+          onMoveSection(sectionId, targetBlockId, newSortOrder);
+        }
       }
     }
 

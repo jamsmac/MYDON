@@ -59,7 +59,14 @@ import {
   ConvertSectionToTaskDialog,
   BulkActionsDialog 
 } from '@/components/TaskManagementDialogs';
-import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare } from 'lucide-react';
+import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical } from 'lucide-react';
+import { 
+  DragDropProvider, 
+  SortableTask, 
+  SortableSection, 
+  SortableContext, 
+  verticalListSortingStrategy 
+} from '@/components/DragDropContext';
 
 // ============ AI CHAT PANEL ============
 function AIChatPanel({ 
@@ -518,6 +525,20 @@ export default function ProjectView() {
     onError: (error) => toast.error('Ошибка: ' + error.message)
   });
 
+  const reorderTasks = trpc.task.reorder.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка переупорядочивания: ' + error.message)
+  });
+
+  const reorderSections = trpc.section.reorder.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка переупорядочивания: ' + error.message)
+  });
+
   const deleteProject = trpc.project.delete.useMutation({
     onSuccess: () => {
       toast.success('Проект удалён');
@@ -918,6 +939,12 @@ export default function ProjectView() {
                 }}
                 onMoveSection={(sectionId, newBlockId, newSortOrder) => {
                   moveSection.mutate({ id: sectionId, blockId: newBlockId, sortOrder: newSortOrder });
+                }}
+                onReorderTasks={(sectionId, taskIds) => {
+                  reorderTasks.mutate({ sectionId, taskIds });
+                }}
+                onReorderSections={(blockId, sectionIds) => {
+                  reorderSections.mutate({ blockId, sectionIds });
                 }}
                 getContextContent={getContextContent}
               />
