@@ -219,3 +219,13 @@
 - [x] Verify timeline on Gantt chart
 
 **Total: 12 blocks, 44 sections, 304 tasks**
+
+
+## Phase 16: Clickable Dashboard Widgets
+- [x] Make "Проектов" widget clickable (show all projects)
+- [x] Make "Активных" widget clickable (filter active projects)
+- [x] Make "Завершённых" widget clickable (filter completed projects)
+- [x] Make "Просроченных" widget clickable (filter overdue projects)
+- [x] Add visual feedback on hover and active state (ring highlight)
+- [x] Filter projects list in place when widget clicked
+- [x] Show active filter indicator with "Reset filter" button

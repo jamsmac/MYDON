@@ -22,7 +22,7 @@ import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
 import { CreditsWidget } from '@/components/CreditsWidget';
 import { Link, useLocation } from 'wouter';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -36,11 +36,40 @@ export default function Dashboard() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed' | 'overdue'>('all');
 
   const { data: projects, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
     undefined,
     { enabled: isAuthenticated }
   );
+
+  // Filter projects based on selected status
+  const filteredProjects = useMemo(() => {
+    if (!projects) return [];
+    switch (statusFilter) {
+      case 'active':
+        return projects.filter(p => p.status === 'active');
+      case 'completed':
+        return projects.filter(p => p.status === 'completed');
+      case 'overdue':
+        return projects.filter(p => {
+          if (!p.targetDate) return false;
+          return new Date(p.targetDate) < new Date() && p.status !== 'completed';
+        });
+      default:
+        return projects;
+    }
+  }, [projects, statusFilter]);
+
+  // Get filter label for display
+  const getFilterLabel = () => {
+    switch (statusFilter) {
+      case 'active': return 'Активные проекты';
+      case 'completed': return 'Завершённые проекты';
+      case 'overdue': return 'Просроченные проекты';
+      default: return 'Мои проекты';
+    }
+  };
 
   const createProject = trpc.project.create.useMutation({
     onSuccess: (project) => {
@@ -147,7 +176,10 @@ export default function Dashboard() {
       <main className="container py-8">
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <Card className="bg-slate-800/50 border-slate-700">
+          <Card 
+            className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-blue-500/50 ${statusFilter === 'all' ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
+            onClick={() => setStatusFilter('all')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center">
@@ -161,7 +193,10 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="bg-slate-800/50 border-slate-700">
+          <Card 
+            className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-amber-500/50 ${statusFilter === 'active' ? 'ring-2 ring-amber-500 border-amber-500' : ''}`}
+            onClick={() => setStatusFilter('active')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center">
@@ -177,7 +212,10 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="bg-slate-800/50 border-slate-700">
+          <Card 
+            className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-emerald-500/50 ${statusFilter === 'completed' ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}
+            onClick={() => setStatusFilter('completed')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center">
@@ -193,14 +231,22 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="bg-slate-800/50 border-slate-700">
+          <Card 
+            className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-red-500/50 ${statusFilter === 'overdue' ? 'ring-2 ring-red-500 border-red-500' : ''}`}
+            onClick={() => setStatusFilter('overdue')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-red-500/10 rounded-xl flex items-center justify-center">
                   <AlertCircle className="w-6 h-6 text-red-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-white">0</p>
+                  <p className="text-2xl font-bold text-white">
+                    {projects?.filter(p => {
+                      if (!p.targetDate) return false;
+                      return new Date(p.targetDate) < new Date() && p.status !== 'completed';
+                    }).length || 0}
+                  </p>
                   <p className="text-sm text-slate-400">Просроченных</p>
                 </div>
               </div>
@@ -229,7 +275,17 @@ export default function Dashboard() {
 
         {/* Projects Section */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-white">Мои проекты</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold text-white">{getFilterLabel()}</h2>
+            {statusFilter !== 'all' && (
+              <button 
+                onClick={() => setStatusFilter('all')}
+                className="text-xs text-slate-400 hover:text-white bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded transition-colors"
+              >
+                Сбросить фильтр
+              </button>
+            )}
+          </div>
           <div className="flex gap-2">
             <Button 
               variant="outline" 
@@ -298,9 +354,9 @@ export default function Dashboard() {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
           </div>
-        ) : projects && projects.length > 0 ? (
+        ) : filteredProjects && filteredProjects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.map((project) => (
+            {filteredProjects.map((project) => (
               <Link key={project.id} href={`/project/${project.id}`}>
                 <Card className="bg-slate-800/50 border-slate-700 hover:border-amber-500/50 transition-colors cursor-pointer group">
                   <CardHeader>
