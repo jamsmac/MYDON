@@ -16,6 +16,9 @@ import TeamManagement from "./pages/TeamManagement";
 import JoinProject from "./pages/JoinProject";
 import Analytics from "./pages/Analytics";
 import CommunityTemplates from "./pages/CommunityTemplates";
+import WebhooksManagement from "./pages/WebhooksManagement";
+import ApiKeysManagement from "./pages/ApiKeysManagement";
+import ApiDocs from "./pages/ApiDocs";
 
 function Router() {
   return (
@@ -32,6 +35,9 @@ function Router() {
       <Route path="/project/:id/analytics" component={Analytics} />
       <Route path="/join/:code" component={JoinProject} />
       <Route path="/templates" component={CommunityTemplates} />
+      <Route path="/settings/webhooks" component={WebhooksManagement} />
+      <Route path="/settings/api-keys" component={ApiKeysManagement} />
+      <Route path="/api-docs" component={ApiDocs} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

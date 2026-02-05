@@ -20,7 +20,8 @@ import {
   Coins,
   Zap,
   Shield,
-  Sparkles
+  Sparkles,
+  FileText
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { useState } from 'react';
@@ -363,6 +364,47 @@ export default function Settings() {
                 <p className="text-white font-medium">{user?.name || 'Пользователь'}</p>
                 <p className="text-sm text-slate-400">{user?.email}</p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Integrations Section */}
+        <Card className="bg-slate-800/50 border-slate-700 mb-8">
+          <CardHeader>
+            <CardTitle className="text-white">Интеграции</CardTitle>
+            <CardDescription className="text-slate-400">
+              Управление API ключами, вебхуками и внешними сервисами
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Link href="/settings/api-keys">
+                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-amber-500/50 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Key className="w-5 h-5 text-amber-500" />
+                    <span className="text-white font-medium">API Ключи</span>
+                  </div>
+                  <p className="text-sm text-slate-400">Создание и управление API ключами</p>
+                </div>
+              </Link>
+              <Link href="/settings/webhooks">
+                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-cyan-500/50 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Zap className="w-5 h-5 text-cyan-500" />
+                    <span className="text-white font-medium">Вебхуки</span>
+                  </div>
+                  <p className="text-sm text-slate-400">Настройка уведомлений о событиях</p>
+                </div>
+              </Link>
+              <Link href="/api-docs">
+                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-3 mb-2">
+                    <FileText className="w-5 h-5 text-emerald-500" />
+                    <span className="text-white font-medium">API Документация</span>
+                  </div>
+                  <p className="text-sm text-slate-400">OpenAPI/Swagger спецификация</p>
+                </div>
+              </Link>
             </div>
           </CardContent>
         </Card>

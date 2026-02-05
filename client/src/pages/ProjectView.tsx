@@ -70,7 +70,7 @@ import {
   ConvertSectionToTaskDialog,
   BulkActionsDialog 
 } from '@/components/TaskManagementDialogs';
-import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical, BarChart3 } from 'lucide-react';
+import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical, BarChart3, Sparkles, AlertTriangle, Brain } from 'lucide-react';
 import { 
   DragDropProvider, 
   SortableTask, 
@@ -78,6 +78,97 @@ import {
   SortableContext, 
   verticalListSortingStrategy 
 } from '@/components/DragDropContext';
+
+// ============ RISK ANALYSIS CONTENT ============
+type RiskItem = {
+  type: string;
+  severity: string;
+  title: string;
+  description: string;
+  recommendation: string;
+  taskId?: number;
+  blockId?: number;
+};
+
+function RiskAnalysisContent({ projectId }: { projectId: number }) {
+  const [risks, setRisks] = useState<RiskItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const detectRisks = trpc.aiEnhancements.detectRisks.useMutation({
+    onSuccess: (data) => {
+      setRisks(data.risks);
+      setIsLoading(false);
+    },
+    onError: () => {
+      setIsLoading(false);
+    }
+  });
+  
+  // Run detection on mount
+  if (!detectRisks.isPending && risks.length === 0 && isLoading) {
+    detectRisks.mutate({ projectId });
+  }
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+        <span className="ml-2 text-slate-400">Анализируем риски...</span>
+      </div>
+    );
+  }
+  
+  if (!risks || risks.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+        <p className="text-slate-300 font-medium">Риски не обнаружены</p>
+        <p className="text-slate-500 text-sm mt-1">Проект в хорошем состоянии</p>
+      </div>
+    );
+  }
+  
+  const severityColors: Record<string, string> = {
+    critical: 'bg-red-500/20 border-red-500 text-red-400',
+    high: 'bg-orange-500/20 border-orange-500 text-orange-400',
+    medium: 'bg-amber-500/20 border-amber-500 text-amber-400',
+    low: 'bg-blue-500/20 border-blue-500 text-blue-400',
+  };
+  
+  const severityLabels: Record<string, string> = {
+    critical: 'Критический',
+    high: 'Высокий',
+    medium: 'Средний',
+    low: 'Низкий',
+  };
+  
+  return (
+    <div className="space-y-3">
+      {risks.map((risk: RiskItem, index: number) => (
+        <div
+          key={index}
+          className={cn(
+            "p-4 rounded-lg border",
+            severityColors[risk.severity] || severityColors.medium
+          )}
+        >
+          <div className="flex items-start justify-between mb-2">
+            <span className="font-medium text-white">{risk.type}</span>
+            <span className="text-xs px-2 py-1 rounded bg-slate-800">
+              {severityLabels[risk.severity] || risk.severity}
+            </span>
+          </div>
+          <p className="text-sm text-slate-300 mb-2">{risk.description}</p>
+          {risk.recommendation && (
+            <p className="text-xs text-emerald-400 mt-2">
+              Рекомендация: {risk.recommendation}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ============ AI CHAT PANEL ============
 function AIChatPanel({ 
@@ -842,6 +933,8 @@ export default function ProjectView() {
   const [showCalendarDialog, setShowCalendarDialog] = useState(false);
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
   const [showPitchDeckDialog, setShowPitchDeckDialog] = useState(false);
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showRiskPanel, setShowRiskPanel] = useState(false);
   
   const saveToDrive = trpc.drive.saveProject.useMutation({
     onSuccess: (result) => {
@@ -1146,6 +1239,20 @@ export default function ProjectView() {
                 >
                   <BarChart3 className="w-4 h-4 mr-2" />
                   Аналитика
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-pink-400"
+                  onClick={() => setShowAIAssistant(true)}
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  AI Ассистент
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-orange-400"
+                  onClick={() => setShowRiskPanel(true)}
+                >
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                  Анализ рисков
                 </DropdownMenuItem>
                 <DropdownMenuItem 
                   className="text-violet-400"
@@ -1777,6 +1884,47 @@ export default function ProjectView() {
 
       {/* Floating AI Assistant Button */}
       <FloatingAIButton />
+      
+      {/* AI Assistant Dialog */}
+      <Dialog open={showAIAssistant} onOpenChange={setShowAIAssistant}>
+        <DialogContent className="max-w-4xl max-h-[80vh] bg-slate-900 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-pink-400" />
+              AI Ассистент
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Используйте AI для анализа проекта, генерации идей и получения рекомендаций
+            </DialogDescription>
+          </DialogHeader>
+          <div className="h-[500px]">
+            <StreamingAIChat
+              contextType="project"
+              contextId={projectId}
+              contextTitle={project.name}
+              contextContent={getContextContent('project', projectId)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Risk Detection Panel */}
+      <Dialog open={showRiskPanel} onOpenChange={setShowRiskPanel}>
+        <DialogContent className="max-w-2xl bg-slate-900 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-orange-400" />
+              Анализ рисков
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Выявленные риски и проблемы в проекте
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+            <RiskAnalysisContent projectId={projectId} />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Task Management Dialogs */}
       <SplitTaskDialog
