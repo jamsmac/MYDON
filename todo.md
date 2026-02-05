@@ -690,3 +690,11 @@
 - [x] Add quick actions (Mark Complete, Reschedule to Today)
 - [x] Navigate to task on click
 - [x] Test overdue tasks display - all 113 tests passing
+
+
+## Phase 48.3: SubtasksChecklist in TaskDetailPanel (Completed)
+- [x] Import SubtasksChecklist in ProjectView
+- [x] Create SubtasksSection wrapper component with tRPC mutations
+- [x] Add subtasks section to TaskDetailPanel (before Comments)
+- [x] Connect subtask CRUD operations (create, update, delete, reorder)
+- [x] Test subtask management - all 113 tests passing

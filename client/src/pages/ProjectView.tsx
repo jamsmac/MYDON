@@ -3,6 +3,7 @@ import { getLoginUrl } from '@/const';
 import { useSocket } from '@/hooks/useSocket';
 import { PresenceAvatars } from '@/components/PresenceAvatars';
 import { TaskComments } from '@/components/TaskComments';
+import { SubtasksChecklist } from '@/components/SubtasksChecklist';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -239,6 +240,56 @@ function AIChatPanel({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ============ SUBTASKS SECTION ============
+function SubtasksSection({ taskId }: { taskId: number }) {
+  const utils = trpc.useUtils();
+  
+  // Fetch subtasks for this task
+  const { data: subtasks = [], isLoading } = trpc.subtask.list.useQuery({ taskId });
+  
+  // Mutations
+  const createSubtask = trpc.subtask.create.useMutation({
+    onSuccess: () => {
+      utils.subtask.list.invalidate({ taskId });
+    },
+  });
+  
+  const updateSubtask = trpc.subtask.update.useMutation({
+    onSuccess: () => {
+      utils.subtask.list.invalidate({ taskId });
+    },
+  });
+  
+  const deleteSubtask = trpc.subtask.delete.useMutation({
+    onSuccess: () => {
+      utils.subtask.list.invalidate({ taskId });
+    },
+  });
+  
+  const reorderSubtasks = trpc.subtask.reorder.useMutation({
+    onSuccess: () => {
+      utils.subtask.list.invalidate({ taskId });
+    },
+  });
+
+  return (
+    <SubtasksChecklist
+      taskId={taskId}
+      subtasks={subtasks.map((s, index) => ({
+        id: s.id,
+        title: s.title,
+        status: s.status as 'not_started' | 'in_progress' | 'completed',
+        sortOrder: s.sortOrder ?? index,
+      }))}
+      onCreateSubtask={(title) => createSubtask.mutate({ taskId, title })}
+      onUpdateSubtask={(id, data) => updateSubtask.mutate({ id, ...data })}
+      onDeleteSubtask={(id) => deleteSubtask.mutate({ id })}
+      onReorderSubtasks={(subtaskIds) => reorderSubtasks.mutate({ taskId, subtaskIds })}
+      isLoading={isLoading || createSubtask.isPending || updateSubtask.isPending || deleteSubtask.isPending}
+    />
   );
 }
 
@@ -537,6 +588,9 @@ function TaskDetailPanel({
               )}
             </div>
           </div>
+
+          {/* Subtasks Section */}
+          <SubtasksSection taskId={task.id} />
 
           {/* Comments Section */}
           <div>
