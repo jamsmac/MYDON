@@ -238,43 +238,40 @@
 - [x] Clear search button (X icon in input field)
 
 
-## Phase 18: MAYDON Personal AI Life Planner Transformation
+## Phase 18: MAYDON Universal Planner Enhancement (Business-First + Personal Goals)
 
-### Core Philosophy
-- [ ] Rebrand: "Any goal = micro-project with AI-generated plan"
-- [ ] Quick start: user enters goal in plain language → AI asks 3-5 questions → generates roadmap
+### AI-Powered Quick Start
+- [ ] "Describe your goal" input on dashboard
+- [ ] AI asks 3-5 clarifying questions (scope, timeline, resources)
+- [ ] Auto-generates structured roadmap with blocks, sections, tasks
+- [ ] Works for both business and personal goals
 
-### Daily AI Assistant
-- [ ] Morning briefing component (today's tasks, priorities, progress forecast)
-- [ ] Evening review component (completed tasks, productivity analysis, tomorrow recommendations)
-- [ ] Smart context awareness (low energy → lighter tasks, busy day → essential only)
+### Template Library
+**Business Templates (Primary):**
+- [ ] "Launch a Startup" (market research, MVP, funding, launch)
+- [ ] "Product Development Cycle" (discovery, design, development, testing, release)
+- [ ] "Marketing Campaign" (strategy, content, channels, analytics)
+- [ ] "Team Hiring Plan" (job posting, screening, interviews, onboarding)
+- [ ] "Business Expansion" (market analysis, localization, partnerships)
 
-### Roadmap Library (Pre-made Templates)
-- [ ] Career category: "Transition to IT", "Promotion to Senior", "Freelance launch"
-- [ ] Health category: "Lose 10kg", "Couch to 5K", "30 days meditation"
-- [ ] Education category: "English B1→B2", "Python basics", "50 books challenge"
-- [ ] Finance category: "Save for vacation", "Start investing", "Mortgage preparation"
-- [ ] Creative category: "Learn guitar", "Master photography", "Write a book"
+**Personal Templates (Secondary):**
+- [ ] Career: "Transition to IT", "Get Promoted"
+- [ ] Education: "Learn English B2", "Master Python"
+- [ ] Health: "Lose Weight", "Build Fitness Habit"
+- [ ] Finance: "Save for Goal", "Start Investing"
+
+### Daily Briefing
+- [ ] Morning summary: today's tasks across all projects, priorities, deadlines
+- [ ] Progress forecast: "At current pace, Project X completes by [date]"
+- [ ] Evening review: completed tasks, productivity insights
 
 ### Smart Adaptive Planning
-- [ ] Auto-detect stuck tasks (3+ postponements → suggest smaller steps)
-- [ ] Pace adjustment (ahead of schedule → suggest acceleration)
-- [ ] Overload detection (too many active projects → suggest freezing some)
-- [ ] Calendar integration (Google Calendar sync, free time detection)
-
-### Specialized AI Agents
-- [ ] English Tutor Agent (homework check, material selection, conversation practice)
-- [ ] Fitness Coach Agent (workout suggestions, progress tracking, motivation)
-- [ ] Career Advisor Agent (resume analysis, interview prep, job tracking)
-- [ ] Financial Planner Agent (spending analysis, budget optimization, investment tips)
-
-### Social Motivation
-- [ ] Find people with similar goals
-- [ ] Group challenges ("30 days of coding")
-- [ ] Accountability partners
-- [ ] Public achievements and success stories
+- [ ] Stuck task detection (3+ postponements → suggest breakdown)
+- [ ] Pace adjustment (ahead/behind schedule → recommendations)
+- [ ] Overload warning (too many active projects)
+- [ ] Google Calendar integration for deadline sync
 
 ### Smart Reminders
-- [ ] Context-aware notifications (time of day, weather, location, energy level)
-- [ ] Streak tracking with gamification
-- [ ] Adaptive frequency (don't spam)
+- [ ] Context-aware notifications
+- [ ] Streak tracking for recurring tasks
+- [ ] Adaptive frequency (not spammy)
