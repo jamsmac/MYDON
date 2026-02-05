@@ -953,6 +953,106 @@ Respond ONLY with valid JSON, no additional text.`;
     }),
 });
 
+// ============ TEMPLATE ROUTER ============
+const templateRouter = router({
+  list: protectedProcedure.query(async ({ ctx }) => {
+    return db.getTemplates(ctx.user.id);
+  }),
+
+  listPublic: publicProcedure.query(async () => {
+    return db.getPublicTemplates();
+  }),
+
+  get: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      return db.getTemplateById(input.id);
+    }),
+
+  saveProjectAsTemplate: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      name: z.string().min(1).max(255),
+      description: z.string().optional(),
+      isPublic: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return db.saveProjectAsTemplate(
+        input.projectId,
+        ctx.user.id,
+        ctx.user.name || 'Anonymous',
+        input.name,
+        input.description || '',
+        input.isPublic
+      );
+    }),
+
+  createProjectFromTemplate: protectedProcedure
+    .input(z.object({
+      templateId: z.number(),
+      projectName: z.string().min(1).max(255).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const template = await db.getTemplateById(input.templateId);
+      if (!template || !template.structure) {
+        throw new Error('Template not found');
+      }
+
+      // Increment usage count
+      await db.incrementTemplateUsage(input.templateId);
+
+      // Create project from template structure
+      const project = await db.createProject({
+        name: input.projectName || template.name,
+        description: template.description || undefined,
+        icon: template.icon || 'folder',
+        color: template.color || '#f59e0b',
+        userId: ctx.user.id,
+      });
+
+      // Create blocks, sections, and tasks from template structure
+      for (let blockIndex = 0; blockIndex < template.structure.blocks.length; blockIndex++) {
+        const blockData = template.structure.blocks[blockIndex];
+        const block = await db.createBlock({
+          projectId: project.id,
+          number: blockIndex + 1,
+          title: blockData.title,
+          description: blockData.description,
+          duration: blockData.duration,
+          sortOrder: blockIndex,
+        });
+
+        for (let sectionIndex = 0; sectionIndex < blockData.sections.length; sectionIndex++) {
+          const sectionData = blockData.sections[sectionIndex];
+          const section = await db.createSection({
+            blockId: block.id,
+            title: sectionData.title,
+            description: sectionData.description,
+            sortOrder: sectionIndex,
+          });
+
+          for (let taskIndex = 0; taskIndex < sectionData.tasks.length; taskIndex++) {
+            const taskData = sectionData.tasks[taskIndex];
+            await db.createTask({
+              sectionId: section.id,
+              title: taskData.title,
+              description: taskData.description,
+              sortOrder: taskIndex,
+            });
+          }
+        }
+      }
+
+      return project;
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return db.deleteTemplate(input.id, ctx.user.id);
+    }),
+});
+
 // ============ MAIN ROUTER ============
 export const appRouter = router({
   system: systemRouter,
@@ -977,6 +1077,7 @@ export const appRouter = router({
   drive: driveRouter,
   calendar: calendarRouter,
   ai: aiGenerationRouter,
+  template: templateRouter,
 });
 
 export type AppRouter = typeof appRouter;

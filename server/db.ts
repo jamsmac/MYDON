@@ -12,7 +12,8 @@ import {
   userCredits, InsertUserCredits, UserCredits,
   creditTransactions, InsertCreditTransaction, CreditTransaction,
   chatMessages, InsertChatMessage, ChatMessage,
-  projectTemplates, InsertProjectTemplate, ProjectTemplate
+  projectTemplates, InsertProjectTemplate, ProjectTemplate, TemplateStructure,
+  templateCategories, InsertTemplateCategory, TemplateCategory
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -457,26 +458,6 @@ export async function clearChatHistory(
   return result[0].affectedRows > 0;
 }
 
-// ============ PROJECT TEMPLATES ============
-
-export async function getPublicTemplates(): Promise<ProjectTemplate[]> {
-  const db = await getDb();
-  if (!db) return [];
-
-  return db.select().from(projectTemplates)
-    .where(eq(projectTemplates.isPublic, true))
-    .orderBy(desc(projectTemplates.createdAt));
-}
-
-export async function createProjectTemplate(data: InsertProjectTemplate): Promise<ProjectTemplate> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const result = await db.insert(projectTemplates).values(data);
-  const [template] = await db.select().from(projectTemplates).where(eq(projectTemplates.id, result[0].insertId));
-  return template;
-}
-
 // ============ FULL PROJECT WITH HIERARCHY ============
 
 export async function getFullProject(projectId: number, userId: number) {
@@ -663,4 +644,176 @@ export async function toggleBYOKMode(userId: number, useBYOK: boolean): Promise<
     .where(eq(userCredits.userId, userId));
 
   return true;
+}
+
+
+// ============ PROJECT TEMPLATES ============
+
+export async function getTemplates(userId: number): Promise<ProjectTemplate[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Get public templates and user's own templates
+  const results = await db.select().from(projectTemplates)
+    .orderBy(desc(projectTemplates.usageCount), desc(projectTemplates.createdAt));
+  
+  // Filter: public templates OR user's own templates
+  return results.filter(t => t.isPublic || t.authorId === userId);
+}
+
+export async function getPublicTemplates(): Promise<ProjectTemplate[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(projectTemplates)
+    .where(eq(projectTemplates.isPublic, true))
+    .orderBy(desc(projectTemplates.usageCount), desc(projectTemplates.createdAt));
+}
+
+export async function getTemplateById(id: number): Promise<ProjectTemplate | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [template] = await db.select().from(projectTemplates)
+    .where(eq(projectTemplates.id, id));
+  return template || null;
+}
+
+export async function createTemplate(data: {
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  categoryId?: number;
+  structure: TemplateStructure;
+  isPublic: boolean;
+  authorId: number;
+  authorName?: string;
+  estimatedDuration?: string;
+}): Promise<ProjectTemplate> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Calculate counts from structure
+  const blocksCount = data.structure.blocks.length;
+  const sectionsCount = data.structure.blocks.reduce((acc, b) => acc + b.sections.length, 0);
+  const tasksCount = data.structure.blocks.reduce((acc, b) => 
+    acc + b.sections.reduce((sAcc, s) => sAcc + s.tasks.length, 0), 0);
+
+  const result = await db.insert(projectTemplates).values({
+    name: data.name,
+    description: data.description,
+    icon: data.icon || 'layout-template',
+    color: data.color || '#8b5cf6',
+    categoryId: data.categoryId,
+    structure: data.structure,
+    isPublic: data.isPublic,
+    authorId: data.authorId,
+    authorName: data.authorName,
+    blocksCount,
+    sectionsCount,
+    tasksCount,
+    estimatedDuration: data.estimatedDuration,
+    usageCount: 0,
+    rating: 0,
+  });
+
+  const [template] = await db.select().from(projectTemplates)
+    .where(eq(projectTemplates.id, result[0].insertId));
+  return template;
+}
+
+export async function deleteTemplate(id: number, userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  // Only allow deletion by author
+  const template = await getTemplateById(id);
+  if (!template || template.authorId !== userId) {
+    return false;
+  }
+
+  await db.delete(projectTemplates).where(eq(projectTemplates.id, id));
+  return true;
+}
+
+export async function incrementTemplateUsage(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const template = await getTemplateById(id);
+  if (!template) return;
+
+  await db.update(projectTemplates)
+    .set({ usageCount: (template.usageCount || 0) + 1 })
+    .where(eq(projectTemplates.id, id));
+}
+
+export async function saveProjectAsTemplate(
+  projectId: number,
+  userId: number,
+  userName: string,
+  templateName: string,
+  templateDescription: string,
+  isPublic: boolean
+): Promise<ProjectTemplate | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Get full project data
+  const project = await getFullProject(projectId, userId);
+  if (!project) return null;
+
+  // Convert project to template structure
+  const structure: TemplateStructure = {
+    blocks: project.blocks.map(block => ({
+      title: block.title,
+      description: block.description || undefined,
+      duration: block.duration || undefined,
+      sections: block.sections.map(section => ({
+        title: section.title,
+        description: section.description || undefined,
+        tasks: section.tasks.map(task => ({
+          title: task.title,
+          description: task.description || undefined,
+        })),
+      })),
+    })),
+  };
+
+  // Calculate estimated duration from blocks
+  const durations = project.blocks.map(b => b.duration).filter(Boolean);
+  const estimatedDuration = durations.length > 0 ? durations.join(' + ') : undefined;
+
+  return createTemplate({
+    name: templateName,
+    description: templateDescription,
+    icon: project.icon || 'layout-template',
+    color: project.color || '#8b5cf6',
+    structure,
+    isPublic,
+    authorId: userId,
+    authorName: userName,
+    estimatedDuration,
+  });
+}
+
+// ============ TEMPLATE CATEGORIES ============
+
+export async function getTemplateCategories(): Promise<TemplateCategory[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(templateCategories)
+    .orderBy(asc(templateCategories.sortOrder));
+}
+
+export async function createTemplateCategory(data: InsertTemplateCategory): Promise<TemplateCategory> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(templateCategories).values(data);
+  const [category] = await db.select().from(templateCategories)
+    .where(eq(templateCategories.id, result[0].insertId));
+  return category;
 }

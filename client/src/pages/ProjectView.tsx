@@ -48,6 +48,8 @@ import { Streamdown } from 'streamdown';
 import { DraggableSidebar } from '@/components/DraggableSidebar';
 import { StreamingAIChat } from '@/components/StreamingAIChat';
 import { CalendarDialog } from '@/components/CalendarDialog';
+import { SaveAsTemplateDialog } from '@/components/SaveAsTemplateDialog';
+import { LayoutTemplate } from 'lucide-react';
 
 // ============ AI CHAT PANEL ============
 function AIChatPanel({ 
@@ -497,6 +499,7 @@ export default function ProjectView() {
 
   // Google Drive integration
   const [showCalendarDialog, setShowCalendarDialog] = useState(false);
+  const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
   
   const saveToDrive = trpc.drive.saveProject.useMutation({
     onSuccess: (result) => {
@@ -762,6 +765,14 @@ export default function ProjectView() {
                 >
                   <Bookmark className="w-4 h-4 mr-2" />
                   Создать источник в NotebookLM
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-slate-700" />
+                <DropdownMenuItem 
+                  className="text-violet-400"
+                  onClick={() => setShowSaveTemplateDialog(true)}
+                >
+                  <LayoutTemplate className="w-4 h-4 mr-2" />
+                  Сохранить как шаблон
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-700" />
                 <DropdownMenuItem 
@@ -1163,6 +1174,14 @@ export default function ProjectView() {
             }))
           )
         )}
+      />
+
+      {/* Save as Template Dialog */}
+      <SaveAsTemplateDialog
+        open={showSaveTemplateDialog}
+        onOpenChange={setShowSaveTemplateDialog}
+        projectId={projectId}
+        projectName={project.name}
       />
     </div>
   );

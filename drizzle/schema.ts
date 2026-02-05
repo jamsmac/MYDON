@@ -225,18 +225,66 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertChatMessage = typeof chatMessages.$inferInsert;
 
 /**
- * Project templates - for quick project creation
+ * Template categories - for organizing templates
+ */
+export const templateCategories = mysqlTable("template_categories", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  nameRu: varchar("nameRu", { length: 100 }),
+  icon: varchar("icon", { length: 64 }).default("folder"),
+  color: varchar("color", { length: 32 }).default("#f59e0b"),
+  sortOrder: int("sortOrder").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TemplateCategory = typeof templateCategories.$inferSelect;
+export type InsertTemplateCategory = typeof templateCategories.$inferInsert;
+
+/**
+ * Project templates - reusable roadmap structures
+ * Users can save their projects as templates and share with others
  */
 export const projectTemplates = mysqlTable("project_templates", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
-  icon: varchar("icon", { length: 64 }).default("template"),
-  structure: json("structure"), // JSON structure of blocks/sections/tasks
+  icon: varchar("icon", { length: 64 }).default("layout-template"),
+  color: varchar("color", { length: 32 }).default("#8b5cf6"),
+  categoryId: int("categoryId"), // FK to template_categories
+  structure: json("structure").$type<TemplateStructure>(), // Typed JSON structure
+  // Visibility and ownership
   isPublic: boolean("isPublic").default(false),
-  createdBy: int("createdBy"),
+  authorId: int("authorId").notNull(), // User who created the template
+  authorName: varchar("authorName", { length: 255 }), // Cached author name
+  // Metadata
+  blocksCount: int("blocksCount").default(0),
+  sectionsCount: int("sectionsCount").default(0),
+  tasksCount: int("tasksCount").default(0),
+  estimatedDuration: varchar("estimatedDuration", { length: 64 }), // e.g., "3 months"
+  // Usage stats
+  usageCount: int("usageCount").default(0),
+  rating: int("rating").default(0), // Average rating (0-5 * 100 for precision)
+  // Timestamps
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+// Type for template structure JSON
+export type TemplateStructure = {
+  blocks: {
+    title: string;
+    description?: string;
+    duration?: string;
+    sections: {
+      title: string;
+      description?: string;
+      tasks: {
+        title: string;
+        description?: string;
+      }[];
+    }[];
+  }[];
+};
 
 export type ProjectTemplate = typeof projectTemplates.$inferSelect;
 export type InsertProjectTemplate = typeof projectTemplates.$inferInsert;

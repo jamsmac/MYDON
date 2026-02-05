@@ -29,6 +29,13 @@
       "when": 1770279834679,
       "tag": "0003_modern_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1770284504437,
+      "tag": "0004_easy_famine",
+      "breakpoints": true
     }
   ]
 }

@@ -25,8 +25,10 @@ import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
 import { CreditsWidget } from '@/components/CreditsWidget';
 import { AIGoalGenerator } from '@/components/AIGoalGenerator';
+import { TemplateLibrary } from '@/components/TemplateLibrary';
 import { Link, useLocation } from 'wouter';
 import { useState, useMemo } from 'react';
+import { LayoutTemplate } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -43,6 +45,7 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed' | 'overdue'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [aiGeneratorOpen, setAiGeneratorOpen] = useState(false);
+  const [templateLibraryOpen, setTemplateLibraryOpen] = useState(false);
 
   const { data: projects, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
     undefined,
@@ -338,6 +341,14 @@ export default function Dashboard() {
             </Button>
             <Button 
               variant="outline" 
+              className="border-violet-500/50 text-violet-400 hover:bg-violet-500/20 hover:border-violet-500"
+              onClick={() => setTemplateLibraryOpen(true)}
+            >
+              <LayoutTemplate className="w-4 h-4 mr-2" />
+              Шаблоны
+            </Button>
+            <Button 
+              variant="outline" 
               className="border-slate-600 text-slate-300 hover:bg-slate-700"
               onClick={() => setImportDialogOpen(true)}
             >
@@ -405,6 +416,15 @@ export default function Dashboard() {
           onProjectCreated={() => {
             refetch();
             setAiGeneratorOpen(false);
+          }}
+        />
+
+        {/* Template Library */}
+        <TemplateLibrary 
+          open={templateLibraryOpen} 
+          onOpenChange={(open) => {
+            setTemplateLibraryOpen(open);
+            if (!open) refetch();
           }}
         />
 

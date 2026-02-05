@@ -297,3 +297,19 @@
 - [x] Integration with credit system (uses platform AI)
 - [x] Backend generateRoadmap procedure with structured JSON output
 - [x] Backend createFromRoadmap procedure to save to database
+
+
+## Phase 21: Project Templates Library
+- [x] Create templates database table (id, name, description, category, structure JSON, authorId, isPublic, usageCount)
+- [x] Create template_categories table for organizing templates
+- [x] Backend: saveAsTemplate procedure (copy project structure to template)
+- [x] Backend: getTemplates procedure (list public templates + user's own)
+- [x] Backend: createFromTemplate procedure (create project from template)
+- [x] Backend: deleteTemplate procedure (only for template author)
+- [x] UI: "Save as Template" button in project view header
+- [x] UI: Save template dialog (name, description, category, public/private toggle)
+- [x] UI: Template Library browser in Dashboard (grid view with categories)
+- [x] UI: Template preview dialog (show structure before creating)
+- [x] UI: "Use Template" button to create project from template
+- [x] Show template usage count and author info
+- [x] Test full flow: save template → browse library → create from template
