@@ -1409,3 +1409,16 @@
 - [x] Add mapStatusToEnum and mapPriorityToEnum helpers
 - [x] Add success/error feedback with toast notifications
 - [x] 413 total tests passing
+
+## Phase 68: AI Chat Context from Routes
+- [x] Create AIChatContextProvider to manage current project/task context
+- [x] Extract projectId from route params (/project/:id)
+- [x] Extract taskId from TaskPanel selection state
+- [x] Update FloatingAIChatButton to consume context
+- [x] Pass context to FloatingAIChatContent and SuggestedActions
+- [x] Show current context in chat header (project name, task title)
+- [x] Auto-update context when navigating between projects/tasks
+- [x] Clear task context when task panel is closed
+- [x] Include context in AI prompts via getContextForPrompt()
+- [x] Add getContextSummary() for human-readable context display
+- [x] 413 total tests passing

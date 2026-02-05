@@ -5,29 +5,27 @@
  * - Minimized: Floating button only
  * - Popup: 420x650px window in bottom-right corner
  * - Docked: Full-height side panel (resizable)
+ * 
+ * Automatically picks up project/task context from AIChatContext
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { 
-  MessageSquare, 
   X, 
-  Minimize2, 
-  Maximize2,
+  Minimize2,
   PanelRightOpen,
   PanelRightClose,
   Sparkles,
-  Brain
+  Brain,
+  FolderOpen,
+  FileText
 } from "lucide-react";
 import { FloatingAIChatContent } from "./FloatingAIChatContent";
+import { useOptionalAIChatContext } from "@/contexts/AIChatContext";
 
 type ChatMode = "minimized" | "popup" | "docked";
-
-interface FloatingAIChatButtonProps {
-  projectId?: number;
-  taskId?: string;
-}
 
 const STORAGE_KEY = "floating-ai-chat-state";
 const MIN_DOCK_WIDTH = 320;
@@ -39,13 +37,22 @@ interface StoredState {
   dockWidth: number;
 }
 
-export function FloatingAIChatButton({ projectId, taskId }: FloatingAIChatButtonProps) {
+export function FloatingAIChatButton() {
   const [mode, setMode] = useState<ChatMode>("minimized");
   const [dockWidth, setDockWidth] = useState(DEFAULT_DOCK_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
   const [contextLoaded, setContextLoaded] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
+  
+  // Get context from AIChatContext
+  const aiChatContext = useOptionalAIChatContext();
+  const projectId = aiChatContext?.projectId;
+  const projectName = aiChatContext?.projectName;
+  const taskId = aiChatContext?.taskId;
+  const taskTitle = aiChatContext?.taskTitle;
+  const hasContext = aiChatContext?.hasContext || false;
+  const contextLabel = aiChatContext?.contextLabel || "";
 
   // Load persisted state
   useEffect(() => {
@@ -133,6 +140,31 @@ export function FloatingAIChatButton({ projectId, taskId }: FloatingAIChatButton
     setContextLoaded(loaded);
   }, []);
 
+  // Context badge component
+  const ContextBadge = () => {
+    if (!hasContext) return null;
+    
+    return (
+      <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-500/10 rounded-md text-xs">
+        {projectName && (
+          <span className="flex items-center gap-1 text-purple-400">
+            <FolderOpen className="h-3 w-3" />
+            <span className="max-w-[100px] truncate">{projectName}</span>
+          </span>
+        )}
+        {taskTitle && (
+          <>
+            <span className="text-muted-foreground">→</span>
+            <span className="flex items-center gap-1 text-amber-400">
+              <FileText className="h-3 w-3" />
+              <span className="max-w-[100px] truncate">{taskTitle}</span>
+            </span>
+          </>
+        )}
+      </div>
+    );
+  };
+
   // Minimized button
   if (mode === "minimized") {
     return (
@@ -150,7 +182,7 @@ export function FloatingAIChatButton({ projectId, taskId }: FloatingAIChatButton
           <div className="relative">
             <Sparkles className="h-6 w-6 text-white" />
             {/* Context indicator */}
-            {contextLoaded && (
+            {(contextLoaded || hasContext) && (
               <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-green-400 border border-white" />
             )}
             {/* Unread indicator */}
@@ -159,12 +191,18 @@ export function FloatingAIChatButton({ projectId, taskId }: FloatingAIChatButton
             )}
           </div>
         </Button>
-        {/* Tooltip */}
-        <div className="absolute bottom-full right-0 mb-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <div className="bg-popover text-popover-foreground text-xs px-2 py-1 rounded shadow-md whitespace-nowrap">
-            AI Ассистент (⌘J)
+        {/* Context tooltip on hover */}
+        {hasContext && (
+          <div className="absolute bottom-full right-0 mb-2 pointer-events-none">
+            <div className="bg-popover text-popover-foreground text-xs px-3 py-2 rounded-lg shadow-lg border border-border whitespace-nowrap">
+              <div className="flex items-center gap-2">
+                <Brain className="h-3.5 w-3.5 text-green-500" />
+                <span className="text-muted-foreground">Контекст:</span>
+                <span className="font-medium max-w-[200px] truncate">{contextLabel}</span>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
@@ -178,48 +216,52 @@ export function FloatingAIChatButton({ projectId, taskId }: FloatingAIChatButton
       >
         <div className="flex flex-col h-full bg-background border border-border rounded-xl shadow-2xl overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-purple-600/10 to-indigo-600/10 border-b border-border">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
-                <Sparkles className="h-4 w-4 text-white" />
+          <div className="flex flex-col gap-2 px-4 py-3 bg-gradient-to-r from-purple-600/10 to-indigo-600/10 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
+                  <Sparkles className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm">AI Ассистент</h3>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    {(contextLoaded || hasContext) && <Brain className="h-3 w-3 text-green-500" />}
+                    {hasContext ? "Контекст активен" : contextLoaded ? "Контекст загружен" : "Готов к работе"}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-sm">AI Ассистент</h3>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  {contextLoaded && <Brain className="h-3 w-3 text-green-500" />}
-                  {contextLoaded ? "Контекст загружен" : "Готов к работе"}
-                </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={switchToDocked}
+                  title="Закрепить сбоку"
+                >
+                  <PanelRightOpen className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setMode("minimized")}
+                  title="Свернуть"
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setMode("minimized")}
+                  title="Закрыть"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
             </div>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={switchToDocked}
-                title="Закрепить сбоку"
-              >
-                <PanelRightOpen className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setMode("minimized")}
-                title="Свернуть"
-              >
-                <Minimize2 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setMode("minimized")}
-                title="Закрыть"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+            {/* Context badge */}
+            <ContextBadge />
           </div>
 
           {/* Content */}
@@ -261,39 +303,43 @@ export function FloatingAIChatButton({ projectId, taskId }: FloatingAIChatButton
 
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-purple-600/10 to-indigo-600/10 border-b border-border">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
-                <Sparkles className="h-4 w-4 text-white" />
+          <div className="flex flex-col gap-2 px-4 py-3 bg-gradient-to-r from-purple-600/10 to-indigo-600/10 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
+                  <Sparkles className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm">AI Ассистент</h3>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    {(contextLoaded || hasContext) && <Brain className="h-3 w-3 text-green-500" />}
+                    {hasContext ? "Контекст активен" : contextLoaded ? "Контекст загружен" : "Готов к работе"}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-sm">AI Ассистент</h3>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  {contextLoaded && <Brain className="h-3 w-3 text-green-500" />}
-                  {contextLoaded ? "Контекст загружен" : "Готов к работе"}
-                </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={switchToPopup}
+                  title="Открепить"
+                >
+                  <PanelRightClose className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setMode("minimized")}
+                  title="Закрыть"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
             </div>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={switchToPopup}
-                title="Открепить"
-              >
-                <PanelRightClose className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setMode("minimized")}
-                title="Закрыть"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+            {/* Context badge */}
+            <ContextBadge />
           </div>
 
           {/* Content */}

@@ -43,6 +43,7 @@ import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useState, useMemo, useEffect } from 'react';
 import { useProjectContext } from '@/contexts/ProjectContext';
+import { useAIChatContext } from '@/contexts/AIChatContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -795,6 +796,7 @@ export default function ProjectView() {
 
   // Set project context for AI chat
   const { setCurrentProject, clearProject } = useProjectContext();
+  const { setProject: setAIChatProject, setTask: setAIChatTask, clearContext: clearAIChatContext } = useAIChatContext();
   
   useEffect(() => {
     if (project) {
@@ -841,12 +843,21 @@ export default function ProjectView() {
         phases,
         recentTasks
       });
+      
+      // Also set AI chat context
+      setAIChatProject({
+        id: project.id,
+        name: project.name,
+        description: project.description || undefined,
+        status: project.status || 'active'
+      });
     }
     
     return () => {
       clearProject();
+      clearAIChatContext();
     };
-  }, [project, setCurrentProject, clearProject]);
+  }, [project, setCurrentProject, clearProject, setAIChatProject, clearAIChatContext]);
 
   // Mutations
   const createBlock = trpc.block.create.useMutation({
@@ -1437,6 +1448,17 @@ export default function ProjectView() {
                     title: task.title,
                     content: getContextContent('task', task.id)
                   });
+                  // Set AI chat task context
+                  setAIChatTask({
+                    id: `task-${task.id}`,
+                    numericId: task.id,
+                    title: task.title,
+                    status: task.status || 'not_started',
+                    priority: task.priority || 'medium',
+                    deadline: task.deadline ? (typeof task.deadline === 'number' ? task.deadline : new Date(task.deadline).getTime()) : null,
+                    notes: task.notes || undefined,
+                    sectionId: String(task.sectionId)
+                  });
                 }}
                 onCreateSection={(blockId) => {
                   setTargetBlockId(blockId);
@@ -1563,7 +1585,10 @@ export default function ProjectView() {
               task={selectedTask}
               projectId={projectId}
               allTasks={allTasks}
-              onClose={() => setSelectedTask(null)}
+              onClose={() => {
+                setSelectedTask(null);
+                setAIChatTask(null); // Clear AI chat task context
+              }}
               onUpdate={(data) => {
                 updateTask.mutate({ id: selectedTask.id, ...data });
                 setSelectedTask({ ...selectedTask, ...data });

@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react";
 import { AchievementNotificationProvider } from "@/components/gamification/AchievementNotificationProvider";
 import { FloatingAIChatButton } from "@/components/FloatingAIChatButton";
 import { ProjectContextProvider } from "@/contexts/ProjectContext";
+import { AIChatContextProvider } from "@/contexts/AIChatContext";
 
 // Eager load critical pages
 import Dashboard from "./pages/Dashboard";
@@ -80,6 +81,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <ProjectContextProvider>
+        <AIChatContextProvider>
         <TooltipProvider>
           <Toaster 
             position="top-right"
@@ -93,6 +95,7 @@ function App() {
           <AchievementNotificationProvider />
           <FloatingAIChatButton />
         </TooltipProvider>
+        </AIChatContextProvider>
         </ProjectContextProvider>
       </ThemeProvider>
     </ErrorBoundary>
