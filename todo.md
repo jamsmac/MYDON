@@ -1328,3 +1328,29 @@
   - [x] DecisionContextBadge component
   - [x] Format: "=== ПРОШЛЫЕ РЕШЕНИЯ ===" section
 - [x] 13 tests passing for aiDecision
+
+
+### Part 1: Floating AI Chat Button
+- [x] Create FloatingAIChatButton component:
+  - [x] Position: fixed, bottom: 24px, right: 24px, z-index: 9999
+  - [x] Always visible on ALL pages (Dashboard, Projects, Tasks)
+  - [x] Indicators: 🟢 context loaded, 💬 unread messages
+- [x] Three modes:
+  - [x] Minimized: only button with pulse animation
+  - [x] Popup: window 420x650px bottom-right corner
+  - [x] Dockable: side panel full height (resizable width)
+- [x] Create FloatingAIChatContent component:
+  - [x] Message input with send button
+  - [x] Message history with AI/User distinction
+  - [x] Streamdown markdown rendering
+  - [x] AIResponseActions integration for each AI message
+  - [x] DecisionContextBadge showing loaded context
+- [x] Mode switching:
+  - [x] Click button to toggle popup
+  - [x] Button to switch between popup and docked
+  - [x] Keyboard shortcut (Cmd/Ctrl + J)
+  - [x] Escape to minimize
+- [x] Persist state in localStorage:
+  - [x] Docked panel width
+  - [x] Chat history (last 50 messages)
+- [x] 21 tests passing for floatingChat

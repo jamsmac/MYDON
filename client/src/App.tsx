@@ -6,7 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { Loader2 } from "lucide-react";
 import { AchievementNotificationProvider } from "@/components/gamification/AchievementNotificationProvider";
-import { AIChatWidget } from "@/components/AIChatWidget";
+import { FloatingAIChatButton } from "@/components/FloatingAIChatButton";
 import { ProjectContextProvider } from "@/contexts/ProjectContext";
 
 // Eager load critical pages
@@ -89,7 +89,7 @@ function App() {
           />
           <Router />
           <AchievementNotificationProvider />
-          <AIChatWidget />
+          <FloatingAIChatButton />
         </TooltipProvider>
         </ProjectContextProvider>
       </ThemeProvider>
