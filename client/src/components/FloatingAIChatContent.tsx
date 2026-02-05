@@ -116,7 +116,7 @@ export function FloatingAIChatContent({
       const lastUserMessage = messages.filter(m => m.role === "user").pop();
       
       // Parse actions from response (fast, local)
-      const localActions = parseActionsFromResponse(data.content, { projectId, taskId });
+      const localActions = parseActionsFromResponse(data.content, taskId, projectId);
       
       const aiMessage: Message = {
         id: Date.now().toString(),

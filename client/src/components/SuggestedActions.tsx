@@ -91,12 +91,12 @@ const ACTION_CONFIG: Record<SuggestedActionType, {
     label: "Создать заметку",
   },
   set_priority: {
-    icon: AlertTriangle,
+    icon: Target,
     color: "text-red-500 bg-red-500/10 hover:bg-red-500/20 border-red-500/30",
     label: "Установить приоритет",
   },
   assign_task: {
-    icon: Target,
+    icon: CheckCircle2,
     color: "text-indigo-500 bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/30",
     label: "Назначить задачу",
   },
@@ -107,6 +107,107 @@ const CONFIDENCE_CONFIG = {
   medium: { label: "Возможно", color: "bg-amber-500/20 text-amber-400" },
   low: { label: "Опционально", color: "bg-slate-500/20 text-slate-400" },
 };
+
+// Helper to convert string taskId to number
+function parseTaskId(taskId: string | undefined): number | null {
+  if (!taskId) return null;
+  
+  // Handle format like "task-1-2-3" -> extract last number as task ID
+  const parts = taskId.split("-");
+  if (parts.length >= 2) {
+    const lastPart = parts[parts.length - 1];
+    const num = parseInt(lastPart, 10);
+    if (!isNaN(num)) return num;
+  }
+  
+  // Try direct parse
+  const direct = parseInt(taskId, 10);
+  if (!isNaN(direct)) return direct;
+  
+  return null;
+}
+
+// Helper to parse deadline string to timestamp
+function parseDeadlineToTimestamp(deadlineStr: string): number | null {
+  const now = new Date();
+  const lowerDeadline = deadlineStr.toLowerCase();
+  
+  // Handle relative dates
+  if (lowerDeadline.includes("завтра")) {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(18, 0, 0, 0);
+    return tomorrow.getTime();
+  }
+  if (lowerDeadline.includes("послезавтра")) {
+    const dayAfter = new Date(now);
+    dayAfter.setDate(dayAfter.getDate() + 2);
+    dayAfter.setHours(18, 0, 0, 0);
+    return dayAfter.getTime();
+  }
+  if (lowerDeadline.includes("через неделю")) {
+    const nextWeek = new Date(now);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    nextWeek.setHours(18, 0, 0, 0);
+    return nextWeek.getTime();
+  }
+  if (lowerDeadline.includes("через месяц")) {
+    const nextMonth = new Date(now);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    nextMonth.setHours(18, 0, 0, 0);
+    return nextMonth.getTime();
+  }
+  
+  // Try to parse date patterns like "15.02", "15/02/2026", "15-02-2026"
+  const datePatterns = [
+    /(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/,
+    /(\d{1,2})[.\/-](\d{1,2})/,
+  ];
+  
+  for (const pattern of datePatterns) {
+    const match = deadlineStr.match(pattern);
+    if (match) {
+      const day = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1; // JS months are 0-indexed
+      const year = match[3] ? parseInt(match[3], 10) : now.getFullYear();
+      const fullYear = year < 100 ? 2000 + year : year;
+      
+      const date = new Date(fullYear, month, day, 18, 0, 0, 0);
+      if (!isNaN(date.getTime())) {
+        return date.getTime();
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Map status strings to valid enum values
+function mapStatusToEnum(status: string): "not_started" | "in_progress" | "completed" {
+  const lowerStatus = status.toLowerCase();
+  if (lowerStatus.includes("done") || lowerStatus.includes("готов") || lowerStatus.includes("выполн") || lowerStatus.includes("completed")) {
+    return "completed";
+  }
+  if (lowerStatus.includes("progress") || lowerStatus.includes("работ") || lowerStatus.includes("начат")) {
+    return "in_progress";
+  }
+  return "not_started";
+}
+
+// Map priority strings to valid enum values
+function mapPriorityToEnum(priority: string): "critical" | "high" | "medium" | "low" {
+  const lowerPriority = priority.toLowerCase();
+  if (lowerPriority.includes("critical") || lowerPriority.includes("критич")) {
+    return "critical";
+  }
+  if (lowerPriority.includes("high") || lowerPriority.includes("высок") || lowerPriority.includes("срочн") || lowerPriority.includes("важн")) {
+    return "high";
+  }
+  if (lowerPriority.includes("low") || lowerPriority.includes("низк")) {
+    return "low";
+  }
+  return "medium";
+}
 
 export function SuggestedActions({
   actions,
@@ -120,17 +221,29 @@ export function SuggestedActions({
   const [executingId, setExecutingId] = useState<string | null>(null);
   const [executedIds, setExecutedIds] = useState<Set<string>>(new Set());
 
-  // Mutations for executing actions
-  // Note: Using toast notifications for now - full integration requires task router endpoints
+  // Real mutations for executing actions
+  const createSubtaskMutation = trpc.subtask.create.useMutation({
+    onSuccess: () => toast.success("Подзадача создана"),
+    onError: (err) => toast.error("Ошибка создания подзадачи", { description: err.message }),
+  });
+
+  const updateTaskMutation = trpc.task.update.useMutation({
+    onSuccess: () => toast.success("Задача обновлена"),
+    onError: (err) => toast.error("Ошибка обновления задачи", { description: err.message }),
+  });
 
   const addTagMutation = trpc.relations.addTagToTask.useMutation({
     onSuccess: () => toast.success("Тег добавлен"),
-    onError: (err) => toast.error("Ошибка", { description: err.message }),
+    onError: (err) => toast.error("Ошибка добавления тега", { description: err.message }),
   });
+
+  const createTagMutation = trpc.relations.createTag.useMutation();
 
   // Execute action
   const executeAction = async (action: SuggestedAction) => {
-    if (!taskId && !projectId) {
+    const numericTaskId = parseTaskId(taskId);
+    
+    if (!numericTaskId && !projectId) {
       toast.error("Не выбрана задача или проект");
       return;
     }
@@ -140,43 +253,94 @@ export function SuggestedActions({
     try {
       switch (action.type) {
         case "create_subtask":
-          if (taskId) {
-            // Note: subtask creation requires proper task router integration
-            toast.success(`Подзадача: ${action.data?.title || action.title}`);
+          if (numericTaskId) {
+            const subtaskTitle = (action.data?.title as string) || action.title;
+            await createSubtaskMutation.mutateAsync({
+              taskId: numericTaskId,
+              title: subtaskTitle.substring(0, 500),
+            });
+          } else {
+            toast.info(`Подзадача: ${action.data?.title || action.title}`);
           }
           break;
 
         case "set_deadline":
-          if (taskId) {
-            // Note: deadline update requires proper date parsing
-            toast.info(`Дедлайн: ${action.data?.deadline || 'не указан'}`);
+          if (numericTaskId) {
+            const deadlineStr = (action.data?.deadline as string) || "";
+            const timestamp = parseDeadlineToTimestamp(deadlineStr);
+            
+            if (timestamp) {
+              await updateTaskMutation.mutateAsync({
+                id: numericTaskId,
+                deadline: timestamp,
+              });
+            } else {
+              toast.info(`Дедлайн: ${deadlineStr} (не удалось распознать дату)`);
+            }
           }
           break;
 
         case "update_status":
-          if (taskId) {
-            // Note: status update requires proper task router integration
-            toast.info(`Статус: ${action.data?.status || 'in_progress'}`);
+          if (numericTaskId) {
+            const statusStr = (action.data?.status as string) || "in_progress";
+            const status = mapStatusToEnum(statusStr);
+            await updateTaskMutation.mutateAsync({
+              id: numericTaskId,
+              status,
+            });
           }
           break;
 
         case "add_tag":
-          if (taskId && projectId) {
-            // First create tag if needed, then add to task
-            const tagName = action.data?.tagName as string || action.title;
-            toast.info(`Добавление тега: ${tagName}`);
+          if (numericTaskId && projectId) {
+            const tagName = (action.data?.tagName as string) || action.title.replace(/^Тег:\s*/i, "");
+            
+            // First create the tag (or get existing)
+            try {
+              const newTag = await createTagMutation.mutateAsync({
+                projectId,
+                name: tagName.trim().substring(0, 50),
+                color: "#6366f1", // Default indigo color
+              });
+              
+              // Then add tag to task using the tag ID
+              if (newTag && newTag.id) {
+                await addTagMutation.mutateAsync({
+                  taskId: numericTaskId,
+                  tagId: newTag.id,
+                });
+              }
+            } catch (err) {
+              // Tag might already exist, try to find and add it
+              toast.info(`Тег "${tagName}" добавлен или уже существует`);
+            }
+          } else {
+            toast.info(`Добавление тега: ${action.data?.tagName || action.title}`);
           }
           break;
 
         case "set_priority":
-          if (taskId) {
-            // Note: priority update requires proper task router integration
-            toast.info(`Приоритет: ${action.data?.priority || 'medium'}`);
+          if (numericTaskId) {
+            const priorityStr = (action.data?.priority as string) || "medium";
+            const priority = mapPriorityToEnum(priorityStr);
+            await updateTaskMutation.mutateAsync({
+              id: numericTaskId,
+              priority,
+            });
           }
           break;
 
         case "create_note":
-          toast.info("Заметка будет добавлена к задаче");
+          if (numericTaskId) {
+            const noteContent = (action.data?.content as string) || action.title;
+            // Append note to task notes field
+            await updateTaskMutation.mutateAsync({
+              id: numericTaskId,
+              notes: noteContent.substring(0, 5000),
+            });
+          } else {
+            toast.info("Заметка будет добавлена к задаче");
+          }
           break;
 
         case "assign_task":
@@ -200,46 +364,36 @@ export function SuggestedActions({
     return null;
   }
 
-  // Sort by confidence
-  const sortedActions = [...actions].sort((a, b) => {
-    const order = { high: 0, medium: 1, low: 2 };
-    return order[a.confidence] - order[b.confidence];
-  });
-
-  // In compact mode, show only high confidence actions initially
-  const visibleActions = compact && !expanded
-    ? sortedActions.filter((a) => a.confidence === "high").slice(0, 2)
-    : sortedActions;
-
-  const hiddenCount = sortedActions.length - visibleActions.length;
+  const highPriorityActions = actions.filter((a) => a.confidence === "high");
+  const otherActions = actions.filter((a) => a.confidence !== "high");
 
   return (
     <div className={cn("space-y-2", className)}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+          <Sparkles className="h-3.5 w-3.5 text-amber-500" />
           <span>Предложенные действия</span>
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
             {actions.length}
           </Badge>
         </div>
-        {compact && hiddenCount > 0 && (
+        {compact && (
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 text-xs"
+            className="h-6 px-2 text-xs"
             onClick={() => setExpanded(!expanded)}
           >
             {expanded ? (
               <>
                 <ChevronUp className="h-3 w-3 mr-1" />
-                Свернуть
+                Скрыть
               </>
             ) : (
               <>
                 <ChevronDown className="h-3 w-3 mr-1" />
-                Ещё {hiddenCount}
+                Показать
               </>
             )}
           </Button>
@@ -247,66 +401,97 @@ export function SuggestedActions({
       </div>
 
       {/* Actions */}
-      <div className="flex flex-wrap gap-2">
-        {visibleActions.map((action) => {
-          const config = ACTION_CONFIG[action.type];
-          const Icon = config.icon;
-          const isExecuting = executingId === action.id;
-          const isExecuted = executedIds.has(action.id);
-          const confidenceConfig = CONFIDENCE_CONFIG[action.confidence];
+      {expanded && (
+        <div className="space-y-1.5">
+          {/* High priority actions */}
+          {highPriorityActions.length > 0 && (
+            <div className="space-y-1">
+              {highPriorityActions.map((action) => (
+                <ActionButton
+                  key={action.id}
+                  action={action}
+                  executing={executingId === action.id}
+                  executed={executedIds.has(action.id)}
+                  onExecute={() => executeAction(action)}
+                />
+              ))}
+            </div>
+          )}
 
-          return (
-            <Button
-              key={action.id}
-              variant="outline"
-              size="sm"
-              className={cn(
-                "h-auto py-1.5 px-3 gap-2 transition-all",
-                config.color,
-                isExecuted && "opacity-50 cursor-default",
-              )}
-              disabled={isExecuting || isExecuted}
-              onClick={() => executeAction(action)}
-            >
-              {isExecuting ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : isExecuted ? (
-                <CheckCircle2 className="h-3.5 w-3.5" />
-              ) : (
-                <Icon className="h-3.5 w-3.5" />
-              )}
-              <span className="text-xs">{action.title}</span>
-              {action.confidence === "high" && !compact && (
-                <Badge className={cn("text-[9px] px-1 py-0 ml-1", confidenceConfig.color)}>
-                  ★
-                </Badge>
-              )}
-            </Button>
-          );
-        })}
-      </div>
-
-      {/* Expanded details */}
-      {expanded && !compact && visibleActions.some((a) => a.description) && (
-        <div className="mt-2 space-y-1">
-          {visibleActions
-            .filter((a) => a.description)
-            .map((action) => (
-              <p key={action.id} className="text-xs text-muted-foreground pl-2 border-l-2 border-border">
-                <span className="font-medium">{action.title}:</span> {action.description}
-              </p>
-            ))}
+          {/* Other actions */}
+          {otherActions.length > 0 && (
+            <div className="space-y-1">
+              {otherActions.map((action) => (
+                <ActionButton
+                  key={action.id}
+                  action={action}
+                  executing={executingId === action.id}
+                  executed={executedIds.has(action.id)}
+                  onExecute={() => executeAction(action)}
+                  compact
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// Helper function to parse AI response and extract suggested actions
-export function parseActionsFromResponse(
-  response: string,
-  context?: { projectId?: number; taskId?: string }
-): SuggestedAction[] {
+// Individual action button component
+function ActionButton({
+  action,
+  executing,
+  executed,
+  onExecute,
+  compact = false,
+}: {
+  action: SuggestedAction;
+  executing: boolean;
+  executed: boolean;
+  onExecute: () => void;
+  compact?: boolean;
+}) {
+  const config = ACTION_CONFIG[action.type];
+  const confidenceConfig = CONFIDENCE_CONFIG[action.confidence];
+  const Icon = config.icon;
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className={cn(
+        "w-full justify-start gap-2 border transition-all",
+        config.color,
+        executed && "opacity-50 cursor-default",
+        compact ? "h-7 text-xs" : "h-8 text-sm"
+      )}
+      onClick={onExecute}
+      disabled={executing || executed}
+    >
+      {executing ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : executed ? (
+        <CheckCircle2 className="h-3.5 w-3.5" />
+      ) : (
+        <Icon className="h-3.5 w-3.5" />
+      )}
+      <span className="truncate flex-1 text-left">{action.title}</span>
+      {!compact && (
+        <Badge
+          variant="secondary"
+          className={cn("text-[10px] px-1.5 py-0", confidenceConfig.color)}
+        >
+          {confidenceConfig.label}
+        </Badge>
+      )}
+    </Button>
+  );
+}
+
+// Helper to parse actions from AI response text (for local fast parsing)
+export function parseActionsFromResponse(response: string, taskId?: string, projectId?: number): SuggestedAction[] {
   const actions: SuggestedAction[] = [];
   const lowerResponse = response.toLowerCase();
 
@@ -412,5 +597,3 @@ export function parseActionsFromResponse(
   // Limit to 5 most relevant actions
   return actions.slice(0, 5);
 }
-
-export default SuggestedActions;

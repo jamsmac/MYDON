@@ -1391,3 +1391,21 @@
 - [x] Execute actions on click with toast feedback
 - [x] Compact and expanded view modes
 - [x] 413 total tests passing
+
+
+## Phase 67: Task Router Integration for Suggested Actions
+- [x] Review existing task router endpoints (create, update, delete)
+- [x] Use existing subtask.create endpoint for subtasks
+- [x] Use existing task.update endpoint for status/deadline/priority
+- [x] Update SuggestedActions component to use real mutations:
+  - [x] create_subtask → trpc.subtask.create
+  - [x] set_deadline → trpc.task.update with deadline field
+  - [x] update_status → trpc.task.update with status field
+  - [x] set_priority → trpc.task.update with priority field
+  - [x] add_tag → trpc.relations.createTag + addTagToTask
+  - [x] create_note → trpc.task.update with notes field
+- [x] Handle taskId conversion (string to number) with parseTaskId helper
+- [x] Add parseDeadlineToTimestamp for relative dates (завтра, через неделю)
+- [x] Add mapStatusToEnum and mapPriorityToEnum helpers
+- [x] Add success/error feedback with toast notifications
+- [x] 413 total tests passing
