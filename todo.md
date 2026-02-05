@@ -98,6 +98,32 @@
 - [x] Template download buttons (MD and JSON)
 
 
+## Phase 11: Google Services Integration (Completed)
+
+### Google Drive Integration
+- [x] Save roadmap projects to Google Drive
+- [x] Load roadmap from Google Drive
+- [x] UI for Google Drive connection (dropdown menu)
+- [x] Shareable links for saved files
+- [ ] Automatic sync of changes (future enhancement)
+
+### NotebookLM Integration
+- [x] "Create source in NotebookLM" button for each project
+- [x] Export project to Google Drive and open NotebookLM
+- [ ] Direct API integration (requires Enterprise API access)
+
+### Google Docs Integration
+- [x] Export final documents directly to Google Docs (as Markdown)
+- [x] Shareable links for exported documents
+- [ ] Attach Google Docs to tasks (future enhancement)
+
+### Google Calendar Integration
+- [x] Add task deadlines to Google Calendar
+- [x] Create project milestones in calendar
+- [x] Calendar event creation UI (CalendarDialog component)
+- [x] Search project events in calendar
+
+
 ## Future Enhancements
 - [ ] Project templates (startup, product launch, marketing campaign)
 - [ ] Deadline notifications (email/push)
@@ -105,27 +131,6 @@
 - [ ] Agent system with specialized agents
 - [ ] Collaboration features (roles, comments, @mentions)
 - [ ] Activity feed
-
-
-## Phase 11: Google Services Integration
-
-### Google Drive Integration
-- [ ] Save roadmap projects to Google Drive
-- [ ] Automatic sync of changes
-- [ ] Load roadmap from Google Drive
-- [ ] UI for Google Drive connection
-
-### NotebookLM Integration
-- [ ] Send roadmap and project documents to NotebookLM for analysis
-- [ ] Use NotebookLM for generating project insights
-- [ ] "Create source in NotebookLM" button for each project
-
-### Google Docs Integration
-- [ ] Export final documents directly to Google Docs
+- [ ] Automatic Google Drive sync
+- [ ] Direct NotebookLM Enterprise API integration
 - [ ] Attach Google Docs to tasks
-- [ ] Link Google Docs in task panel
-
-### Google Calendar Integration
-- [ ] Add task deadlines to Google Calendar
-- [ ] Sync task due dates with calendar
-- [ ] Calendar event creation UI

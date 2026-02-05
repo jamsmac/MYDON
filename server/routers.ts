@@ -5,6 +5,8 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { z } from "zod";
 import * as db from "./db";
+import * as googleDrive from "./googleDrive";
+import * as googleCalendar from "./googleCalendar";
 
 // ============ PROJECT ROUTER ============
 const projectRouter = router({
@@ -420,6 +422,163 @@ ${input.projectContext ? `Контекст проекта: ${input.projectContex
     }),
 });
 
+// ============ GOOGLE DRIVE ROUTER ============
+const driveRouter = router({
+  checkConnection: protectedProcedure.query(async () => {
+    return googleDrive.checkDriveConnection();
+  }),
+
+  listFiles: protectedProcedure.query(async () => {
+    return googleDrive.listRoadmapFiles();
+  }),
+
+  saveProject: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      // Get full project data
+      const project = await db.getFullProject(input.projectId, ctx.user.id);
+      if (!project) {
+        throw new Error("Project not found");
+      }
+
+      // Transform to export format
+      const exportData = {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        status: project.status,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        blocks: project.blocks.map(block => ({
+          number: block.number,
+          title: block.title,
+          titleRu: block.titleRu,
+          sections: block.sections.map(section => ({
+            title: section.title,
+            tasks: section.tasks.map(task => ({
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              notes: task.notes,
+              summary: task.summary,
+              subtasks: task.subtasks.map(subtask => ({
+                title: subtask.title,
+                status: subtask.status,
+              })),
+            })),
+          })),
+        })),
+      };
+
+      return googleDrive.saveProjectToDrive(exportData);
+    }),
+
+  loadProject: protectedProcedure
+    .input(z.object({ filename: z.string() }))
+    .query(async ({ input }) => {
+      return googleDrive.loadProjectFromDrive(input.filename);
+    }),
+
+  deleteFile: protectedProcedure
+    .input(z.object({ filename: z.string() }))
+    .mutation(async ({ input }) => {
+      return googleDrive.deleteProjectFromDrive(input.filename);
+    }),
+
+  getShareableLink: protectedProcedure
+    .input(z.object({ filename: z.string() }))
+    .query(async ({ input }) => {
+      return googleDrive.getShareableLink(input.filename);
+    }),
+
+  exportToGoogleDocs: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      // Get full project data
+      const project = await db.getFullProject(input.projectId, ctx.user.id);
+      if (!project) {
+        throw new Error("Project not found");
+      }
+
+      // Transform to export format
+      const exportData = {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        status: project.status,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        blocks: project.blocks.map(block => ({
+          number: block.number,
+          title: block.title,
+          titleRu: block.titleRu,
+          sections: block.sections.map(section => ({
+            title: section.title,
+            tasks: section.tasks.map(task => ({
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              notes: task.notes,
+              summary: task.summary,
+              subtasks: task.subtasks.map(subtask => ({
+                title: subtask.title,
+                status: subtask.status,
+              })),
+            })),
+          })),
+        })),
+      };
+
+      return googleDrive.exportToGoogleDocs(exportData);
+    }),
+});
+
+// ============ GOOGLE CALENDAR ROUTER ============
+const calendarRouter = router({
+  createTaskEvent: protectedProcedure
+    .input(z.object({
+      taskId: z.number(),
+      taskTitle: z.string(),
+      projectName: z.string(),
+      deadline: z.date(),
+      description: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return googleCalendar.createTaskDeadlineEvent({
+        taskId: input.taskId,
+        taskTitle: input.taskTitle,
+        projectName: input.projectName,
+        deadline: input.deadline,
+        description: input.description,
+      });
+    }),
+
+  createProjectMilestones: protectedProcedure
+    .input(z.object({
+      projectName: z.string(),
+      milestones: z.array(z.object({
+        title: z.string(),
+        date: z.date(),
+        description: z.string().optional(),
+      })),
+    }))
+    .mutation(async ({ input }) => {
+      return googleCalendar.createProjectMilestones(input.projectName, input.milestones);
+    }),
+
+  searchProjectEvents: protectedProcedure
+    .input(z.object({ projectName: z.string() }))
+    .query(async ({ input }) => {
+      return googleCalendar.searchProjectEvents(input.projectName);
+    }),
+
+  deleteEvent: protectedProcedure
+    .input(z.object({ eventId: z.string() }))
+    .mutation(async ({ input }) => {
+      return googleCalendar.deleteCalendarEvent(input.eventId);
+    }),
+});
+
 // ============ MAIN ROUTER ============
 export const appRouter = router({
   system: systemRouter,
@@ -440,6 +599,8 @@ export const appRouter = router({
   subtask: subtaskRouter,
   aiSettings: aiSettingsRouter,
   chat: chatRouter,
+  drive: driveRouter,
+  calendar: calendarRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -25,7 +25,9 @@ import {
   Bookmark,
   Copy,
   Download,
-  FileDown
+  FileDown,
+  Cloud,
+  Calendar
 } from 'lucide-react';
 import { Link, useParams, useLocation } from 'wouter';
 import { useState, useMemo } from 'react';
@@ -45,6 +47,7 @@ import { cn } from '@/lib/utils';
 import { Streamdown } from 'streamdown';
 import { DraggableSidebar } from '@/components/DraggableSidebar';
 import { StreamingAIChat } from '@/components/StreamingAIChat';
+import { CalendarDialog } from '@/components/CalendarDialog';
 
 // ============ AI CHAT PANEL ============
 function AIChatPanel({ 
@@ -492,6 +495,35 @@ export default function ProjectView() {
     onError: (error) => toast.error('Ошибка: ' + error.message)
   });
 
+  // Google Drive integration
+  const [showCalendarDialog, setShowCalendarDialog] = useState(false);
+  
+  const saveToDrive = trpc.drive.saveProject.useMutation({
+    onSuccess: (result) => {
+      toast.success('Проект сохранён в Google Drive', {
+        description: result.path,
+        action: result.link ? {
+          label: 'Открыть',
+          onClick: () => window.open(result.link, '_blank'),
+        } : undefined,
+      });
+    },
+    onError: (error) => toast.error('Ошибка сохранения: ' + error.message)
+  });
+
+  const exportToGoogleDocs = trpc.drive.exportToGoogleDocs.useMutation({
+    onSuccess: (result) => {
+      toast.success('Проект экспортирован в Google Docs', {
+        description: result.path,
+        action: result.link ? {
+          label: 'Открыть',
+          onClick: () => window.open(result.link, '_blank'),
+        } : undefined,
+      });
+    },
+    onError: (error) => toast.error('Ошибка экспорта: ' + error.message)
+  });
+
   const toggleBlock = (blockId: number) => {
     setExpandedBlocks(prev => {
       const next = new Set(prev);
@@ -680,6 +712,56 @@ export default function ProjectView() {
                 >
                   <Download className="w-4 h-4 mr-2" />
                   Экспорт в HTML/PDF
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-slate-700" />
+                <DropdownMenuItem 
+                  className="text-blue-400"
+                  onClick={() => {
+                    saveToDrive.mutate({ projectId });
+                  }}
+                  disabled={saveToDrive.isPending}
+                >
+                  <Cloud className="w-4 h-4 mr-2" />
+                  {saveToDrive.isPending ? 'Сохранение...' : 'Сохранить в Google Drive'}
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-purple-400"
+                  onClick={() => {
+                    exportToGoogleDocs.mutate({ projectId });
+                  }}
+                  disabled={exportToGoogleDocs.isPending}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  {exportToGoogleDocs.isPending ? 'Экспорт...' : 'Экспорт в Google Docs'}
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-emerald-400"
+                  onClick={() => setShowCalendarDialog(true)}
+                >
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Добавить в Google Calendar
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-orange-400"
+                  onClick={async () => {
+                    // First save to Google Drive
+                    toast.info('Сохранение в Google Drive...');
+                    try {
+                      await saveToDrive.mutateAsync({ projectId });
+                      // Then open NotebookLM
+                      window.open('https://notebooklm.google.com/', '_blank');
+                      toast.success('Проект сохранён! Добавьте файл из Google Drive в NotebookLM', {
+                        description: 'Папка: MAYDON_Roadmaps',
+                        duration: 10000,
+                      });
+                    } catch (e) {
+                      toast.error('Ошибка сохранения');
+                    }
+                  }}
+                  disabled={saveToDrive.isPending}
+                >
+                  <Bookmark className="w-4 h-4 mr-2" />
+                  Создать источник в NotebookLM
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-700" />
                 <DropdownMenuItem 
@@ -1065,6 +1147,23 @@ export default function ProjectView() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Google Calendar Dialog */}
+      <CalendarDialog
+        open={showCalendarDialog}
+        onOpenChange={setShowCalendarDialog}
+        projectId={projectId}
+        projectName={project.name}
+        tasks={project.blocks.flatMap(block =>
+          block.sections.flatMap(section =>
+            section.tasks.map(task => ({
+              id: task.id,
+              title: task.title,
+              description: task.description,
+            }))
+          )
+        )}
+      />
     </div>
   );
 }
