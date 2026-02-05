@@ -199,3 +199,23 @@
 - [x] Set deadlines for all 7 blocks (Feb 2026 - Aug 2027)
 - [x] Set deadlines for key tasks in each block
 - [x] Verify Gantt chart timeline displays correctly
+
+
+## Phase 15: Comprehensive TechRent Roadmap Update
+- [x] Clear existing 7 blocks and replace with 12-block structure
+- [x] Block 1: Исследование и анализ (4 недели) - 30 tasks
+- [x] Block 2: Стратегия и планирование (3 недели) - 23 tasks
+- [x] Block 3: Финансовое моделирование (2 недели) - 37 tasks
+- [x] Block 4: Pitch Deck и бизнес-план (2 недели) - 24 tasks
+- [x] Block 5: Юридическая структура (4 недели) - 20 tasks
+- [x] Block 6: Привлечение финансирования (2-3 месяца) - 20 tasks
+- [x] Block 7: Запуск операций (2-3 месяца) - 44 tasks
+- [x] Block 8: Маркетинг и продажи - 36 tasks
+- [x] Block 9: Первые 100 дней работы - 19 tasks
+- [x] Block 10: Масштабирование (месяцы 4-12) - 12 tasks
+- [x] Block 11: Связь с экосистемой MAYDON - 21 tasks
+- [x] Block 12: Долгосрочная стратегия (годы 2-5) - 18 tasks
+- [x] Set deadlines for all blocks (Feb 2026 - Feb 2031)
+- [x] Verify timeline on Gantt chart
+
+**Total: 12 blocks, 44 sections, 304 tasks**
