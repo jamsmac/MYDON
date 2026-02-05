@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 
 export type FilterType = 'all' | 'not_started' | 'in_progress' | 'completed' | 'overdue';
+export type GroupByType = 'none' | 'tag' | 'status' | 'priority';
 
 export interface TagFilter {
   id: number;
@@ -13,6 +14,7 @@ interface FilterState {
   showOnlyWithDeadlines: boolean;
   selectedTags: TagFilter[];
   tagFilterMode: 'any' | 'all'; // 'any' = OR, 'all' = AND
+  groupBy: GroupByType;
 }
 
 interface FilterContextType {
@@ -28,6 +30,9 @@ interface FilterContextType {
   clearTagFilters: () => void;
   setTagFilterMode: (mode: 'any' | 'all') => void;
   isTagSelected: (tagId: number) => boolean;
+  // Grouping methods
+  setGroupBy: (groupBy: GroupByType) => void;
+  getGroupByLabel: (groupBy: GroupByType) => string;
 }
 
 const FilterContext = createContext<FilterContextType | null>(null);
@@ -40,12 +45,20 @@ const filterLabels: Record<FilterType, string> = {
   overdue: 'Просрочено',
 };
 
+const groupByLabels: Record<GroupByType, string> = {
+  none: 'Без группировки',
+  tag: 'По тегам',
+  status: 'По статусу',
+  priority: 'По приоритету',
+};
+
 export function FilterProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<FilterState>({
     activeFilter: 'all',
     showOnlyWithDeadlines: false,
     selectedTags: [],
     tagFilterMode: 'any',
+    groupBy: 'none',
   });
 
   const [filterCounts, setFilterCountsState] = useState<Record<FilterType, number>>({
@@ -105,6 +118,15 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
     return state.selectedTags.some(t => t.id === tagId);
   }, [state.selectedTags]);
 
+  // Grouping methods
+  const setGroupBy = useCallback((groupBy: GroupByType) => {
+    setState(prev => ({ ...prev, groupBy }));
+  }, []);
+
+  const getGroupByLabel = useCallback((groupBy: GroupByType): string => {
+    return groupByLabels[groupBy];
+  }, []);
+
   return (
     <FilterContext.Provider
       value={{
@@ -119,6 +141,8 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
         clearTagFilters,
         setTagFilterMode,
         isTagSelected,
+        setGroupBy,
+        getGroupByLabel,
       }}
     >
       {children}

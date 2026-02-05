@@ -1,7 +1,7 @@
 import { useRoadmap } from '@/contexts/RoadmapContext';
 import { useDeadlines } from '@/contexts/DeadlineContext';
-import { useFilters, FilterType, TagFilter } from '@/contexts/FilterContext';
-import { useTaskTagsCache } from '@/hooks/useTaskTagsCache';
+import { useFilters, FilterType, TagFilter, GroupByType } from '@/contexts/FilterContext';
+import { useTaskTagsCache, getNumericTaskId } from '@/hooks/useTaskTagsCache';
 import { Task, Block, Section } from '@/data/roadmapData';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ import { useEffect, useMemo } from 'react';
 import { 
   Check, Clock, Circle, Download, FileText, 
   ChevronRight, Sparkles, ArrowRight, AlertTriangle,
-  Filter, ListFilter
+  Filter, ListFilter, Tag, Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -26,6 +26,30 @@ import { toast } from 'sonner';
 const HERO_BG = 'https://private-us-east-1.manuscdn.com/sessionFile/ZKrVqRBQ1iPHNDb1ahUvEJ/sandbox/hErLbGH1b6UYwYf6q6ljeJ-img-1_1770244254000_na1fn_dGVjaHJlbnQtaGVyby1iZw.png?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvWktyVnFSQlExaVBITkRiMWFoVXZFSi9zYW5kYm94L2hFckxiR0gxYjZVWXdZZjZxNmxqZUotaW1nLTFfMTc3MDI0NDI1NDAwMF9uYTFmbl9kR1ZqYUhKbGJuUXRhR1Z5YnkxaVp3LnBuZz94LW9zcy1wcm9jZXNzPWltYWdlL3Jlc2l6ZSx3XzE5MjAsaF8xOTIwL2Zvcm1hdCx3ZWJwL3F1YWxpdHkscV84MCIsIkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc5ODc2MTYwMH19fV19&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=kCuZa3-E9RDkWkDle1ShvLKGIiEQC5m8G5Ob30FGXAFJgbqrPSDLpi18cAQjAKDDV6E0lypV1cX1LYUqxt8TLqpcqNci~8furuoZNqJSQDuHo46rn2IRwgE1L3DRrWqDPuYfT0hmzfgTMHx7abBHwcW6WPeZ2cbBALqD85tRxy7q07IbkKbDFPvLMDl8josAZZQD7xZrg67XeQd~Z7lS1fxX-jHi00~dePrWB1bYTatoSEQrcTKIqmedurhwgGdHX-99hmhDKXIqZdF0bJB~sG~5vfmZfijfo2jLuSqPa0l1BS4DcUFTObiXjVTK4Ig9g8je3TnePdBZxN~bt8r8gw__';
 
 const PROGRESS_IMG = 'https://private-us-east-1.manuscdn.com/sessionFile/ZKrVqRBQ1iPHNDb1ahUvEJ/sandbox/hErLbGH1b6UYwYf6q6ljeJ-img-3_1770244254000_na1fn_dGVjaHJlbnQtcHJvZ3Jlc3MtaWxsdXN0cmF0aW9u.png?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvWktyVnFSQlExaVBITkRiMWFoVXZFSi9zYW5kYm94L2hFckxiR0gxYjZVWXdZZjZxNmxqZUotaW1nLTNfMTc3MDI0NDI1NDAwMF9uYTFmbl9kR1ZqYUhKbGJuUXRjSEp2WjNKbGMzTXRhV3hzZFhOMGNtRjBhVzl1LnBuZz94LW9zcy1wcm9jZXNzPWltYWdlL3Jlc2l6ZSx3XzE5MjAsaF8xOTIwL2Zvcm1hdCx3ZWJwL3F1YWxpdHkscV84MCIsIkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc5ODc2MTYwMH19fV19&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=BB8kR5VMCcatnU8KlYEKxK3iqH~dEH0x9NsCy6YDy50ovTecVWVtYHQnh8twKOZo9if6V-JdV5W8WzAk64mk4JQuOr2lsy-bWkGfGWPhauLYD0gecp4uENQmedfFP0PF1JsJ6J1ntex6E0XVtkxRAY64idtCvnQkt7OqbHh9IdEQUvyE81r8GDrPN2H3i73Vj0imDAFCJFMDpOrDPtjxBYcH3FPWHtVFEaevQsWi32Ry0sae-rg8CLouZqBTzZjjKP4f-v~2ZxDMTiT9lKudbVFenEk9mvzNdIefd~SLkubedq8iRtxQsnh4bqV5fvm-8ZvWmEnBwgUiHkfdKZnACQ__';
+
+// Tag group interface for grouping
+interface TagGroup {
+  id: number | 'no-tag';
+  name: string;
+  color: string;
+  tasks: Task[];
+}
+
+// Status group interface
+interface StatusGroup {
+  status: Task['status'];
+  label: string;
+  color: string;
+  tasks: Task[];
+}
+
+// Priority group interface
+interface PriorityGroup {
+  priority: 'high' | 'medium' | 'low' | 'none';
+  label: string;
+  color: string;
+  tasks: Task[];
+}
 
 export function MainContent() {
   const { 
@@ -41,7 +65,7 @@ export function MainContent() {
   } = useRoadmap();
   const { getDeadlineStatus, getDaysRemaining, getBlockDeadline } = useDeadlines();
   const { state: filterState, setFilterCounts } = useFilters();
-  const { taskHasAnyTag, taskHasAllTags } = useTaskTagsCache();
+  const { taskHasAnyTag, taskHasAllTags, getTaskTags, taskTagsMap } = useTaskTagsCache();
 
   const selectedBlock = getSelectedBlock();
   const selectedSection = getSelectedSection();
@@ -171,6 +195,95 @@ export function MainContent() {
     })).filter(section => section.tasks.length > 0);
   };
 
+  // Group tasks by tags
+  const groupTasksByTag = (tasks: Task[]): TagGroup[] => {
+    const tagGroups = new Map<number | 'no-tag', TagGroup>();
+    
+    // Initialize "no tag" group
+    tagGroups.set('no-tag', {
+      id: 'no-tag',
+      name: 'Без тегов',
+      color: '#6b7280',
+      tasks: [],
+    });
+
+    tasks.forEach(task => {
+      const taskTags = getTaskTags(task.id);
+      
+      if (taskTags.length === 0) {
+        // Task has no tags
+        tagGroups.get('no-tag')!.tasks.push(task);
+      } else {
+        // Add task to each tag group it belongs to
+        taskTags.forEach(tag => {
+          if (!tagGroups.has(tag.id)) {
+            tagGroups.set(tag.id, {
+              id: tag.id,
+              name: tag.name,
+              color: tag.color,
+              tasks: [],
+            });
+          }
+          tagGroups.get(tag.id)!.tasks.push(task);
+        });
+      }
+    });
+
+    // Convert to array and filter out empty groups
+    const groups = Array.from(tagGroups.values()).filter(g => g.tasks.length > 0);
+    
+    // Sort: tags with tasks first (alphabetically), then "no tag" at the end
+    return groups.sort((a, b) => {
+      if (a.id === 'no-tag') return 1;
+      if (b.id === 'no-tag') return -1;
+      return a.name.localeCompare(b.name);
+    });
+  };
+
+  // Group tasks by status
+  const groupTasksByStatus = (tasks: Task[]): StatusGroup[] => {
+    const statusConfig: { status: Task['status']; label: string; color: string }[] = [
+      { status: 'in_progress', label: 'В работе', color: '#f59e0b' },
+      { status: 'not_started', label: 'Не начато', color: '#6b7280' },
+      { status: 'completed', label: 'Готово', color: '#10b981' },
+    ];
+
+    return statusConfig.map(config => ({
+      ...config,
+      tasks: tasks.filter(t => t.status === config.status),
+    })).filter(g => g.tasks.length > 0);
+  };
+
+  // Group tasks by priority (based on tags with "priority" type or naming convention)
+  const groupTasksByPriority = (tasks: Task[]): PriorityGroup[] => {
+    const priorityConfig: { priority: 'high' | 'medium' | 'low' | 'none'; label: string; color: string; keywords: string[] }[] = [
+      { priority: 'high', label: 'Высокий приоритет', color: '#ef4444', keywords: ['срочно', 'urgent', 'блокер', 'blocker', 'критично', 'critical'] },
+      { priority: 'medium', label: 'Средний приоритет', color: '#f59e0b', keywords: ['mvp', 'важно', 'important'] },
+      { priority: 'low', label: 'Низкий приоритет', color: '#3b82f6', keywords: ['улучшение', 'improvement', 'nice-to-have'] },
+      { priority: 'none', label: 'Без приоритета', color: '#6b7280', keywords: [] },
+    ];
+
+    const getPriority = (task: Task): 'high' | 'medium' | 'low' | 'none' => {
+      const taskTags = getTaskTags(task.id);
+      const tagNames = taskTags.map(t => t.name.toLowerCase());
+      
+      for (const config of priorityConfig) {
+        if (config.keywords.length === 0) continue;
+        if (config.keywords.some(kw => tagNames.some(name => name.includes(kw)))) {
+          return config.priority;
+        }
+      }
+      return 'none';
+    };
+
+    return priorityConfig.map(config => ({
+      priority: config.priority,
+      label: config.label,
+      color: config.color,
+      tasks: tasks.filter(t => getPriority(t) === config.priority),
+    })).filter(g => g.tasks.length > 0);
+  };
+
   const handleExportBlock = () => {
     if (!selectedBlock) return;
     const content = exportBlockSummary(selectedBlock.id);
@@ -209,6 +322,100 @@ export function MainContent() {
   // Get filtered sections
   const filteredSections = filterSections(selectedBlock.sections, selectedBlock.id);
   const hasFilteredResults = filteredSections.some(s => s.tasks.length > 0);
+
+  // Get all filtered tasks for grouping
+  const allFilteredTasks = filteredSections.flatMap(s => s.tasks);
+
+  // Render grouped tasks view
+  const renderGroupedTasks = () => {
+    if (filterState.groupBy === 'none') {
+      return null; // Use default section-based rendering
+    }
+
+    let groups: (TagGroup | StatusGroup | PriorityGroup)[] = [];
+    let groupIcon: React.ElementType = Layers;
+
+    switch (filterState.groupBy) {
+      case 'tag':
+        groups = groupTasksByTag(allFilteredTasks);
+        groupIcon = Tag;
+        break;
+      case 'status':
+        groups = groupTasksByStatus(allFilteredTasks);
+        groupIcon = Circle;
+        break;
+      case 'priority':
+        groups = groupTasksByPriority(allFilteredTasks);
+        groupIcon = AlertTriangle;
+        break;
+    }
+
+    if (groups.length === 0) {
+      return (
+        <div className="text-center py-12">
+          <Layers className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">
+            Нет задач для группировки
+          </h3>
+          <p className="text-muted-foreground">
+            Попробуйте изменить фильтры или добавить теги к задачам
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        {groups.map((group) => {
+          const GroupIcon = groupIcon;
+          const groupKey = 'id' in group ? group.id : ('status' in group ? group.status : group.priority);
+          
+          return (
+            <div key={String(groupKey)} className="space-y-3">
+              {/* Group Header */}
+              <div className="flex items-center gap-3 sticky top-0 bg-background py-2 z-10">
+                <div 
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: `${group.color}20` }}
+                >
+                  {filterState.groupBy === 'tag' ? (
+                    <Tag className="w-4 h-4" style={{ color: group.color }} />
+                  ) : (
+                    <GroupIcon className="w-4 h-4" style={{ color: group.color }} />
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-mono font-semibold text-lg" style={{ color: group.color }}>
+                    {'name' in group ? group.name : group.label}
+                  </h2>
+                  <Badge 
+                    variant="secondary" 
+                    className="text-xs"
+                    style={{ backgroundColor: `${group.color}20`, color: group.color }}
+                  >
+                    {group.tasks.length}
+                  </Badge>
+                </div>
+              </div>
+              
+              {/* Tasks in Group */}
+              <div className="grid gap-3 pl-11">
+                {group.tasks.map((task) => (
+                  <TaskCard 
+                    key={task.id}
+                    task={task}
+                    isSelected={selectedTask?.id === task.id}
+                    onClick={() => selectTask(task.id)}
+                    isBlockOverdue={deadlineStatus === 'overdue'}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="flex-1 flex h-screen overflow-hidden">
@@ -312,7 +519,11 @@ export function MainContent() {
                   Попробуйте выбрать другой фильтр или снять ограничения
                 </p>
               </div>
+            ) : filterState.groupBy !== 'none' ? (
+              // Grouped view
+              renderGroupedTasks()
             ) : (
+              // Default section-based view
               filteredSections.map((section) => (
                 <div key={section.id} className="space-y-3">
                   <h2 className={cn(

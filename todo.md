@@ -1262,3 +1262,16 @@
 - [x] Add route /project/:id/tags to App.tsx
 - [x] Add "Управление тегами" menu item in ProjectView dropdown
 - [x] 379 total tests passing
+
+
+## Phase 63: Tag-Based Task Grouping
+- [x] Add groupBy state to FilterContext (none, tag, status, priority)
+- [x] Add grouping toggle dropdown to FilterBar
+- [x] Update MainContent to render tasks grouped by tags
+- [x] Show tag header with color badge for each group
+- [x] Handle tasks with multiple tags (show in each group)
+- [x] Handle tasks with no tags ("Без тегов" group)
+- [x] Add grouping by status (В работе, Не начато, Готово)
+- [x] Add grouping by priority (based on tag keywords)
+- [x] Maintain existing filter and sort functionality within groups
+- [x] 379 total tests passing

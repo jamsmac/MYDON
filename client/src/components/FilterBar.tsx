@@ -1,4 +1,4 @@
-import { useFilters, FilterType, TagFilter } from '@/contexts/FilterContext';
+import { useFilters, FilterType, TagFilter, GroupByType } from '@/contexts/FilterContext';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,12 @@ import {
   CommandList,
   CommandSeparator,
 } from '@/components/ui/command';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { 
   ListFilter, 
   Circle, 
@@ -27,6 +33,9 @@ import {
   X,
   Check,
   ChevronDown,
+  Layers,
+  LayoutGrid,
+  Flag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
@@ -47,6 +56,13 @@ const filterConfig: { type: FilterType; icon: React.ElementType; color: string }
   { type: 'overdue', icon: AlertTriangle, color: 'text-red-500' },
 ];
 
+const groupByConfig: { type: GroupByType; icon: React.ElementType; label: string }[] = [
+  { type: 'none', icon: ListFilter, label: 'Без группировки' },
+  { type: 'tag', icon: Tag, label: 'По тегам' },
+  { type: 'status', icon: LayoutGrid, label: 'По статусу' },
+  { type: 'priority', icon: Flag, label: 'По приоритету' },
+];
+
 export function FilterBar() {
   const { 
     state, 
@@ -58,6 +74,8 @@ export function FilterBar() {
     clearTagFilters,
     setTagFilterMode,
     isTagSelected,
+    setGroupBy,
+    getGroupByLabel,
   } = useFilters();
   
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
@@ -72,6 +90,8 @@ export function FilterBar() {
       addTagFilter({ id: tag.id, name: tag.name, color: tag.color });
     }
   };
+
+  const currentGroupBy = groupByConfig.find(g => g.type === state.groupBy) || groupByConfig[0];
 
   return (
     <div className="flex flex-col gap-3">
@@ -122,6 +142,46 @@ export function FilterBar() {
               </Button>
             );
           })}
+        </div>
+
+        {/* Grouping dropdown */}
+        <div className="ml-auto flex items-center gap-2 pl-3 border-l border-slate-300 dark:border-slate-600">
+          <Layers className="w-4 h-4 text-slate-500" />
+          <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Группировка:</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={state.groupBy !== 'none' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(
+                  'gap-1.5 h-8 text-xs font-medium',
+                  state.groupBy !== 'none' && 'bg-indigo-500 hover:bg-indigo-600'
+                )}
+              >
+                <currentGroupBy.icon className="w-3.5 h-3.5" />
+                {currentGroupBy.label}
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {groupByConfig.map(({ type, icon: Icon, label }) => (
+                <DropdownMenuItem
+                  key={type}
+                  onClick={() => setGroupBy(type)}
+                  className={cn(
+                    'flex items-center gap-2',
+                    state.groupBy === type && 'bg-slate-100 dark:bg-slate-800'
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{label}</span>
+                  {state.groupBy === type && (
+                    <Check className="w-4 h-4 ml-auto text-primary" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
