@@ -71,3 +71,10 @@
 - [ ] Implement drag-and-drop for sections between blocks
 - [ ] Add visual feedback (drag handles, drop zones)
 - [ ] Update database when items are moved
+
+
+## Phase 8: Streaming AI Responses
+- [ ] Server-side streaming endpoint
+- [ ] Frontend streaming handler
+- [ ] Real-time text rendering with Streamdown
+- [ ] Loading states and error handling

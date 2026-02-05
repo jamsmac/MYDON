@@ -42,6 +42,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Streamdown } from 'streamdown';
 import { DraggableSidebar } from '@/components/DraggableSidebar';
+import { StreamingAIChat } from '@/components/StreamingAIChat';
 
 // ============ AI CHAT PANEL ============
 function AIChatPanel({ 
@@ -936,7 +937,7 @@ export default function ProjectView() {
         {/* AI Chat Panel */}
         {selectedContext && (
           <div className="w-96 border-l border-slate-800 flex-shrink-0">
-            <AIChatPanel
+            <StreamingAIChat
               contextType={selectedContext.type}
               contextId={selectedContext.id}
               contextTitle={selectedContext.title}
