@@ -817,3 +817,219 @@ export async function createTemplateCategory(data: InsertTemplateCategory): Prom
     .where(eq(templateCategories.id, result[0].insertId));
   return category;
 }
+
+
+// ============ DAILY BRIEFING ============
+
+export interface DailyBriefingData {
+  greeting: string;
+  date: string;
+  todaysTasks: {
+    projectId: number;
+    projectName: string;
+    taskId: number;
+    taskTitle: string;
+    sectionTitle: string;
+    blockTitle: string;
+    isCompleted: boolean;
+  }[];
+  overdueTasks: {
+    projectId: number;
+    projectName: string;
+    taskId: number;
+    taskTitle: string;
+    dueDate: Date;
+    daysOverdue: number;
+  }[];
+  projectProgress: {
+    projectId: number;
+    projectName: string;
+    totalTasks: number;
+    completedTasks: number;
+    progressPercent: number;
+    estimatedCompletion: string | null;
+    pace: 'ahead' | 'on-track' | 'behind' | 'unknown';
+  }[];
+  stats: {
+    totalProjects: number;
+    activeProjects: number;
+    completedProjects: number;
+    totalTasksToday: number;
+    completedToday: number;
+    overdueCount: number;
+  };
+}
+
+export async function getDailyBriefing(userId: number): Promise<DailyBriefingData> {
+  const db = await getDb();
+  
+  // Get greeting based on time of day
+  const hour = new Date().getHours();
+  let greeting = 'Доброе утро';
+  if (hour >= 12 && hour < 17) greeting = 'Добрый день';
+  else if (hour >= 17 && hour < 22) greeting = 'Добрый вечер';
+  else if (hour >= 22 || hour < 5) greeting = 'Доброй ночи';
+  
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('ru-RU', { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+  
+  if (!db) {
+    return {
+      greeting,
+      date: dateStr,
+      todaysTasks: [],
+      overdueTasks: [],
+      projectProgress: [],
+      stats: {
+        totalProjects: 0,
+        activeProjects: 0,
+        completedProjects: 0,
+        totalTasksToday: 0,
+        completedToday: 0,
+        overdueCount: 0,
+      },
+    };
+  }
+  
+  // Get all user's projects with their tasks
+  const userProjects = await db.select().from(projects)
+    .where(eq(projects.userId, userId));
+  
+  const todaysTasks: DailyBriefingData['todaysTasks'] = [];
+  const overdueTasks: DailyBriefingData['overdueTasks'] = [];
+  const projectProgress: DailyBriefingData['projectProgress'] = [];
+  
+  let totalTasksToday = 0;
+  let completedToday = 0;
+  let activeProjects = 0;
+  let completedProjects = 0;
+  
+  for (const project of userProjects) {
+    // Get all blocks for this project
+    const projectBlocks = await db.select().from(blocks)
+      .where(eq(blocks.projectId, project.id));
+    
+    let projectTotalTasks = 0;
+    let projectCompletedTasks = 0;
+    
+    for (const block of projectBlocks) {
+      // Get sections for this block
+      const blockSections = await db.select().from(sections)
+        .where(eq(sections.blockId, block.id));
+      
+      for (const section of blockSections) {
+        // Get tasks for this section
+        const sectionTasks = await db.select().from(tasks)
+          .where(eq(tasks.sectionId, section.id));
+        
+        for (const task of sectionTasks) {
+          projectTotalTasks++;
+          const isTaskCompleted = task.status === 'completed';
+          if (isTaskCompleted) {
+            projectCompletedTasks++;
+          }
+          
+          // For daily briefing, we'll include tasks from the first incomplete section
+          // Since tasks don't have deadlines in schema, we'll show all incomplete tasks
+          if (!isTaskCompleted) {
+            todaysTasks.push({
+              projectId: project.id,
+              projectName: project.name,
+              taskId: task.id,
+              taskTitle: task.title,
+              sectionTitle: section.title,
+              blockTitle: block.title,
+              isCompleted: isTaskCompleted,
+            });
+          }
+        }
+      }
+    }
+    
+    // Calculate project progress
+    const progressPercent = projectTotalTasks > 0 
+      ? Math.round((projectCompletedTasks / projectTotalTasks) * 100) 
+      : 0;
+    
+    // Determine pace based on deadline and progress
+    let pace: 'ahead' | 'on-track' | 'behind' | 'unknown' = 'unknown';
+    let estimatedCompletion: string | null = null;
+    
+    if (project.targetDate && projectTotalTasks > 0) {
+      const deadline = new Date(project.targetDate);
+      const totalDays = Math.ceil((deadline.getTime() - new Date(project.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+      const daysElapsed = Math.ceil((today.getTime() - new Date(project.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+      const expectedProgress = Math.round((daysElapsed / totalDays) * 100);
+      
+      if (progressPercent >= expectedProgress + 10) {
+        pace = 'ahead';
+      } else if (progressPercent >= expectedProgress - 10) {
+        pace = 'on-track';
+      } else {
+        pace = 'behind';
+      }
+      
+      // Estimate completion date based on current pace
+      if (projectCompletedTasks > 0 && daysElapsed > 0) {
+        const tasksPerDay = projectCompletedTasks / daysElapsed;
+        const remainingTasks = projectTotalTasks - projectCompletedTasks;
+        const daysToComplete = Math.ceil(remainingTasks / tasksPerDay);
+        const estimatedDate = new Date(today.getTime() + daysToComplete * 24 * 60 * 60 * 1000);
+        estimatedCompletion = estimatedDate.toLocaleDateString('ru-RU', { 
+          day: 'numeric', 
+          month: 'short', 
+          year: 'numeric' 
+        });
+      }
+    }
+    
+    // Track project status
+    if (progressPercent === 100) {
+      completedProjects++;
+    } else {
+      activeProjects++;
+    }
+    
+    projectProgress.push({
+      projectId: project.id,
+      projectName: project.name,
+      totalTasks: projectTotalTasks,
+      completedTasks: projectCompletedTasks,
+      progressPercent,
+      estimatedCompletion,
+      pace,
+    });
+  }
+  
+  // Sort overdue tasks by days overdue (most overdue first)
+  overdueTasks.sort((a, b) => b.daysOverdue - a.daysOverdue);
+  
+  // Sort today's tasks: incomplete first, then by project
+  todaysTasks.sort((a, b) => {
+    if (a.isCompleted !== b.isCompleted) {
+      return a.isCompleted ? 1 : -1;
+    }
+    return a.projectName.localeCompare(b.projectName);
+  });
+  
+  return {
+    greeting,
+    date: dateStr,
+    todaysTasks,
+    overdueTasks,
+    projectProgress,
+    stats: {
+      totalProjects: userProjects.length,
+      activeProjects,
+      completedProjects,
+      totalTasksToday,
+      completedToday,
+      overdueCount: overdueTasks.length,
+    },
+  };
+}

@@ -1053,6 +1053,13 @@ const templateRouter = router({
     }),
 });
 
+// ============ DAILY BRIEFING ROUTER ============
+const briefingRouter = router({
+  get: protectedProcedure.query(async ({ ctx }) => {
+    return db.getDailyBriefing(ctx.user.id);
+  }),
+});
+
 // ============ MAIN ROUTER ============
 export const appRouter = router({
   system: systemRouter,
@@ -1078,6 +1085,7 @@ export const appRouter = router({
   calendar: calendarRouter,
   ai: aiGenerationRouter,
   template: templateRouter,
+  briefing: briefingRouter,
 });
 
 export type AppRouter = typeof appRouter;

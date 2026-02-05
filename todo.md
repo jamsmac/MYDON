@@ -313,3 +313,17 @@
 - [x] UI: "Use Template" button to create project from template
 - [x] Show template usage count and author info
 - [x] Test full flow: save template → browse library → create from template
+
+
+## Phase 22: Daily Briefing Feature
+- [x] Backend: getDailyBriefing procedure (today's tasks, overdue, progress stats)
+- [x] Backend: Calculate completion forecast based on current pace
+- [x] Backend: Get tasks due today across all projects
+- [x] Backend: Get overdue tasks count and list
+- [x] UI: Daily Briefing dialog/panel component
+- [x] UI: Today's tasks section with quick complete action
+- [x] UI: Project progress overview with forecasts
+- [x] UI: Overdue tasks warning section
+- [x] UI: "Good morning" greeting with date
+- [x] Add Daily Briefing button to Dashboard header
+- [x] Test full Daily Briefing flow

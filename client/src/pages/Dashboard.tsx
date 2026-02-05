@@ -26,6 +26,7 @@ import { ImportDialog } from '@/components/ImportDialog';
 import { CreditsWidget } from '@/components/CreditsWidget';
 import { AIGoalGenerator } from '@/components/AIGoalGenerator';
 import { TemplateLibrary } from '@/components/TemplateLibrary';
+import { DailyBriefing } from '@/components/DailyBriefing';
 import { Link, useLocation } from 'wouter';
 import { useState, useMemo } from 'react';
 import { LayoutTemplate } from 'lucide-react';
@@ -46,6 +47,7 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [aiGeneratorOpen, setAiGeneratorOpen] = useState(false);
   const [templateLibraryOpen, setTemplateLibraryOpen] = useState(false);
+  const [dailyBriefingOpen, setDailyBriefingOpen] = useState(false);
 
   const { data: projects, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
     undefined,
@@ -175,6 +177,15 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+              onClick={() => setDailyBriefingOpen(true)}
+              title="Daily Briefing"
+            >
+              <Sparkles className="w-5 h-5" />
+            </Button>
             <CreditsWidget />
             <Link href="/settings">
               <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
@@ -522,6 +533,12 @@ export default function Dashboard() {
           </Card>
         )}
       </main>
+
+      {/* Daily Briefing Dialog */}
+      <DailyBriefing 
+        open={dailyBriefingOpen} 
+        onOpenChange={setDailyBriefingOpen} 
+      />
     </div>
   );
 }
