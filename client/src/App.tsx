@@ -9,6 +9,8 @@ import ProjectView from "./pages/ProjectView";
 import Settings from "./pages/Settings";
 import AdminPanel from "./pages/AdminPanel";
 import AIIntegrations from "./pages/AIIntegrations";
+import Pricing from "./pages/Pricing";
+import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 
 function Router() {
   return (
@@ -18,6 +20,8 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/admin" component={AdminPanel} />
       <Route path="/integrations" component={AIIntegrations} />
+      <Route path="/pricing" component={Pricing} />
+      <Route path="/subscription/success" component={SubscriptionSuccess} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

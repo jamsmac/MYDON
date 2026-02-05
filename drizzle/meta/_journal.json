@@ -50,6 +50,13 @@
       "when": 1770293293829,
       "tag": "0006_legal_sentry",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1770297143831,
+      "tag": "0007_long_red_ghost",
+      "breakpoints": true
     }
   ]
 }

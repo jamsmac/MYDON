@@ -9,6 +9,7 @@ import * as googleDrive from "./googleDrive";
 import * as googleCalendar from "./googleCalendar";
 import { subscriptionRouter, aiIntegrationsRouter } from "./subscriptionRouter";
 import { agentsRouter, skillsRouter, mcpServersRouter, orchestratorRouter } from "./orchestratorRouter";
+import { stripeRouter } from "./stripe/stripeRouter";
 
 // ============ PROJECT ROUTER ============
 const projectRouter = router({
@@ -1362,6 +1363,7 @@ export const appRouter = router({
   skills: skillsRouter,
   mcpServers: mcpServersRouter,
   orchestrator: orchestratorRouter,
+  stripe: stripeRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -490,3 +490,14 @@
 - [x] Update block rendering to use InlineEditableText
 - [x] Add updateBlock mutation in ProjectView
 - [x] Test double-click editing for blocks
+
+
+## Phase 38: Stripe Integration & Pricing Page (Completed)
+- [x] Add Stripe feature to project via webdev_add_feature
+- [x] Create pricing plans page with 3 tiers (Free, Pro, Enterprise)
+- [x] Design pricing cards with feature comparison
+- [x] Implement Stripe checkout session creation
+- [x] Add webhook handler for subscription events
+- [x] Update user subscription status on payment success
+- [x] Add subscription management UI (cancel, upgrade)
+- [x] Show current plan in user profile
