@@ -193,3 +193,9 @@
 - [x] Simplified Settings page with Platform/BYOK toggle
 - [x] BYOK provider configuration only shown when BYOK mode enabled
 - [x] Credit costs table displayed in Platform mode
+
+
+## Phase 14: Gantt Chart Activation
+- [x] Set deadlines for all 7 blocks (Feb 2026 - Aug 2027)
+- [x] Set deadlines for key tasks in each block
+- [x] Verify Gantt chart timeline displays correctly
