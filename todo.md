@@ -1236,4 +1236,9 @@
 - [x] Integrate TagSelector into task detail panel
 - [x] Add tag display (TagBadges) in task list view
 - [x] Connect to relationsRouter for tag operations
-- [ ] Add tag filtering capability in task list
+- [x] Add tag filtering capability in task list
+  - [x] Add tag filter state to FilterContext
+  - [x] Add tag filter dropdown to FilterBar
+  - [x] Update MainContent to filter tasks by selected tags
+  - [x] Add getAllTaskTags endpoint for efficient filtering
+  - [x] Create useTaskTagsCache hook for client-side tag lookup

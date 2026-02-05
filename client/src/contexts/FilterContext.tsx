@@ -2,9 +2,17 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 
 export type FilterType = 'all' | 'not_started' | 'in_progress' | 'completed' | 'overdue';
 
+export interface TagFilter {
+  id: number;
+  name: string;
+  color: string;
+}
+
 interface FilterState {
   activeFilter: FilterType;
   showOnlyWithDeadlines: boolean;
+  selectedTags: TagFilter[];
+  tagFilterMode: 'any' | 'all'; // 'any' = OR, 'all' = AND
 }
 
 interface FilterContextType {
@@ -14,6 +22,12 @@ interface FilterContextType {
   getFilterLabel: (filter: FilterType) => string;
   getFilterCount: (filter: FilterType) => number;
   setFilterCounts: (counts: Record<FilterType, number>) => void;
+  // Tag filter methods
+  addTagFilter: (tag: TagFilter) => void;
+  removeTagFilter: (tagId: number) => void;
+  clearTagFilters: () => void;
+  setTagFilterMode: (mode: 'any' | 'all') => void;
+  isTagSelected: (tagId: number) => boolean;
 }
 
 const FilterContext = createContext<FilterContextType | null>(null);
@@ -30,6 +44,8 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<FilterState>({
     activeFilter: 'all',
     showOnlyWithDeadlines: false,
+    selectedTags: [],
+    tagFilterMode: 'any',
   });
 
   const [filterCounts, setFilterCountsState] = useState<Record<FilterType, number>>({
@@ -60,6 +76,35 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
     setFilterCountsState(counts);
   }, []);
 
+  // Tag filter methods
+  const addTagFilter = useCallback((tag: TagFilter) => {
+    setState(prev => {
+      if (prev.selectedTags.some(t => t.id === tag.id)) {
+        return prev; // Already selected
+      }
+      return { ...prev, selectedTags: [...prev.selectedTags, tag] };
+    });
+  }, []);
+
+  const removeTagFilter = useCallback((tagId: number) => {
+    setState(prev => ({
+      ...prev,
+      selectedTags: prev.selectedTags.filter(t => t.id !== tagId),
+    }));
+  }, []);
+
+  const clearTagFilters = useCallback(() => {
+    setState(prev => ({ ...prev, selectedTags: [] }));
+  }, []);
+
+  const setTagFilterMode = useCallback((mode: 'any' | 'all') => {
+    setState(prev => ({ ...prev, tagFilterMode: mode }));
+  }, []);
+
+  const isTagSelected = useCallback((tagId: number): boolean => {
+    return state.selectedTags.some(t => t.id === tagId);
+  }, [state.selectedTags]);
+
   return (
     <FilterContext.Provider
       value={{
@@ -69,6 +114,11 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
         getFilterLabel,
         getFilterCount,
         setFilterCounts,
+        addTagFilter,
+        removeTagFilter,
+        clearTagFilters,
+        setTagFilterMode,
+        isTagSelected,
       }}
     >
       {children}

@@ -1,6 +1,7 @@
 import { useRoadmap } from '@/contexts/RoadmapContext';
 import { useDeadlines } from '@/contexts/DeadlineContext';
-import { useFilters, FilterType } from '@/contexts/FilterContext';
+import { useFilters, FilterType, TagFilter } from '@/contexts/FilterContext';
+import { useTaskTagsCache } from '@/hooks/useTaskTagsCache';
 import { Task, Block, Section } from '@/data/roadmapData';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,7 @@ export function MainContent() {
   } = useRoadmap();
   const { getDeadlineStatus, getDaysRemaining, getBlockDeadline } = useDeadlines();
   const { state: filterState, setFilterCounts } = useFilters();
+  const { taskHasAnyTag, taskHasAllTags } = useTaskTagsCache();
 
   const selectedBlock = getSelectedBlock();
   const selectedSection = getSelectedSection();
@@ -100,22 +102,44 @@ export function MainContent() {
     setFilterCounts(filterCounts);
   }, [filterCounts, setFilterCounts]);
 
-  // Filter tasks based on active filter
+  // Check if task matches tag filter
+  const checkTaskMatchesTagFilter = (task: Task): boolean => {
+    const selectedTagIds = filterState.selectedTags.map(t => t.id);
+    if (selectedTagIds.length === 0) return true;
+
+    if (filterState.tagFilterMode === 'any') {
+      return taskHasAnyTag(task.id, selectedTagIds);
+    } else {
+      return taskHasAllTags(task.id, selectedTagIds);
+    }
+  };
+
+  // Filter tasks based on active filter and tags
   const filterTasks = (tasks: Task[], blockId: string): Task[] => {
-    if (filterState.activeFilter === 'all') return tasks;
-    
     const isBlockOverdue = getDeadlineStatus(blockId) === 'overdue';
+    const hasStatusFilter = filterState.activeFilter !== 'all';
+    const hasTagFilter = filterState.selectedTags.length > 0;
+
+    if (!hasStatusFilter && !hasTagFilter) return tasks;
     
     return tasks.filter(task => {
-      const matchesFilter = checkTaskMatchesFilter(task, isBlockOverdue);
+      // Check status filter
+      const matchesStatusFilter = hasStatusFilter 
+        ? checkTaskMatchesFilter(task, isBlockOverdue)
+        : true;
       
-      // Also check if any subtask matches
-      if (task.subtasks && task.subtasks.length > 0) {
-        const hasMatchingSubtask = task.subtasks.some(st => checkTaskMatchesFilter(st, isBlockOverdue));
-        return matchesFilter || hasMatchingSubtask;
+      // Check tag filter
+      const matchesTagFilter = hasTagFilter
+        ? checkTaskMatchesTagFilter(task)
+        : true;
+      
+      // Also check if any subtask matches status filter
+      let subtaskMatchesStatus = false;
+      if (hasStatusFilter && task.subtasks && task.subtasks.length > 0) {
+        subtaskMatchesStatus = task.subtasks.some(st => checkTaskMatchesFilter(st, isBlockOverdue));
       }
       
-      return matchesFilter;
+      return (matchesStatusFilter || subtaskMatchesStatus) && matchesTagFilter;
     });
   };
 
@@ -136,7 +160,10 @@ export function MainContent() {
 
   // Filter sections to only show those with matching tasks
   const filterSections = (sections: Section[], blockId: string): Section[] => {
-    if (filterState.activeFilter === 'all') return sections;
+    const hasStatusFilter = filterState.activeFilter !== 'all';
+    const hasTagFilter = filterState.selectedTags.length > 0;
+
+    if (!hasStatusFilter && !hasTagFilter) return sections;
     
     return sections.map(section => ({
       ...section,

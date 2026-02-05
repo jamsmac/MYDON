@@ -486,4 +486,39 @@ export const relationsRouter = router({
     .mutation(async ({ input }) => {
       return RollupCalculator.deleteRollupField(input.rollupFieldId);
     }),
+
+  /**
+   * Get all task-tag associations for filtering
+   * Returns all task tags with their tag data for client-side filtering
+   */
+  getAllTaskTags: protectedProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+
+      // Get all task-tag associations with tag data
+      const taskTags = await db
+        .select({
+          taskId: schema.taskTags.taskId,
+          tagId: schema.taskTags.tagId,
+        })
+        .from(schema.taskTags);
+
+      // Get all non-archived tags
+      const tags = await db
+        .select()
+        .from(schema.tags)
+        .where(eq(schema.tags.isArchived, false));
+
+      // Create a map of tag id to tag data
+      const tagMap = new Map(tags.map(t => [t.id, t]));
+
+      // Return task tags with full tag data
+      return taskTags
+        .filter(tt => tagMap.has(tt.tagId))
+        .map(tt => ({
+          taskId: tt.taskId,
+          tag: tagMap.get(tt.tagId)!,
+        }));
+    }),
 });
