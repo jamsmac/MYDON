@@ -476,3 +476,10 @@
 - [x] Cancel on Escape
 - [x] Update task title via API
 - [x] Add visual feedback during editing
+
+
+## Phase 36: Inline Section Editing (Completed)
+- [x] Add onUpdateSectionTitle callback to DraggableSidebar
+- [x] Update SortableSection to use InlineEditableText
+- [x] Add updateSection mutation in ProjectView
+- [x] Test double-click editing for sections

@@ -98,6 +98,7 @@ interface DraggableSidebarProps {
   onReorderTasks?: (sectionId: number, taskIds: number[]) => void;
   onReorderSections?: (blockId: number, sectionIds: number[]) => void;
   onUpdateTaskTitle?: (taskId: number, newTitle: string) => void;
+  onUpdateSectionTitle?: (sectionId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
 }
 
@@ -190,6 +191,7 @@ function SortableSection({
   onDelete,
   onMoveTask,
   onUpdateTaskTitle,
+  onUpdateTitle,
   getContextContent,
 }: {
   section: Section;
@@ -204,6 +206,7 @@ function SortableSection({
   onDelete: () => void;
   onMoveTask: (taskId: number, newSectionId: number, newSortOrder: number) => void;
   onUpdateTaskTitle?: (taskId: number, newTitle: string) => void;
+  onUpdateTitle?: (sectionId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
 }) {
   const {
@@ -248,10 +251,10 @@ function SortableSection({
         >
           <GripVertical className="w-3 h-3" />
         </button>
-        <button
+        <div
           onClick={onToggle}
           className={cn(
-            "flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors",
+            "flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors cursor-pointer",
             isSelected
               ? "bg-slate-700 text-white"
               : "text-slate-400 hover:bg-slate-800 hover:text-slate-300"
@@ -263,11 +266,16 @@ function SortableSection({
             <ChevronRight className="w-3 h-3 text-slate-500" />
           )}
           <FileText className="w-3 h-3" />
-          <span className="truncate flex-1 text-left">{section.title}</span>
+          <InlineEditableText
+            value={section.title}
+            onSave={(newTitle) => onUpdateTitle?.(section.id, newTitle)}
+            className="truncate flex-1 text-left"
+            disabled={!onUpdateTitle}
+          />
           <span className="text-slate-600">
             {section.tasks?.length || 0}
           </span>
-        </button>
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button 
@@ -381,6 +389,7 @@ export function DraggableSidebar({
   onReorderTasks,
   onReorderSections,
   onUpdateTaskTitle,
+  onUpdateSectionTitle,
   getContextContent,
 }: DraggableSidebarProps) {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
@@ -612,6 +621,7 @@ export function DraggableSidebar({
                         onDelete={() => onDeleteSection(section.id)}
                         onMoveTask={onMoveTask}
                         onUpdateTaskTitle={onUpdateTaskTitle}
+                        onUpdateTitle={onUpdateSectionTitle}
                         getContextContent={getContextContent}
                       />
                     ))

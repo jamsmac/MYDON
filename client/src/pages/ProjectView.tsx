@@ -539,6 +539,14 @@ export default function ProjectView() {
     onError: (error) => toast.error('Ошибка переупорядочивания: ' + error.message)
   });
 
+  const updateSection = trpc.section.update.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success('Раздел обновлён');
+    },
+    onError: (error) => toast.error('Ошибка обновления: ' + error.message)
+  });
+
   const deleteProject = trpc.project.delete.useMutation({
     onSuccess: () => {
       toast.success('Проект удалён');
@@ -948,6 +956,9 @@ export default function ProjectView() {
                 }}
                 onUpdateTaskTitle={(taskId, newTitle) => {
                   updateTask.mutate({ id: taskId, title: newTitle });
+                }}
+                onUpdateSectionTitle={(sectionId, newTitle) => {
+                  updateSection.mutate({ id: sectionId, title: newTitle });
                 }}
                 getContextContent={getContextContent}
               />
