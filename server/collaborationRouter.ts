@@ -64,7 +64,7 @@ export const collaborationRouter = router({
         userId: projectMembers.userId,
         role: projectMembers.role,
         invitedAt: projectMembers.invitedAt,
-        acceptedAt: projectMembers.acceptedAt,
+        joinedAt: projectMembers.joinedAt,
         userName: users.name,
         userEmail: users.email,
       })
@@ -82,7 +82,7 @@ export const collaborationRouter = router({
             userId: project.userId,
             role: "owner" as const,
             invitedAt: project.createdAt,
-            acceptedAt: project.createdAt,
+            joinedAt: project.createdAt,
             userName: owner?.name || "Unknown",
             userEmail: owner?.email || null,
           },
@@ -197,35 +197,35 @@ export const collaborationRouter = router({
         }
       }
       
-      // Check for pending invitation
-      const [pendingInvite] = await db.select().from(projectInvitations).where(
+      // Check for pending invitation (not yet used)
+      const existingInvites = await db.select().from(projectInvitations).where(
         and(
           eq(projectInvitations.projectId, input.projectId),
-          eq(projectInvitations.email, input.email),
-          eq(projectInvitations.status, "pending")
+          eq(projectInvitations.email, input.email)
         )
-      ).limit(1);
+      );
       
+      const pendingInvite = existingInvites.find(inv => !inv.usedAt);
       if (pendingInvite) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Invitation already sent" });
       }
       
       // Create invitation
-      const token = generateToken();
+      const inviteCode = generateToken();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
       
       await db.insert(projectInvitations).values({
         projectId: input.projectId,
         email: input.email,
         role: input.role,
-        token,
+        inviteCode,
         invitedBy: ctx.user.id,
         expiresAt,
       });
       
       return { 
         success: true, 
-        inviteLink: `/invite/${token}`,
+        inviteLink: `/invite/${inviteCode}`,
         message: `Invitation sent to ${input.email}`
       };
     }),
@@ -243,12 +243,12 @@ export const collaborationRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "Only project owner can view invitations" });
       }
       
-      return db.select().from(projectInvitations)
-        .where(and(
-          eq(projectInvitations.projectId, input.projectId),
-          eq(projectInvitations.status, "pending")
-        ))
+      // Get all invitations for project and filter unused ones
+      const allInvitations = await db.select().from(projectInvitations)
+        .where(eq(projectInvitations.projectId, input.projectId))
         .orderBy(desc(projectInvitations.createdAt));
+      
+      return allInvitations.filter(inv => !inv.usedAt);
     }),
   
   // Cancel invitation
@@ -271,8 +271,8 @@ export const collaborationRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "Only project owner can cancel invitations" });
       }
       
-      await db.update(projectInvitations)
-        .set({ status: "cancelled" })
+      // Delete the invitation instead of setting status
+      await db.delete(projectInvitations)
         .where(eq(projectInvitations.id, input.invitationId));
       
       return { success: true };
@@ -286,19 +286,19 @@ export const collaborationRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
       
       const [invitation] = await db.select().from(projectInvitations)
-        .where(and(
-          eq(projectInvitations.token, input.token),
-          eq(projectInvitations.status, "pending")
-        )).limit(1);
+        .where(eq(projectInvitations.inviteCode, input.token)).limit(1);
       
       if (!invitation) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Invalid or expired invitation" });
       }
       
-      if (new Date() > invitation.expiresAt) {
-        await db.update(projectInvitations)
-          .set({ status: "expired" })
-          .where(eq(projectInvitations.id, invitation.id));
+      // Check if already used
+      if (invitation.usedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invitation has already been used" });
+      }
+      
+      // Check if expired
+      if (invitation.expiresAt && new Date() > invitation.expiresAt) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Invitation has expired" });
       }
       
@@ -315,12 +315,12 @@ export const collaborationRouter = router({
         userId: ctx.user.id,
         role: invitation.role,
         invitedBy: invitation.invitedBy,
-        acceptedAt: new Date(),
+        joinedAt: new Date(),
       });
       
-      // Update invitation status
+      // Mark invitation as used
       await db.update(projectInvitations)
-        .set({ status: "accepted" })
+        .set({ usedAt: new Date(), usedBy: ctx.user.id })
         .where(eq(projectInvitations.id, invitation.id));
       
       return { success: true, projectId: invitation.projectId };

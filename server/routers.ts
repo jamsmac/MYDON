@@ -14,6 +14,7 @@ import { checkProjectLimit, checkAiRequestLimit, incrementAiUsage, getUserUsageS
 import { limitsRouter } from "./limits/limitsRouter";
 import { collaborationRouter } from "./collaborationRouter";
 import { notificationsRouter } from "./notificationsRouter";
+import { teamRouter } from "./teamRouter";
 import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
@@ -1467,6 +1468,7 @@ export const appRouter = router({
   limits: limitsRouter,
   collaboration: collaborationRouter,
   notifications: notificationsRouter,
+  team: teamRouter,
 });
 
 export type AppRouter = typeof appRouter;

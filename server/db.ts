@@ -16,7 +16,10 @@ import {
   chatMessages, InsertChatMessage, ChatMessage,
   projectTemplates, InsertProjectTemplate, ProjectTemplate, TemplateStructure,
   templateCategories, InsertTemplateCategory, TemplateCategory,
-  pitchDecks, InsertPitchDeck, PitchDeck, PitchDeckSlide
+  pitchDecks, InsertPitchDeck, PitchDeck, PitchDeckSlide,
+  projectMembers, InsertProjectMember, ProjectMember,
+  projectInvitations, InsertProjectInvitation, ProjectInvitation,
+  activityLog, InsertActivityLog, ActivityLog
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1654,4 +1657,356 @@ export async function reorderSections(blockId: number, sectionIds: number[]): Pr
       .set({ sortOrder: i, updatedAt: new Date() })
       .where(and(eq(sections.id, sectionIds[i]), eq(sections.blockId, blockId)));
   }
+}
+
+
+// ============ PROJECT MEMBERS QUERIES ============
+
+export async function getProjectMembers(projectId: number): Promise<(ProjectMember & { user: { id: number; name: string | null; email: string | null; avatar: string | null } | null })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const members = await db.select().from(projectMembers)
+    .where(and(
+      eq(projectMembers.projectId, projectId),
+      eq(projectMembers.status, 'active')
+    ))
+    .orderBy(asc(projectMembers.createdAt));
+  
+  // Join with users table to get user info
+  const membersWithUsers = await Promise.all(members.map(async (member) => {
+    const [user] = await db.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      avatar: users.avatar
+    }).from(users).where(eq(users.id, member.userId));
+    return { ...member, user: user || null };
+  }));
+  
+  return membersWithUsers;
+}
+
+export async function addProjectMember(data: InsertProjectMember): Promise<ProjectMember | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  // Check if member already exists
+  const [existing] = await db.select().from(projectMembers)
+    .where(and(
+      eq(projectMembers.projectId, data.projectId),
+      eq(projectMembers.userId, data.userId)
+    ));
+  
+  if (existing) {
+    // Reactivate if removed
+    if (existing.status === 'removed') {
+      await db.update(projectMembers)
+        .set({ status: 'active', role: data.role, updatedAt: new Date() })
+        .where(eq(projectMembers.id, existing.id));
+      return { ...existing, status: 'active', role: data.role || 'viewer' };
+    }
+    return existing;
+  }
+  
+  const [result] = await db.insert(projectMembers).values(data);
+  return { ...data, id: result.insertId } as ProjectMember;
+}
+
+export async function updateProjectMemberRole(id: number, role: 'owner' | 'admin' | 'editor' | 'viewer'): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  const [result] = await db.update(projectMembers)
+    .set({ role, updatedAt: new Date() })
+    .where(eq(projectMembers.id, id));
+  
+  return result.affectedRows > 0;
+}
+
+export async function removeProjectMember(id: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  const [result] = await db.update(projectMembers)
+    .set({ status: 'removed', updatedAt: new Date() })
+    .where(eq(projectMembers.id, id));
+  
+  return result.affectedRows > 0;
+}
+
+export async function getProjectMemberByUserId(projectId: number, userId: number): Promise<ProjectMember | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [member] = await db.select().from(projectMembers)
+    .where(and(
+      eq(projectMembers.projectId, projectId),
+      eq(projectMembers.userId, userId),
+      eq(projectMembers.status, 'active')
+    ));
+  
+  return member || null;
+}
+
+export async function isProjectMember(projectId: number, userId: number): Promise<boolean> {
+  const member = await getProjectMemberByUserId(projectId, userId);
+  return member !== null;
+}
+
+export async function hasProjectPermission(projectId: number, userId: number, requiredRoles: ('owner' | 'admin' | 'editor' | 'viewer')[]): Promise<boolean> {
+  const member = await getProjectMemberByUserId(projectId, userId);
+  if (!member) return false;
+  return requiredRoles.includes(member.role);
+}
+
+// ============ PROJECT INVITATIONS QUERIES ============
+
+export async function createProjectInvitation(data: InsertProjectInvitation): Promise<ProjectInvitation | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [result] = await db.insert(projectInvitations).values(data);
+  return { ...data, id: result.insertId } as ProjectInvitation;
+}
+
+export async function getProjectInvitationByCode(inviteCode: string): Promise<ProjectInvitation | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [invitation] = await db.select().from(projectInvitations)
+    .where(eq(projectInvitations.inviteCode, inviteCode));
+  
+  return invitation || null;
+}
+
+export async function getPendingInvitations(projectId: number): Promise<ProjectInvitation[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(projectInvitations)
+    .where(and(
+      eq(projectInvitations.projectId, projectId),
+      not(isNotNull(projectInvitations.usedAt))
+    ))
+    .orderBy(desc(projectInvitations.createdAt));
+}
+
+export async function useInvitation(inviteCode: string, userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  const [result] = await db.update(projectInvitations)
+    .set({ usedAt: new Date(), usedBy: userId })
+    .where(and(
+      eq(projectInvitations.inviteCode, inviteCode),
+      not(isNotNull(projectInvitations.usedAt))
+    ));
+  
+  return result.affectedRows > 0;
+}
+
+export async function deleteInvitation(id: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  const [result] = await db.delete(projectInvitations)
+    .where(eq(projectInvitations.id, id));
+  
+  return result.affectedRows > 0;
+}
+
+// ============ ACTIVITY LOG QUERIES ============
+
+export async function logActivity(data: InsertActivityLog): Promise<ActivityLog | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [result] = await db.insert(activityLog).values(data);
+  return { ...data, id: result.insertId } as ActivityLog;
+}
+
+export async function getProjectActivity(
+  projectId: number, 
+  options?: { 
+    limit?: number; 
+    offset?: number; 
+    actions?: string[];
+    entityTypes?: string[];
+  }
+): Promise<(ActivityLog & { user: { id: number; name: string | null; avatar: string | null } | null })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { limit = 50, offset = 0 } = options || {};
+  
+  let query = db.select().from(activityLog)
+    .where(eq(activityLog.projectId, projectId))
+    .orderBy(desc(activityLog.createdAt))
+    .limit(limit)
+    .offset(offset);
+  
+  const activities = await query;
+  
+  // Join with users table to get user info
+  const activitiesWithUsers = await Promise.all(activities.map(async (activity) => {
+    const [user] = await db.select({
+      id: users.id,
+      name: users.name,
+      avatar: users.avatar
+    }).from(users).where(eq(users.id, activity.userId));
+    return { ...activity, user: user || null };
+  }));
+  
+  return activitiesWithUsers;
+}
+
+export async function getUserActivity(
+  userId: number, 
+  options?: { limit?: number; offset?: number }
+): Promise<ActivityLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { limit = 50, offset = 0 } = options || {};
+  
+  return db.select().from(activityLog)
+    .where(eq(activityLog.userId, userId))
+    .orderBy(desc(activityLog.createdAt))
+    .limit(limit)
+    .offset(offset);
+}
+
+export async function getDashboardActivity(
+  userId: number,
+  options?: { limit?: number }
+): Promise<(ActivityLog & { user: { id: number; name: string | null; avatar: string | null } | null; project: { id: number; name: string } | null })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { limit = 20 } = options || {};
+  
+  // Get all projects user is member of
+  const memberProjects = await db.select({ projectId: projectMembers.projectId })
+    .from(projectMembers)
+    .where(and(
+      eq(projectMembers.userId, userId),
+      eq(projectMembers.status, 'active')
+    ));
+  
+  // Also include projects user owns
+  const ownedProjects = await db.select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.userId, userId));
+  
+  const projectIds = Array.from(new Set([
+    ...memberProjects.map(p => p.projectId),
+    ...ownedProjects.map(p => p.id)
+  ]));
+  
+  if (projectIds.length === 0) return [];
+  
+  const activities = await db.select().from(activityLog)
+    .where(inArray(activityLog.projectId, projectIds))
+    .orderBy(desc(activityLog.createdAt))
+    .limit(limit);
+  
+  // Join with users and projects
+  const activitiesWithDetails = await Promise.all(activities.map(async (activity) => {
+    const [user] = await db.select({
+      id: users.id,
+      name: users.name,
+      avatar: users.avatar
+    }).from(users).where(eq(users.id, activity.userId));
+    
+    const [project] = await db.select({
+      id: projects.id,
+      name: projects.name
+    }).from(projects).where(eq(projects.id, activity.projectId));
+    
+    return { ...activity, user: user || null, project: project || null };
+  }));
+  
+  return activitiesWithDetails;
+}
+
+// ============ TASK ASSIGNMENT QUERIES ============
+
+export async function assignTask(taskId: number, userId: number | null): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  const [result] = await db.update(tasks)
+    .set({ assignedTo: userId, updatedAt: new Date() })
+    .where(eq(tasks.id, taskId));
+  
+  return result.affectedRows > 0;
+}
+
+export async function getTasksAssignedToUser(userId: number, projectId?: number): Promise<Task[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  if (projectId) {
+    // Get all sections in project
+    const projectBlocks = await db.select({ id: blocks.id }).from(blocks)
+      .where(eq(blocks.projectId, projectId));
+    
+    if (projectBlocks.length === 0) return [];
+    
+    const blockIds = projectBlocks.map(b => b.id);
+    const projectSections = await db.select({ id: sections.id }).from(sections)
+      .where(inArray(sections.blockId, blockIds));
+    
+    if (projectSections.length === 0) return [];
+    
+    const sectionIds = projectSections.map(s => s.id);
+    
+    return db.select().from(tasks)
+      .where(and(
+        eq(tasks.assignedTo, userId),
+        inArray(tasks.sectionId, sectionIds)
+      ))
+      .orderBy(desc(tasks.createdAt));
+  }
+  
+  return db.select().from(tasks)
+    .where(eq(tasks.assignedTo, userId))
+    .orderBy(desc(tasks.createdAt));
+}
+
+export async function getAssignedUserForTask(taskId: number): Promise<{ id: number; name: string | null; avatar: string | null } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [task] = await db.select({ assignedTo: tasks.assignedTo }).from(tasks)
+    .where(eq(tasks.id, taskId));
+  
+  if (!task?.assignedTo) return null;
+  
+  const [user] = await db.select({
+    id: users.id,
+    name: users.name,
+    avatar: users.avatar
+  }).from(users).where(eq(users.id, task.assignedTo));
+  
+  return user || null;
+}
+
+// ============ USER SEARCH FOR ASSIGNMENT ============
+
+export async function searchProjectMembers(projectId: number, query: string): Promise<{ id: number; name: string | null; email: string | null; avatar: string | null }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const members = await getProjectMembers(projectId);
+  
+  const searchLower = query.toLowerCase();
+  return members
+    .filter(m => m.user && (
+      m.user.name?.toLowerCase().includes(searchLower) ||
+      m.user.email?.toLowerCase().includes(searchLower)
+    ))
+    .map(m => m.user!)
+    .filter(Boolean);
 }

@@ -12,6 +12,8 @@ import AIIntegrations from "./pages/AIIntegrations";
 import Pricing from "./pages/Pricing";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import NotificationSettings from "./pages/NotificationSettings";
+import TeamManagement from "./pages/TeamManagement";
+import JoinProject from "./pages/JoinProject";
 
 function Router() {
   return (
@@ -24,6 +26,8 @@ function Router() {
       <Route path="/pricing" component={Pricing} />
       <Route path="/subscription/success" component={SubscriptionSuccess} />
       <Route path="/settings/notifications" component={NotificationSettings} />
+      <Route path="/project/:id/team" component={TeamManagement} />
+      <Route path="/join/:code" component={JoinProject} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

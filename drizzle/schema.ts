@@ -8,6 +8,7 @@ export const users = mysqlTable("users", {
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  avatar: varchar("avatar", { length: 512 }), // User avatar URL
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   // Stripe subscription fields
@@ -135,6 +136,71 @@ export type Project = typeof projects.$inferSelect;
 export type InsertProject = typeof projects.$inferInsert;
 
 /**
+ * Project Members - team collaboration with roles
+ */
+export const projectMembers = mysqlTable("project_members", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  role: mysqlEnum("role", ["owner", "admin", "editor", "viewer"]).default("viewer").notNull(),
+  invitedBy: int("invitedBy"),
+  invitedAt: timestamp("invitedAt").defaultNow().notNull(),
+  joinedAt: timestamp("joinedAt"),
+  status: mysqlEnum("status", ["pending", "active", "removed"]).default("active").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type InsertProjectMember = typeof projectMembers.$inferInsert;
+
+/**
+ * Project Invitations - invite by email/link
+ */
+export const projectInvitations = mysqlTable("project_invitations", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  email: varchar("email", { length: 320 }),
+  inviteCode: varchar("inviteCode", { length: 64 }).notNull().unique(),
+  role: mysqlEnum("role", ["admin", "editor", "viewer"]).default("viewer").notNull(),
+  invitedBy: int("invitedBy").notNull(),
+  expiresAt: timestamp("expiresAt"),
+  usedAt: timestamp("usedAt"),
+  usedBy: int("usedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ProjectInvitation = typeof projectInvitations.$inferSelect;
+export type InsertProjectInvitation = typeof projectInvitations.$inferInsert;
+
+/**
+ * Activity Log - track all actions for activity feed
+ */
+export const activityLog = mysqlTable("activity_log", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  action: mysqlEnum("action", [
+    "task_created", "task_updated", "task_completed", "task_deleted",
+    "subtask_created", "subtask_completed",
+    "comment_added", "comment_edited",
+    "member_invited", "member_joined", "member_removed",
+    "block_created", "block_updated",
+    "section_created", "section_updated",
+    "project_updated", "deadline_set", "priority_changed",
+    "assignment_changed"
+  ]).notNull(),
+  entityType: mysqlEnum("entityType", ["project", "block", "section", "task", "subtask", "comment", "member"]).notNull(),
+  entityId: int("entityId").notNull(),
+  entityTitle: varchar("entityTitle", { length: 500 }),
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ActivityLog = typeof activityLog.$inferSelect;
+export type InsertActivityLog = typeof activityLog.$inferInsert;
+
+/**
  * Blocks - major phases/sections within a project roadmap
  */
 export const blocks = mysqlTable("blocks", {
@@ -187,6 +253,7 @@ export const tasks = mysqlTable("tasks", {
   dueDate: timestamp("dueDate"), // Task due date for calendar and scheduling
   deadline: timestamp("deadline"), // Hard deadline for task completion
   dependencies: json("dependencies").$type<number[]>(), // Array of task IDs that must be completed first
+  assignedTo: int("assignedTo"), // User ID of the person assigned to this task
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -681,43 +748,6 @@ export type InsertAiUsageTracking = typeof aiUsageTracking.$inferInsert;
 
 
 // ============ COLLABORATION TABLES ============
-
-/**
- * Project Members - Team collaboration
- */
-export const projectMembers = mysqlTable("project_members", {
-  id: int("id").autoincrement().primaryKey(),
-  projectId: int("projectId").notNull(),
-  userId: int("userId").notNull(),
-  role: mysqlEnum("role", ["owner", "editor", "viewer"]).default("viewer").notNull(),
-  invitedBy: int("invitedBy"),
-  invitedAt: timestamp("invitedAt").defaultNow().notNull(),
-  acceptedAt: timestamp("acceptedAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type ProjectMember = typeof projectMembers.$inferSelect;
-export type InsertProjectMember = typeof projectMembers.$inferInsert;
-
-/**
- * Project Invitations - Pending invites
- */
-export const projectInvitations = mysqlTable("project_invitations", {
-  id: int("id").autoincrement().primaryKey(),
-  projectId: int("projectId").notNull(),
-  email: varchar("email", { length: 320 }).notNull(),
-  role: mysqlEnum("role", ["editor", "viewer"]).default("viewer").notNull(),
-  token: varchar("token", { length: 64 }).notNull().unique(),
-  invitedBy: int("invitedBy").notNull(),
-  status: mysqlEnum("status", ["pending", "accepted", "expired", "cancelled"]).default("pending").notNull(),
-  expiresAt: timestamp("expiresAt").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type ProjectInvitation = typeof projectInvitations.$inferSelect;
-export type InsertProjectInvitation = typeof projectInvitations.$inferInsert;
 
 /**
  * Task Comments - Discussion on tasks
