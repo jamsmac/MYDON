@@ -1285,3 +1285,46 @@
 - [x] Persist collapsed state in localStorage
 - [x] Show task count when group is collapsed
 - [x] 379 total tests passing
+
+## Phase 65: Persist Grouping Mode
+- [ ] Add groupingMode field to viewConfigs or project settings
+- [ ] Create API endpoint to save grouping preference
+- [ ] Create API endpoint to load grouping preference
+- [ ] Update FilterContext to sync with database
+- [ ] Load saved preference on project open
+
+
+## Phase 66: AI Decision Finalization System (CRITICAL)
+
+### Part 2: Финализация Итогов ⭐
+- [x] Create ai_decision_records table (sessionId, taskId, projectId, question, aiResponse, finalDecision, keyPoints, actionItems, decisionType, tags, status)
+- [x] Create aiDecisionRouter.ts with endpoints:
+  - [x] finalize() - save decision
+  - [x] getContextDecisions() - for AI context injection
+  - [x] getFormattedContext() - formatted string for AI prompts
+  - [x] generateSummary() - AI extracts key points
+  - [x] getDecisions() - list all decisions
+  - [x] getDecision() - get single decision
+  - [x] updateDecision() - update status/content
+  - [x] deleteDecision() - remove decision
+  - [x] getStats() - statistics by status/type/importance
+- [x] Create FinalizeDecisionModal component:
+  - [x] Auto-fill question from conversation
+  - [x] AI-generated summary as final decision
+  - [x] Key points extraction with priority (high/medium/low)
+  - [x] Action items with subtask checkbox
+  - [x] Decision type selector (6 types)
+  - [x] Importance selector (4 levels)
+  - [x] Tags input with add/remove
+- [x] Create AIResponseActions component:
+  - [x] ✅ Финализировать итоги (main button)
+  - [x] 💾 Сохранить в документ
+  - [x] 📝 Создать подзадачу
+  - [x] 📋 Копировать
+  - [x] Compact and full modes
+- [x] AI Context Integration:
+  - [x] useAIContext hook for context management
+  - [x] buildPromptWithContext() helper
+  - [x] DecisionContextBadge component
+  - [x] Format: "=== ПРОШЛЫЕ РЕШЕНИЯ ===" section
+- [x] 13 tests passing for aiDecision

@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `user_project_preferences` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `projectId` int NOT NULL,\n  `userId` int NOT NULL,\n  `groupBy` enum('none','tag','status','priority') DEFAULT 'none',\n  `activeFilter` enum('all','not_started','in_progress','completed','overdue') DEFAULT 'all',\n  `collapsedGroups` json,\n  `collapsedSections` json,\n  `sidebarCollapsed` boolean DEFAULT false,\n  `lastViewedBlockId` varchar(100),\n  `lastViewedSectionId` varchar(100),\n  `createdAt` timestamp NOT NULL DEFAULT (now()),\n  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `user_project_preferences_id` PRIMARY KEY(`id`),\n  UNIQUE KEY `upp_project_user_idx` (`projectId`, `userId`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute CREATE TABLE IF NOT EXISTS `user_project_preferences` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `projectId` int NOT NULL,\n  `userId` int NOT NULL,\n  `groupBy` enum('none','tag','status','priority') DEFAULT 'none',\n  `activeFilter` enum('all','not_started','in_progress','completed','overdue') DEFAULT 'all',\n  `collapsedGroups` json,\n  `collapsedSections` json,\n  `sidebarCollapsed` boolean DEFAULT false,\n  `lastViewedBlockId` varchar(100),\n  `lastViewedSectionId` varchar(100),\n  `createdAt` timestamp NOT NULL DEFAULT (now()),\n  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `user_project_preferences_id` PRIMARY KEY(`id`),\n  UNIQUE KEY `upp_project_user_idx` (`projectId`, `userId`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 248
+}

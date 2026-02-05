@@ -1640,3 +1640,110 @@ export const rollupFields = mysqlTable("rollup_fields", {
 
 export type RollupField = typeof rollupFields.$inferSelect;
 export type InsertRollupField = typeof rollupFields.$inferInsert;
+
+
+/**
+ * User Project Preferences - per-user settings for each project
+ */
+export const userProjectPreferences = mysqlTable("user_project_preferences", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  
+  // Grouping preferences
+  groupBy: mysqlEnum("groupBy", ["none", "tag", "status", "priority"]).default("none"),
+  
+  // Filter preferences
+  activeFilter: mysqlEnum("activeFilter", ["all", "not_started", "in_progress", "completed", "overdue"]).default("all"),
+  
+  // View preferences
+  collapsedGroups: json("collapsedGroups").$type<string[]>(),
+  collapsedSections: json("collapsedSections").$type<string[]>(),
+  
+  // Sidebar preferences
+  sidebarCollapsed: boolean("sidebarCollapsed").default(false),
+  
+  // Last viewed block/section
+  lastViewedBlockId: varchar("lastViewedBlockId", { length: 100 }),
+  lastViewedSectionId: varchar("lastViewedSectionId", { length: 100 }),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  projectUserIdx: uniqueIndex("upp_project_user_idx").on(table.projectId, table.userId),
+}));
+
+export type UserProjectPreference = typeof userProjectPreferences.$inferSelect;
+export type InsertUserProjectPreference = typeof userProjectPreferences.$inferInsert;
+
+
+/**
+ * AI Decision Records - finalized outcomes from AI conversations
+ * Stores decisions that can be referenced in future AI context
+ */
+export const aiDecisionRecords = mysqlTable("ai_decision_records", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  // Context references
+  sessionId: int("sessionId"), // AI chat session
+  projectId: int("projectId"),
+  taskId: varchar("taskId", { length: 100 }), // Task ID if decision relates to specific task
+  blockId: varchar("blockId", { length: 100 }),
+  
+  // User who finalized
+  userId: int("userId").notNull(),
+  
+  // Original conversation
+  question: text("question").notNull(), // Original user question
+  aiResponse: text("aiResponse").notNull(), // Full AI response
+  
+  // Finalized decision (THE KEY FIELD!)
+  finalDecision: text("finalDecision").notNull(), // What was decided - summary
+  
+  // Structured data
+  keyPoints: json("keyPoints").$type<{
+    id: string;
+    text: string;
+    priority?: "high" | "medium" | "low";
+  }[]>(),
+  
+  actionItems: json("actionItems").$type<{
+    id: string;
+    title: string;
+    assignee?: string;
+    deadline?: string;
+    status: "pending" | "done" | "cancelled";
+    subtaskId?: string; // If converted to subtask
+  }[]>(),
+  
+  // Classification
+  decisionType: mysqlEnum("decisionType", [
+    "technical", "business", "design", "process", "architecture", "other"
+  ]).default("other"),
+  
+  // Tags for filtering
+  tags: json("tags").$type<string[]>(),
+  
+  // Status tracking
+  status: mysqlEnum("status", [
+    "active", "implemented", "obsolete", "superseded"
+  ]).default("active"),
+  
+  supersededBy: int("supersededBy"), // Reference to newer decision
+  
+  // Metadata
+  importance: mysqlEnum("importance", ["critical", "high", "medium", "low"]).default("medium"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  projectIdx: index("adr_project_idx").on(table.projectId),
+  taskIdx: index("adr_task_idx").on(table.taskId),
+  userIdx: index("adr_user_idx").on(table.userId),
+  statusIdx: index("adr_status_idx").on(table.status),
+  typeIdx: index("adr_type_idx").on(table.decisionType),
+}));
+
+export type AIDecisionRecord = typeof aiDecisionRecords.$inferSelect;
+export type InsertAIDecisionRecord = typeof aiDecisionRecords.$inferInsert;
