@@ -49,7 +49,8 @@ import { DraggableSidebar } from '@/components/DraggableSidebar';
 import { StreamingAIChat } from '@/components/StreamingAIChat';
 import { CalendarDialog } from '@/components/CalendarDialog';
 import { SaveAsTemplateDialog } from '@/components/SaveAsTemplateDialog';
-import { LayoutTemplate } from 'lucide-react';
+import { PitchDeckGenerator } from '@/components/PitchDeckGenerator';
+import { LayoutTemplate, Presentation } from 'lucide-react';
 
 // ============ AI CHAT PANEL ============
 function AIChatPanel({ 
@@ -500,6 +501,7 @@ export default function ProjectView() {
   // Google Drive integration
   const [showCalendarDialog, setShowCalendarDialog] = useState(false);
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
+  const [showPitchDeckDialog, setShowPitchDeckDialog] = useState(false);
   
   const saveToDrive = trpc.drive.saveProject.useMutation({
     onSuccess: (result) => {
@@ -773,6 +775,13 @@ export default function ProjectView() {
                 >
                   <LayoutTemplate className="w-4 h-4 mr-2" />
                   Сохранить как шаблон
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-amber-400"
+                  onClick={() => setShowPitchDeckDialog(true)}
+                >
+                  <Presentation className="w-4 h-4 mr-2" />
+                  Создать Pitch Deck
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-700" />
                 <DropdownMenuItem 
@@ -1180,6 +1189,14 @@ export default function ProjectView() {
       <SaveAsTemplateDialog
         open={showSaveTemplateDialog}
         onOpenChange={setShowSaveTemplateDialog}
+        projectId={projectId}
+        projectName={project.name}
+      />
+
+      {/* Pitch Deck Generator */}
+      <PitchDeckGenerator
+        open={showPitchDeckDialog}
+        onOpenChange={setShowPitchDeckDialog}
         projectId={projectId}
         projectName={project.name}
       />

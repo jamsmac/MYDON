@@ -288,3 +288,38 @@ export type TemplateStructure = {
 
 export type ProjectTemplate = typeof projectTemplates.$inferSelect;
 export type InsertProjectTemplate = typeof projectTemplates.$inferInsert;
+
+
+/**
+ * Pitch Decks - AI-generated investor presentations
+ */
+export const pitchDecks = mysqlTable("pitch_decks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  projectId: int("projectId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  subtitle: varchar("subtitle", { length: 500 }),
+  // Slide content stored as JSON
+  slides: json("slides").$type<PitchDeckSlide[]>().notNull(),
+  // Generation metadata
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  lastEditedAt: timestamp("lastEditedAt").defaultNow().onUpdateNow().notNull(),
+  // Export info
+  exportedUrl: text("exportedUrl"),
+  exportFormat: varchar("exportFormat", { length: 32 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PitchDeckSlide = {
+  id: string;
+  type: 'title' | 'problem' | 'solution' | 'market' | 'product' | 'business_model' | 'traction' | 'team' | 'roadmap' | 'financials' | 'ask' | 'contact';
+  title: string;
+  content: string;
+  bullets?: string[];
+  metrics?: { label: string; value: string }[];
+  imagePrompt?: string;
+};
+
+export type PitchDeck = typeof pitchDecks.$inferSelect;
+export type InsertPitchDeck = typeof pitchDecks.$inferInsert;

@@ -36,6 +36,13 @@
       "when": 1770284504437,
       "tag": "0004_easy_famine",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1770285944034,
+      "tag": "0005_tiny_centennial",
+      "breakpoints": true
     }
   ]
 }

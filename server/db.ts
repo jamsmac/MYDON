@@ -13,7 +13,8 @@ import {
   creditTransactions, InsertCreditTransaction, CreditTransaction,
   chatMessages, InsertChatMessage, ChatMessage,
   projectTemplates, InsertProjectTemplate, ProjectTemplate, TemplateStructure,
-  templateCategories, InsertTemplateCategory, TemplateCategory
+  templateCategories, InsertTemplateCategory, TemplateCategory,
+  pitchDecks, InsertPitchDeck, PitchDeck, PitchDeckSlide
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1032,4 +1033,84 @@ export async function getDailyBriefing(userId: number): Promise<DailyBriefingDat
       overdueCount: overdueTasks.length,
     },
   };
+}
+
+
+// ============ PITCH DECK QUERIES ============
+
+export async function createPitchDeck(data: {
+  userId: number;
+  projectId: number;
+  title: string;
+  subtitle?: string;
+  slides: PitchDeckSlide[];
+}): Promise<PitchDeck> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [result] = await db.insert(pitchDecks).values({
+    userId: data.userId,
+    projectId: data.projectId,
+    title: data.title,
+    subtitle: data.subtitle,
+    slides: data.slides,
+  });
+
+  const [created] = await db.select().from(pitchDecks)
+    .where(eq(pitchDecks.id, result.insertId));
+  
+  return created;
+}
+
+export async function getPitchDecksByUser(userId: number): Promise<PitchDeck[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(pitchDecks)
+    .where(eq(pitchDecks.userId, userId))
+    .orderBy(desc(pitchDecks.createdAt));
+}
+
+export async function getPitchDeckById(id: number, userId: number): Promise<PitchDeck | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [deck] = await db.select().from(pitchDecks)
+    .where(and(eq(pitchDecks.id, id), eq(pitchDecks.userId, userId)));
+  
+  return deck || null;
+}
+
+export async function updatePitchDeck(
+  id: number, 
+  userId: number, 
+  data: Partial<{ title: string; subtitle: string; slides: PitchDeckSlide[]; exportedUrl: string; exportFormat: string }>
+): Promise<PitchDeck | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  await db.update(pitchDecks)
+    .set(data)
+    .where(and(eq(pitchDecks.id, id), eq(pitchDecks.userId, userId)));
+
+  return getPitchDeckById(id, userId);
+}
+
+export async function deletePitchDeck(id: number, userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  const [result] = await db.delete(pitchDecks)
+    .where(and(eq(pitchDecks.id, id), eq(pitchDecks.userId, userId)));
+
+  return result.affectedRows > 0;
+}
+
+export async function getPitchDecksByProject(projectId: number, userId: number): Promise<PitchDeck[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(pitchDecks)
+    .where(and(eq(pitchDecks.projectId, projectId), eq(pitchDecks.userId, userId)))
+    .orderBy(desc(pitchDecks.createdAt));
 }

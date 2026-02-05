@@ -1060,6 +1060,141 @@ const briefingRouter = router({
   }),
 });
 
+// ============ PITCH DECK ROUTER ============
+const pitchDeckRouter = router({
+  list: protectedProcedure.query(async ({ ctx }) => {
+    return db.getPitchDecksByUser(ctx.user.id);
+  }),
+
+  get: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      return db.getPitchDeckById(input.id, ctx.user.id);
+    }),
+
+  listByProject: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      return db.getPitchDecksByProject(input.projectId, ctx.user.id);
+    }),
+
+  generate: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      language: z.enum(['ru', 'en']).default('ru'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Get full project data
+      const project = await db.getFullProject(input.projectId, ctx.user.id);
+      if (!project) {
+        throw new Error('Project not found');
+      }
+
+      // Deduct credits
+      const creditResult = await db.deductCredits(ctx.user.id, 50, 'ai_generate', 'Pitch Deck generation');
+      if (!creditResult.success) {
+        throw new Error(creditResult.error || 'Insufficient credits');
+      }
+
+      // Prepare project summary for AI
+      const projectSummary = {
+        name: project.name,
+        description: project.description,
+        blocks: project.blocks.map(b => ({
+          title: b.title,
+          titleRu: b.titleRu,
+          duration: b.duration,
+          sections: b.sections.map(s => ({
+            title: s.title,
+            tasks: s.tasks.map(t => t.title)
+          }))
+        }))
+      };
+
+      const lang = input.language === 'ru' ? 'Russian' : 'English';
+
+      // Generate pitch deck content using AI
+      const prompt = `You are an expert startup pitch deck creator. Based on the following project roadmap, create a professional 10-slide investor pitch deck.
+
+Project: ${project.name}
+Description: ${project.description || 'No description provided'}
+
+Roadmap Structure:
+${JSON.stringify(projectSummary.blocks, null, 2)}
+
+Generate a pitch deck with exactly 10 slides in ${lang}. Return a JSON array with this exact structure:
+[
+  { "id": "1", "type": "title", "title": "Company Name", "content": "Tagline or one-sentence description", "bullets": [] },
+  { "id": "2", "type": "problem", "title": "Problem", "content": "Main problem description", "bullets": ["Pain point 1", "Pain point 2", "Pain point 3"] },
+  { "id": "3", "type": "solution", "title": "Solution", "content": "Our solution", "bullets": ["Feature 1", "Feature 2", "Feature 3"] },
+  { "id": "4", "type": "market", "title": "Market Size", "content": "Market opportunity", "metrics": [{"label": "TAM", "value": "$XXB"}, {"label": "SAM", "value": "$XXB"}, {"label": "SOM", "value": "$XXM"}] },
+  { "id": "5", "type": "business_model", "title": "Business Model", "content": "How we make money", "bullets": ["Revenue stream 1", "Revenue stream 2"] },
+  { "id": "6", "type": "competition", "title": "Competition", "content": "Our competitive advantage", "bullets": ["Competitor 1 - weakness", "Competitor 2 - weakness", "Our advantage"] },
+  { "id": "7", "type": "roadmap", "title": "Roadmap", "content": "12-18 month plan", "bullets": ["Q1: ...", "Q2: ...", "Q3: ...", "Q4: ..."] },
+  { "id": "8", "type": "team", "title": "Team", "content": "Our team", "bullets": ["CEO - background", "CTO - background", "Key hire needed"] },
+  { "id": "9", "type": "financials", "title": "Financials", "content": "3-year projection", "metrics": [{"label": "Year 1", "value": "$XXK"}, {"label": "Year 2", "value": "$XXM"}, {"label": "Year 3", "value": "$XXM"}] },
+  { "id": "10", "type": "ask", "title": "The Ask", "content": "Investment request", "bullets": ["Amount: $X", "Use of funds 1", "Use of funds 2", "Use of funds 3"] }
+]
+
+Make the content realistic and compelling based on the project's roadmap. Use actual data from the roadmap for the Roadmap slide. Return ONLY the JSON array, no other text.`;
+
+      const response = await invokeLLM({
+        messages: [
+          { role: 'system', content: 'You are an expert startup pitch deck creator. Always respond with valid JSON only.' },
+          { role: 'user', content: prompt }
+        ],
+      });
+
+      let slides;
+      try {
+        const rawContent = response.choices[0]?.message?.content;
+        const content = typeof rawContent === 'string' ? rawContent : '[]';
+        // Extract JSON from response (handle markdown code blocks)
+        const jsonMatch = content.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        slides = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+      } catch (e) {
+        console.error('Failed to parse AI response:', e);
+        throw new Error('Failed to generate pitch deck content');
+      }
+
+      // Save to database
+      const pitchDeck = await db.createPitchDeck({
+        userId: ctx.user.id,
+        projectId: input.projectId,
+        title: `${project.name} - Pitch Deck`,
+        subtitle: project.description || undefined,
+        slides,
+      });
+
+      return pitchDeck;
+    }),
+
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      title: z.string().optional(),
+      subtitle: z.string().optional(),
+      slides: z.array(z.object({
+        id: z.string(),
+        type: z.string(),
+        title: z.string(),
+        content: z.string(),
+        bullets: z.array(z.string()).optional(),
+        metrics: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
+      })).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return db.updatePitchDeck(id, ctx.user.id, data as any);
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return db.deletePitchDeck(input.id, ctx.user.id);
+    }),
+});
+
 // ============ MAIN ROUTER ============
 export const appRouter = router({
   system: systemRouter,
@@ -1086,6 +1221,7 @@ export const appRouter = router({
   ai: aiGenerationRouter,
   template: templateRouter,
   briefing: briefingRouter,
+  pitchDeck: pitchDeckRouter,
 });
 
 export type AppRouter = typeof appRouter;

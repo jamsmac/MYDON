@@ -327,3 +327,15 @@
 - [x] UI: "Good morning" greeting with date
 - [x] Add Daily Briefing button to Dashboard header
 - [x] Test full Daily Briefing flow
+
+
+## Phase 23: AI Pitch Deck Generator
+- [x] Design pitch deck slide structure (Problem, Solution, Market, Business Model, Team, Traction, Roadmap, Ask)
+- [x] Backend: generatePitchDeck procedure using LLM to create slide content from project data
+- [x] Backend: Store generated pitch decks in database
+- [x] Backend: getPitchDecks procedure to list user's pitch decks
+- [x] UI: PitchDeckGenerator component with project selection
+- [x] UI: Slide preview with navigation
+- [ ] UI: Export to slides format (using slides mode) - placeholder added
+- [x] UI: Add "Generate Pitch Deck" button to project view
+- [x] Test full pitch deck generation flow
