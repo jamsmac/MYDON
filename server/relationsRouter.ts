@@ -10,6 +10,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { RelationResolver, EntityType, RelationType } from './utils/relationResolver';
 import { LookupCalculator, LookupEntityType } from './utils/lookupCalculator';
 import { RollupCalculator, RollupEntityType } from './utils/rollupCalculator';
+import { getDefaultTags, getEssentialTags } from './utils/defaultTags';
 
 // Zod schemas
 const entityTypeSchema = z.enum(['project', 'block', 'section', 'task', 'subtask']);
@@ -520,5 +521,80 @@ export const relationsRouter = router({
           taskId: tt.taskId,
           tag: tagMap.get(tt.tagId)!,
         }));
+    }),
+
+  /**
+   * Seed default tags for a project
+   * Called automatically when creating a new project
+   */
+  seedDefaultTags: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      useRussian: z.boolean().optional().default(true),
+      essentialOnly: z.boolean().optional().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return { success: false, created: 0 };
+
+      // Get default tags based on options
+      const defaultTags = input.essentialOnly 
+        ? getEssentialTags(input.useRussian)
+        : getDefaultTags(input.useRussian);
+
+      // Check existing tags for this project to avoid duplicates
+      const existingTags = await db
+        .select({ name: schema.tags.name })
+        .from(schema.tags)
+        .where(eq(schema.tags.projectId, input.projectId));
+
+      const existingNames = new Set(existingTags.map(t => t.name.toLowerCase()));
+
+      // Filter out tags that already exist
+      const tagsToCreate = defaultTags.filter(
+        tag => !existingNames.has(tag.name.toLowerCase())
+      );
+
+      if (tagsToCreate.length === 0) {
+        return { success: true, created: 0, message: 'All default tags already exist' };
+      }
+
+      // Insert new tags
+      const tagValues = tagsToCreate.map(tag => ({
+        projectId: input.projectId,
+        userId: ctx.user.id,
+        name: tag.name,
+        color: tag.color,
+        icon: tag.icon || null,
+        tagType: tag.tagType,
+        description: tag.description || null,
+        usageCount: 0,
+        isArchived: false,
+      }));
+
+      await db.insert(schema.tags).values(tagValues);
+
+      return { 
+        success: true, 
+        created: tagsToCreate.length,
+        tags: tagsToCreate.map(t => t.name),
+      };
+    }),
+
+  /**
+   * Get available default tag templates
+   * For UI to show what tags will be created
+   */
+  getDefaultTagTemplates: protectedProcedure
+    .input(z.object({
+      useRussian: z.boolean().optional().default(true),
+      essentialOnly: z.boolean().optional().default(false),
+    }))
+    .query(async ({ input }) => {
+      const tags = input.essentialOnly 
+        ? getEssentialTags(input.useRussian)
+        : getDefaultTags(input.useRussian);
+
+      return tags;
     }),
 });

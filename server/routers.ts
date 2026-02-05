@@ -26,8 +26,11 @@ import { apiKeysRouter } from "./apiKeysRouter";
 import { timeTrackingRouter } from "./timeTrackingRouter";
 import { gamificationRouter } from "./gamificationRouter";
 import { aiTrpcRouter } from "./aiTrpcRouter";
-import { relationsRouter } from "./relationsRouter";
+import { relationsRouter } from './relationsRouter';
+import { getDefaultTags } from './utils/defaultTags';
 import { checkAndAwardAchievements, type AchievementResult } from "./achievementService";
+import * as schema from '../drizzle/schema';
+import { getDb } from './db';
 import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
@@ -71,6 +74,29 @@ const projectRouter = router({
         ...input,
         userId: ctx.user.id,
       });
+      
+      // Seed default tags for the new project
+      try {
+        const database = await getDb();
+        if (database && project.id) {
+          const defaultTags = getDefaultTags(true); // Use Russian names
+          const tagValues = defaultTags.map(tag => ({
+            projectId: project.id,
+            userId: ctx.user.id,
+            name: tag.name,
+            color: tag.color,
+            icon: tag.icon || null,
+            tagType: tag.tagType,
+            description: tag.description || null,
+            usageCount: 0,
+            isArchived: false,
+          }));
+          await database.insert(schema.tags).values(tagValues);
+        }
+      } catch (error) {
+        // Log but don't fail project creation if tags fail
+        console.error('Failed to seed default tags:', error);
+      }
       
       // Check achievements for project creation
       const achievements = await checkAndAwardAchievements(ctx.user.id, "project_created");

@@ -1242,3 +1242,10 @@
   - [x] Update MainContent to filter tasks by selected tags
   - [x] Add getAllTaskTags endpoint for efficient filtering
   - [x] Create useTaskTagsCache hook for client-side tag lookup
+
+
+## Phase 61: Default Tag Templates
+- [x] Create default tags configuration (Urgent, MVP, Blocker, etc.)
+- [x] Add seedDefaultTags function to relationsRouter
+- [x] Integrate default tags creation into project creation flow
+- [x] Add getDefaultTagTemplates endpoint for UI preview
