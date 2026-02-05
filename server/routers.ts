@@ -255,18 +255,37 @@ const subtaskRouter = router({
 });
 
 // ============ AI SETTINGS ROUTER ============
+import * as aiProviders from "./aiProviders";
+
+const allProviders = z.enum([
+  "anthropic", "openai", "google", "groq", "mistral",
+  "gemini_free", "huggingface", "deepseek", "ollama", "cohere", "perplexity"
+]);
+
 const aiSettingsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return db.getAiSettingsByUser(ctx.user.id);
   }),
 
+  // Get all available providers with their configurations
+  getProviders: publicProcedure.query(() => {
+    return {
+      all: aiProviders.AI_PROVIDERS,
+      free: aiProviders.getFreeProviders(),
+      premium: aiProviders.getPremiumProviders(),
+    };
+  }),
+
   upsert: protectedProcedure
     .input(z.object({
-      provider: z.enum(["anthropic", "openai", "google", "groq", "mistral"]),
+      provider: allProviders,
       apiKey: z.string().optional(),
       model: z.string().optional(),
+      baseUrl: z.string().optional(),
       isDefault: z.boolean().optional(),
       isEnabled: z.boolean().optional(),
+      isFree: z.boolean().optional(),
+      priority: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return db.upsertAiSetting({
@@ -277,7 +296,7 @@ const aiSettingsRouter = router({
 
   setDefault: protectedProcedure
     .input(z.object({
-      provider: z.enum(["anthropic", "openai", "google", "groq", "mistral"]),
+      provider: allProviders,
     }))
     .mutation(async ({ ctx, input }) => {
       await db.setDefaultAiProvider(ctx.user.id, input.provider);
@@ -293,11 +312,10 @@ const aiSettingsRouter = router({
   // Validate API key by making a test request
   validate: protectedProcedure
     .input(z.object({
-      provider: z.enum(["anthropic", "openai", "google", "groq", "mistral"]),
+      provider: allProviders,
       apiKey: z.string(),
     }))
     .mutation(async ({ input }) => {
-      // Simple validation - just check format
       const { provider, apiKey } = input;
       
       const patterns: Record<string, RegExp> = {
@@ -306,6 +324,12 @@ const aiSettingsRouter = router({
         google: /^AI/,
         groq: /^gsk_/,
         mistral: /^[a-zA-Z0-9]+$/,
+        gemini_free: /^AI/,
+        huggingface: /^hf_/,
+        deepseek: /^sk-/,
+        ollama: /.*/, // No key required
+        cohere: /^[a-zA-Z0-9]+$/,
+        perplexity: /^pplx-/,
       };
 
       const pattern = patterns[provider];
@@ -315,6 +339,146 @@ const aiSettingsRouter = router({
 
       return { valid: true };
     }),
+
+  // Get AI preferences for smart selection
+  getPreferences: protectedProcedure.query(async ({ ctx }) => {
+    return db.getAiPreferences(ctx.user.id);
+  }),
+
+  // Update AI preferences
+  updatePreferences: protectedProcedure
+    .input(z.object({
+      autoSelectEnabled: z.boolean().optional(),
+      preferFreeModels: z.boolean().optional(),
+      simpleTaskProvider: z.number().nullable().optional(),
+      analysisTaskProvider: z.number().nullable().optional(),
+      codeTaskProvider: z.number().nullable().optional(),
+      creativeTaskProvider: z.number().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return db.upsertAiPreferences(ctx.user.id, input);
+    }),
+
+  // Analyze question and recommend provider
+  analyzeAndRecommend: protectedProcedure
+    .input(z.object({
+      question: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Analyze question type
+      const taskType = aiProviders.analyzeQuestionType(input.question);
+      
+      // Get user's configured providers
+      const userSettings = await db.getAiSettingsByUser(ctx.user.id);
+      const preferences = await db.getAiPreferences(ctx.user.id);
+      
+      // Map to provider info
+      const availableProviders = userSettings
+        .filter(s => s.isEnabled)
+        .map(s => ({
+          providerId: s.provider,
+          priority: s.priority || 0,
+          isFree: s.isFree || false,
+        }));
+      
+      // Get recommendation
+      const recommendedProvider = aiProviders.recommendProvider(
+        taskType,
+        availableProviders,
+        preferences?.preferFreeModels ?? true
+      );
+      
+      // Get provider config for display
+      const providerConfig = recommendedProvider 
+        ? aiProviders.getProvider(recommendedProvider)
+        : null;
+      
+      // Estimate cost
+      const estimatedTokens = Math.ceil(input.question.length / 4) + 500; // Rough estimate
+      const costEstimate = recommendedProvider 
+        ? aiProviders.estimateCost(recommendedProvider, estimatedTokens)
+        : null;
+      
+      return {
+        taskType,
+        taskTypeRu: {
+          simple: 'Простой вопрос',
+          analysis: 'Анализ/исследование',
+          code: 'Программирование',
+          creative: 'Творческая задача',
+          general: 'Общий вопрос',
+        }[taskType],
+        recommendedProvider,
+        providerConfig: providerConfig || null,
+        costEstimate,
+        reason: getRecommendationReason(taskType, providerConfig || null),
+      };
+    }),
+
+  // Estimate cost for a message
+  estimateCost: publicProcedure
+    .input(z.object({
+      providerId: z.string(),
+      messageLength: z.number(),
+    }))
+    .query(({ input }) => {
+      const estimatedTokens = Math.ceil(input.messageLength / 4) + 500;
+      return aiProviders.estimateCost(input.providerId, estimatedTokens);
+    }),
+});
+
+// Helper function for recommendation reasons
+function getRecommendationReason(taskType: aiProviders.TaskType, provider: aiProviders.ProviderConfig | null): string {
+  if (!provider) return 'Нет доступных провайдеров';
+  
+  const reasons: Record<aiProviders.TaskType, string> = {
+    simple: `${provider.nameRu} выбран для быстрого ответа на простой вопрос`,
+    analysis: `${provider.nameRu} лучше всего подходит для глубокого анализа`,
+    code: `${provider.nameRu} оптимален для задач программирования`,
+    creative: `${provider.nameRu} отлично справляется с творческими задачами`,
+    general: `${provider.nameRu} - универсальный выбор для общих вопросов`,
+  };
+  
+  return reasons[taskType] + (provider.isFree ? ' (бесплатно)' : '');
+}
+
+// ============ CREDITS ROUTER ============
+import * as aiRouter from "./aiRouter";
+
+const creditsRouter = router({
+  // Get user's credit balance
+  balance: protectedProcedure.query(async ({ ctx }) => {
+    let credits = await db.getUserCredits(ctx.user.id);
+    if (!credits) {
+      credits = await db.initializeUserCredits(ctx.user.id);
+    }
+    return credits;
+  }),
+
+  // Get credit transaction history
+  history: protectedProcedure
+    .input(z.object({ limit: z.number().optional() }))
+    .query(async ({ ctx, input }) => {
+      return db.getCreditHistory(ctx.user.id, input.limit || 50);
+    }),
+
+  // Toggle BYOK mode
+  toggleBYOK: protectedProcedure
+    .input(z.object({ useBYOK: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await db.toggleBYOKMode(ctx.user.id, input.useBYOK);
+      return { success: true };
+    }),
+
+  // Get credit costs for display
+  costs: publicProcedure.query(() => {
+    return aiRouter.getCreditCosts();
+  }),
+
+  // Get available models
+  models: publicProcedure.query(() => {
+    return aiRouter.PLATFORM_MODELS;
+  }),
 });
 
 // ============ CHAT ROUTER ============
@@ -343,6 +507,15 @@ const chatRouter = router({
       projectContext: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Get or initialize user credits
+      let userCredits = await db.getUserCredits(ctx.user.id);
+      if (!userCredits) {
+        userCredits = await db.initializeUserCredits(ctx.user.id);
+      }
+
+      // Check if using BYOK mode
+      const useBYOK = userCredits.useBYOK;
+
       // Save user message
       const userMessage = await db.createChatMessage({
         userId: ctx.user.id,
@@ -352,7 +525,7 @@ const chatRouter = router({
         content: input.content,
       });
 
-      // Get chat history for context (excluding the message we just saved)
+      // Get chat history for context
       const history = await db.getChatHistory(
         input.contextType,
         input.contextId,
@@ -369,21 +542,63 @@ ${input.projectContext ? `Контекст проекта: ${input.projectContex
 Будь конкретным и полезным. Если нужна дополнительная информация, спроси.
 Форматируй ответы с использованием markdown для лучшей читаемости.`;
 
-      // Filter out the current message from history to avoid duplication
       const filteredHistory = history.filter(msg => msg.id !== userMessage.id);
 
       const messages = [
-        { role: "system" as const, content: systemPrompt },
+        { role: "system", content: systemPrompt },
         ...filteredHistory.reverse().map(msg => ({
-          role: msg.role as "user" | "assistant",
+          role: msg.role,
           content: msg.content,
         })),
-        { role: "user" as const, content: input.content },
+        { role: "user", content: input.content },
       ];
 
       try {
-        // Call the built-in Manus LLM (always available)
-        const response = await invokeLLM({ messages });
+        // Use AI Router for smart model selection (Platform mode)
+        if (!useBYOK) {
+          const result = await aiRouter.routeAIRequest(
+            messages,
+            userCredits.credits,
+            true // prefer free models
+          );
+
+          // Deduct credits
+          const deductResult = await db.deductCredits(
+            ctx.user.id,
+            result.creditsUsed,
+            `AI чат: ${result.model.nameRu}`,
+            result.model.id,
+            result.tokensUsed
+          );
+
+          const assistantMessage = await db.createChatMessage({
+            userId: ctx.user.id,
+            contextType: input.contextType,
+            contextId: input.contextId,
+            role: "assistant",
+            content: result.content,
+            provider: "platform",
+            model: result.model.id,
+          });
+
+          return {
+            userMessage,
+            assistantMessage,
+            aiMetadata: {
+              model: result.model,
+              taskType: result.taskType,
+              creditsUsed: result.creditsUsed,
+              newBalance: deductResult.newBalance,
+              reason: result.reason,
+            },
+          };
+        }
+
+        // BYOK mode - use built-in Manus LLM (no credits deducted)
+        const response = await invokeLLM({ messages: messages.map(m => ({
+          role: m.role as 'system' | 'user' | 'assistant',
+          content: m.content
+        })) });
         const aiContent = typeof response.choices[0]?.message?.content === 'string' 
           ? response.choices[0].message.content 
           : 'Не удалось получить ответ от AI';
@@ -394,11 +609,21 @@ ${input.projectContext ? `Контекст проекта: ${input.projectContex
           contextId: input.contextId,
           role: "assistant",
           content: aiContent,
-          provider: "manus",
-          model: "gemini-2.5-flash",
+          provider: "byok",
+          model: "user-configured",
         });
 
-        return { userMessage, assistantMessage };
+        return {
+          userMessage,
+          assistantMessage,
+          aiMetadata: {
+            model: null,
+            taskType: 'general' as const,
+            creditsUsed: 0,
+            newBalance: userCredits.credits,
+            reason: 'BYOK режим - используются ваши API ключи',
+          },
+        };
       } catch (error) {
         console.error("AI call failed:", error);
         const assistantMessage = await db.createChatMessage({
@@ -598,6 +823,7 @@ export const appRouter = router({
   task: taskRouter,
   subtask: subtaskRouter,
   aiSettings: aiSettingsRouter,
+  credits: creditsRouter,
   chat: chatRouter,
   drive: driveRouter,
   calendar: calendarRouter,

@@ -8,6 +8,9 @@ import {
   tasks, InsertTask, Task,
   subtasks, InsertSubtask, Subtask,
   aiSettings, InsertAiSetting, AiSetting,
+  aiPreferences, InsertAiPreference, AiPreference,
+  userCredits, InsertUserCredits, UserCredits,
+  creditTransactions, InsertCreditTransaction, CreditTransaction,
   chatMessages, InsertChatMessage, ChatMessage,
   projectTemplates, InsertProjectTemplate, ProjectTemplate
 } from "../drizzle/schema";
@@ -373,6 +376,40 @@ export async function deleteAiSetting(id: number, userId: number): Promise<boole
   return result[0].affectedRows > 0;
 }
 
+// ============ AI PREFERENCES QUERIES ============
+
+export async function getAiPreferences(userId: number): Promise<AiPreference | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [prefs] = await db.select().from(aiPreferences)
+    .where(eq(aiPreferences.userId, userId));
+  return prefs || null;
+}
+
+export async function upsertAiPreferences(
+  userId: number,
+  data: Partial<Omit<InsertAiPreference, 'userId'>>
+): Promise<AiPreference> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [existing] = await db.select().from(aiPreferences)
+    .where(eq(aiPreferences.userId, userId));
+
+  if (existing) {
+    await db.update(aiPreferences)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(aiPreferences.id, existing.id));
+    const [updated] = await db.select().from(aiPreferences).where(eq(aiPreferences.id, existing.id));
+    return updated;
+  } else {
+    const result = await db.insert(aiPreferences).values({ userId, ...data });
+    const [prefs] = await db.select().from(aiPreferences).where(eq(aiPreferences.id, result[0].insertId));
+    return prefs;
+  }
+}
+
 // ============ CHAT MESSAGE QUERIES ============
 
 export async function createChatMessage(data: InsertChatMessage): Promise<ChatMessage> {
@@ -475,4 +512,155 @@ export async function getFullProject(projectId: number, userId: number) {
   );
 
   return { ...project, blocks: blocksWithSections };
+}
+
+
+// ============ USER CREDITS ============
+
+const INITIAL_CREDITS = 1000;
+
+export async function getUserCredits(userId: number): Promise<UserCredits | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [credits] = await db.select().from(userCredits)
+    .where(eq(userCredits.userId, userId));
+  return credits || null;
+}
+
+export async function initializeUserCredits(userId: number): Promise<UserCredits> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Check if already exists
+  const existing = await getUserCredits(userId);
+  if (existing) return existing;
+
+  // Create new credits record
+  const result = await db.insert(userCredits).values({
+    userId,
+    credits: INITIAL_CREDITS,
+    totalEarned: INITIAL_CREDITS,
+    totalSpent: 0,
+    useBYOK: false,
+  });
+
+  // Record initial credit transaction
+  await db.insert(creditTransactions).values({
+    userId,
+    amount: INITIAL_CREDITS,
+    balance: INITIAL_CREDITS,
+    type: 'initial',
+    description: 'Начальные кредиты при регистрации',
+  });
+
+  const [credits] = await db.select().from(userCredits).where(eq(userCredits.id, result[0].insertId));
+  return credits;
+}
+
+export async function deductCredits(
+  userId: number,
+  amount: number,
+  description: string,
+  model?: string,
+  tokensUsed?: number
+): Promise<{ success: boolean; newBalance: number; error?: string }> {
+  const db = await getDb();
+  if (!db) return { success: false, newBalance: 0, error: "Database not available" };
+
+  // Get current credits
+  const credits = await getUserCredits(userId);
+  if (!credits) {
+    return { success: false, newBalance: 0, error: "Кредиты не найдены" };
+  }
+
+  if (credits.credits < amount) {
+    return { success: false, newBalance: credits.credits, error: "Недостаточно кредитов" };
+  }
+
+  const newBalance = credits.credits - amount;
+
+  // Update credits
+  await db.update(userCredits)
+    .set({
+      credits: newBalance,
+      totalSpent: credits.totalSpent + amount,
+      updatedAt: new Date(),
+    })
+    .where(eq(userCredits.userId, userId));
+
+  // Record transaction
+  await db.insert(creditTransactions).values({
+    userId,
+    amount: -amount,
+    balance: newBalance,
+    type: 'ai_request',
+    description,
+    model,
+    tokensUsed,
+  });
+
+  return { success: true, newBalance };
+}
+
+export async function addCredits(
+  userId: number,
+  amount: number,
+  type: 'bonus' | 'purchase' | 'refund',
+  description: string
+): Promise<{ success: boolean; newBalance: number }> {
+  const db = await getDb();
+  if (!db) return { success: false, newBalance: 0 };
+
+  // Get or create credits
+  let credits = await getUserCredits(userId);
+  if (!credits) {
+    credits = await initializeUserCredits(userId);
+  }
+
+  const newBalance = credits.credits + amount;
+
+  // Update credits
+  await db.update(userCredits)
+    .set({
+      credits: newBalance,
+      totalEarned: credits.totalEarned + amount,
+      updatedAt: new Date(),
+    })
+    .where(eq(userCredits.userId, userId));
+
+  // Record transaction
+  await db.insert(creditTransactions).values({
+    userId,
+    amount,
+    balance: newBalance,
+    type,
+    description,
+  });
+
+  return { success: true, newBalance };
+}
+
+export async function getCreditHistory(
+  userId: number,
+  limit: number = 50
+): Promise<CreditTransaction[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(creditTransactions)
+    .where(eq(creditTransactions.userId, userId))
+    .orderBy(desc(creditTransactions.createdAt))
+    .limit(limit);
+}
+
+export async function toggleBYOKMode(userId: number, useBYOK: boolean): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.update(userCredits)
+    .set({ useBYOK, updatedAt: new Date() })
+    .where(eq(userCredits.userId, userId));
+
+  return true;
 }

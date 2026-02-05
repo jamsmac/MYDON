@@ -134,3 +134,62 @@
 - [ ] Automatic Google Drive sync
 - [ ] Direct NotebookLM Enterprise API integration
 - [ ] Attach Google Docs to tasks
+
+
+## Phase 12: Free AI Models & Smart Selection
+
+### Free AI Providers
+- [ ] Gemini Free API integration
+- [ ] Hugging Face Inference API integration
+- [ ] Deepseek API integration
+- [ ] Ollama local LLM support
+- [ ] Cohere Free tier integration
+- [ ] Perplexity Free tier integration
+
+### Smart Model Selection System
+- [ ] Question type analyzer (simple, analysis, code, creative)
+- [ ] Model recommendation engine
+- [ ] Cost estimation per request
+- [ ] Auto-select based on question context
+- [ ] Manual override option
+
+### Settings UI Updates
+- [ ] Free models category in settings
+- [ ] Provider priority configuration
+- [ ] API key management for all providers
+- [ ] Cost tracking dashboard
+
+### Chat UI Updates
+- [ ] Auto-select toggle button
+- [ ] Model recommendation display
+- [ ] Cost/free indicator per message
+- [ ] Explanation of model choice
+
+
+## Phase 13: Platform-First AI & Credit System (In Progress)
+
+### Database
+- [x] Create user_credits table (userId, credits, usedCredits)
+- [x] Create credit_transactions table for history
+- [x] Add initial credits on user registration (1000 credits)
+
+### AI Router
+- [x] Create smart model selection logic
+- [x] Analyze task type (simple, analysis, code, creative)
+- [x] Select model based on credits balance
+- [x] Track credit usage per request
+- [x] Return model metadata with response
+
+### Credit System
+- [x] Define credit costs per model/operation
+- [x] Free tier: Gemini Flash (2 cr), Cohere Light (1 cr)
+- [x] Standard tier: GPT-4o-mini (10 cr), Claude Haiku (8 cr), DeepSeek (5 cr)
+- [x] Premium tier: GPT-4o (30 cr), Claude Sonnet (35 cr), Gemini Pro (25 cr)
+
+### UI Updates
+- [x] Credits widget in header (shows balance with color coding)
+- [x] Show credits balance in popover with transaction history
+- [x] Show model used + credits spent after each AI response
+- [x] Simplified Settings page with Platform/BYOK toggle
+- [x] BYOK provider configuration only shown when BYOK mode enabled
+- [x] Credit costs table displayed in Platform mode

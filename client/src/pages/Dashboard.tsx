@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
+import { CreditsWidget } from '@/components/CreditsWidget';
 import { Link, useLocation } from 'wouter';
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -121,6 +122,7 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2">
+            <CreditsWidget />
             <Link href="/settings">
               <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
                 <Settings className="w-5 h-5" />

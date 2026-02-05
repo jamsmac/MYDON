@@ -16,7 +16,11 @@ import {
   Star,
   Trash2,
   Eye,
-  EyeOff
+  EyeOff,
+  Coins,
+  Zap,
+  Shield,
+  Sparkles
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { useState } from 'react';
@@ -257,10 +261,27 @@ function ProviderCard({
 export default function Settings() {
   const { isAuthenticated, loading: authLoading, user } = useAuth();
   
+  const { data: credits, isLoading: creditsLoading, refetch: refetchCredits } = trpc.credits.balance.useQuery(
+    undefined,
+    { enabled: isAuthenticated }
+  );
+
   const { data: aiSettings, isLoading, refetch } = trpc.aiSettings.list.useQuery(
     undefined,
     { enabled: isAuthenticated }
   );
+
+  const { data: creditCosts } = trpc.credits.costs.useQuery();
+
+  const toggleBYOK = trpc.credits.toggleBYOK.useMutation({
+    onSuccess: () => {
+      toast.success(credits?.useBYOK ? 'Переключено на Platform режим' : 'Переключено на BYOK режим');
+      refetchCredits();
+    },
+    onError: (error) => {
+      toast.error('Ошибка: ' + error.message);
+    }
+  });
 
   const upsertSetting = trpc.aiSettings.upsert.useMutation({
     onSuccess: () => {
@@ -346,52 +367,190 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* AI Providers */}
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-white mb-2">AI Провайдеры</h2>
+        {/* AI Mode Selection - Platform First */}
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold text-white mb-2">Режим AI</h2>
           <p className="text-slate-400 text-sm mb-6">
-            Добавьте свои API ключи для использования AI-ассистента (BYOK режим)
+            Выберите как использовать AI-ассистента
           </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Platform Mode */}
+            <Card 
+              className={cn(
+                "bg-slate-800/50 border-2 cursor-pointer transition-all",
+                !credits?.useBYOK 
+                  ? "border-emerald-500 bg-emerald-500/5" 
+                  : "border-slate-700 hover:border-slate-600"
+              )}
+              onClick={() => credits?.useBYOK && toggleBYOK.mutate({ useBYOK: false })}
+            >
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center">
+                    <Sparkles className="w-6 h-6 text-emerald-500" />
+                  </div>
+                  {!credits?.useBYOK && (
+                    <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded">
+                      Активен
+                    </span>
+                  )}
+                </div>
+                <CardTitle className="text-white mt-4">Platform режим</CardTitle>
+                <CardDescription className="text-slate-400">
+                  Используйте наши AI модели без настройки. Оплата кредитами.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Coins className="w-4 h-4 text-amber-500" />
+                    <span>Баланс: <strong className="text-white">{credits?.credits || 0}</strong> кредитов</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Zap className="w-4 h-4 text-emerald-500" />
+                    <span>Умный выбор модели автоматически</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Shield className="w-4 h-4 text-blue-500" />
+                    <span>Никаких API ключей не нужно</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* BYOK Mode */}
+            <Card 
+              className={cn(
+                "bg-slate-800/50 border-2 cursor-pointer transition-all",
+                credits?.useBYOK 
+                  ? "border-purple-500 bg-purple-500/5" 
+                  : "border-slate-700 hover:border-slate-600"
+              )}
+              onClick={() => !credits?.useBYOK && toggleBYOK.mutate({ useBYOK: true })}
+            >
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center">
+                    <Key className="w-6 h-6 text-purple-500" />
+                  </div>
+                  {credits?.useBYOK && (
+                    <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-1 rounded">
+                      Активен
+                    </span>
+                  )}
+                </div>
+                <CardTitle className="text-white mt-4">BYOK режим</CardTitle>
+                <CardDescription className="text-slate-400">
+                  Используйте свои API ключи. Кредиты не тратятся.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Bot className="w-4 h-4 text-purple-500" />
+                    <span>Полный контроль над моделями</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Coins className="w-4 h-4 text-slate-500" />
+                    <span>Без ограничений по кредитам</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Key className="w-4 h-4 text-amber-500" />
+                    <span>Требуется настройка ключей</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {AI_PROVIDERS.map(provider => (
-              <ProviderCard
-                key={provider.id}
-                provider={provider}
-                setting={getSettingForProvider(provider.id)}
-                onSave={(data) => upsertSetting.mutate(data)}
-                onSetDefault={(p) => setDefault.mutate({ provider: p })}
-                onDelete={(id) => deleteSetting.mutate({ id })}
-                isLoading={upsertSetting.isPending}
-              />
-            ))}
-          </div>
+        {/* Credit Costs Info */}
+        {!credits?.useBYOK && creditCosts && (
+          <Card className="bg-slate-800/30 border-slate-700 mb-8">
+            <CardHeader>
+              <CardTitle className="text-white text-lg">Стоимость моделей</CardTitle>
+              <CardDescription className="text-slate-400">
+                Кредиты списываются за каждый AI запрос
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {creditCosts.map((tier) => (
+                  <div key={tier.tier}>
+                    <h4 className="text-sm font-medium text-slate-300 mb-2">{tier.tierRu}</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {tier.models.map((model) => (
+                        <div key={model.id} className="flex items-center justify-between text-sm bg-slate-800/50 px-3 py-2 rounded">
+                          <span className="text-slate-400">{model.nameRu}</span>
+                          <span className={cn(
+                            "font-mono",
+                            tier.tier === 'free' && "text-emerald-400",
+                            tier.tier === 'standard' && "text-amber-400",
+                            tier.tier === 'premium' && "text-purple-400"
+                          )}>
+                            {model.creditsPerRequest} кр.
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         )}
 
-        {/* Info */}
-        <Card className="bg-slate-800/30 border-slate-700 border-dashed mt-8">
-          <CardContent className="py-6">
-            <div className="flex items-start gap-3">
-              <Key className="w-5 h-5 text-amber-500 mt-0.5" />
-              <div>
-                <p className="text-white font-medium mb-1">Как получить API ключ?</p>
-                <ul className="text-sm text-slate-400 space-y-1">
-                  <li>• <strong>Anthropic:</strong> console.anthropic.com → API Keys</li>
-                  <li>• <strong>OpenAI:</strong> platform.openai.com → API Keys</li>
-                  <li>• <strong>Google AI:</strong> aistudio.google.com → Get API Key</li>
-                  <li>• <strong>Groq:</strong> console.groq.com → API Keys</li>
-                  <li>• <strong>Mistral:</strong> console.mistral.ai → API Keys</li>
-                </ul>
-              </div>
+        {/* BYOK Providers - Only show when BYOK is enabled */}
+        {credits?.useBYOK && (
+          <>
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-white mb-2">AI Провайдеры</h2>
+              <p className="text-slate-400 text-sm mb-6">
+                Добавьте свои API ключи для использования AI-ассистента
+              </p>
             </div>
-          </CardContent>
-        </Card>
+
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {AI_PROVIDERS.map(provider => (
+                  <ProviderCard
+                    key={provider.id}
+                    provider={provider}
+                    setting={getSettingForProvider(provider.id)}
+                    onSave={(data) => upsertSetting.mutate(data)}
+                    onSetDefault={(p) => setDefault.mutate({ provider: p })}
+                    onDelete={(id) => deleteSetting.mutate({ id })}
+                    isLoading={upsertSetting.isPending}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Info */}
+            <Card className="bg-slate-800/30 border-slate-700 border-dashed mt-8">
+              <CardContent className="py-6">
+                <div className="flex items-start gap-3">
+                  <Key className="w-5 h-5 text-amber-500 mt-0.5" />
+                  <div>
+                    <p className="text-white font-medium mb-1">Как получить API ключ?</p>
+                    <ul className="text-sm text-slate-400 space-y-1">
+                      <li>• <strong>Anthropic:</strong> console.anthropic.com → API Keys</li>
+                      <li>• <strong>OpenAI:</strong> platform.openai.com → API Keys</li>
+                      <li>• <strong>Google AI:</strong> aistudio.google.com → Get API Key</li>
+                      <li>• <strong>Groq:</strong> console.groq.com → API Keys</li>
+                      <li>• <strong>Mistral:</strong> console.mistral.ai → API Keys</li>
+                    </ul>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </main>
     </div>
   );

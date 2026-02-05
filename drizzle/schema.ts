@@ -20,21 +20,94 @@ export type InsertUser = typeof users.$inferInsert;
 
 /**
  * AI Provider settings - BYOK (Bring Your Own Key) mode
+ * Extended to support free providers and smart selection
  */
 export const aiSettings = mysqlTable("ai_settings", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  provider: mysqlEnum("provider", ["anthropic", "openai", "google", "groq", "mistral"]).notNull(),
-  apiKey: text("apiKey"), // Encrypted in production
+  provider: mysqlEnum("provider", [
+    // Premium providers
+    "anthropic", "openai", "google", "groq", "mistral",
+    // Free/cheap providers
+    "gemini_free", "huggingface", "deepseek", "ollama", "cohere", "perplexity"
+  ]).notNull(),
+  apiKey: text("apiKey"), // Encrypted in production, null for Ollama
   model: varchar("model", { length: 64 }),
+  baseUrl: varchar("baseUrl", { length: 255 }), // For Ollama custom endpoint
   isDefault: boolean("isDefault").default(false),
   isEnabled: boolean("isEnabled").default(true),
+  isFree: boolean("isFree").default(false), // Mark free tier providers
+  priority: int("priority").default(0), // Higher = preferred for auto-select
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/**
+ * User AI preferences - for smart model selection
+ */
+export const aiPreferences = mysqlTable("ai_preferences", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  autoSelectEnabled: boolean("autoSelectEnabled").default(true),
+  preferFreeModels: boolean("preferFreeModels").default(true),
+  // Task type preferences (provider id for each type)
+  simpleTaskProvider: int("simpleTaskProvider"), // Quick questions
+  analysisTaskProvider: int("analysisTaskProvider"), // Research, analysis
+  codeTaskProvider: int("codeTaskProvider"), // Programming tasks
+  creativeTaskProvider: int("creativeTaskProvider"), // Writing, brainstorming
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AiPreference = typeof aiPreferences.$inferSelect;
+export type InsertAiPreference = typeof aiPreferences.$inferInsert;
+
 export type AiSetting = typeof aiSettings.$inferSelect;
 export type InsertAiSetting = typeof aiSettings.$inferInsert;
+
+/**
+ * User Credits - Platform-First AI credit system
+ * Each user gets free credits on registration
+ */
+export const userCredits = mysqlTable("user_credits", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  credits: int("credits").default(1000).notNull(), // Starting credits
+  totalEarned: int("totalEarned").default(1000).notNull(), // Total credits ever received
+  totalSpent: int("totalSpent").default(0).notNull(), // Total credits spent
+  useBYOK: boolean("useBYOK").default(false), // Use own API keys instead of platform
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserCredits = typeof userCredits.$inferSelect;
+export type InsertUserCredits = typeof userCredits.$inferInsert;
+
+/**
+ * Credit Transactions - History of credit usage
+ */
+export const creditTransactions = mysqlTable("credit_transactions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  amount: int("amount").notNull(), // Positive = earned, Negative = spent
+  balance: int("balance").notNull(), // Balance after transaction
+  type: mysqlEnum("type", [
+    "initial",      // Initial free credits
+    "bonus",        // Bonus credits (referral, promo)
+    "purchase",     // Purchased credits
+    "ai_request",   // AI chat request
+    "ai_generate",  // AI generation (roadmap, etc)
+    "refund"        // Refund
+  ]).notNull(),
+  description: text("description"),
+  // AI request metadata
+  model: varchar("model", { length: 64 }),
+  tokensUsed: int("tokensUsed"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CreditTransaction = typeof creditTransactions.$inferSelect;
+export type InsertCreditTransaction = typeof creditTransactions.$inferInsert;
 
 /**
  * Projects - top level container for roadmaps
