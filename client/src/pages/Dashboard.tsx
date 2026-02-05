@@ -20,7 +20,8 @@ import {
   Search,
   X,
   Sparkles,
-  Trophy
+  Trophy,
+  Bot
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
@@ -227,6 +228,16 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Link href="/ai-chat">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-primary hover:text-primary/80 hover:bg-primary/10"
+                title="AI Chat"
+              >
+                <Bot className="w-5 h-5" />
+              </Button>
+            </Link>
             <Link href="/achievements">
               <Button
                 variant="ghost"
