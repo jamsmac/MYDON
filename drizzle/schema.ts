@@ -1312,6 +1312,7 @@ export const tags = mysqlTable("tags", {
   // Usage tracking
   usageCount: int("usageCount").default(0),
   isArchived: boolean("isArchived").default(false),
+  sortOrder: int("sortOrder").default(0),
   
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

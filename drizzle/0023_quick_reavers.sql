@@ -1,0 +1,1 @@
+ALTER TABLE `tags` ADD `sortOrder` int DEFAULT 0;

@@ -253,6 +253,83 @@ export const relationsRouter = router({
     }),
 
   /**
+   * Reorder tags - update sortOrder for multiple tags
+   */
+  reorderTags: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      tagOrders: z.array(z.object({
+        tagId: z.number(),
+        sortOrder: z.number(),
+      })),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { success: false };
+
+      // Update each tag's sortOrder
+      for (const { tagId, sortOrder } of input.tagOrders) {
+        await db.update(schema.tags)
+          .set({ sortOrder })
+          .where(eq(schema.tags.id, tagId));
+      }
+
+      return { success: true };
+    }),
+
+  /**
+   * Archive/unarchive a tag
+   */
+  archiveTag: protectedProcedure
+    .input(z.object({
+      tagId: z.number(),
+      isArchived: z.boolean(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { success: false };
+
+      await db.update(schema.tags)
+        .set({ isArchived: input.isArchived })
+        .where(eq(schema.tags.id, input.tagId));
+
+      return { success: true };
+    }),
+
+  /**
+   * Get all tags for a project including archived
+   */
+  getAllProjectTags: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      includeArchived: z.boolean().optional().default(false),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+
+      let query = db
+        .select()
+        .from(schema.tags)
+        .where(eq(schema.tags.projectId, input.projectId));
+
+      const allTags = await query;
+
+      // Filter archived if needed
+      const filtered = input.includeArchived 
+        ? allTags 
+        : allTags.filter(t => !t.isArchived);
+
+      // Sort by sortOrder, then by name
+      return filtered.sort((a, b) => {
+        const aOrder = a.sortOrder ?? 0;
+        const bOrder = b.sortOrder ?? 0;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return a.name.localeCompare(b.name);
+      });
+    }),
+
+  /**
    * Add tag to task
    */
   addTagToTask: protectedProcedure

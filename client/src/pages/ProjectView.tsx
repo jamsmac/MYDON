@@ -31,7 +31,8 @@ import {
   Download,
   FileDown,
   Cloud,
-  Calendar
+  Calendar,
+  Tag
 } from 'lucide-react';
 import { Link, useParams, useLocation } from 'wouter';
 import { PriorityBadge, PrioritySelector, type Priority } from '@/components/PriorityBadge';
@@ -1300,6 +1301,13 @@ export default function ProjectView() {
                 >
                   <BarChart3 className="w-4 h-4 mr-2" />
                   Аналитика
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-indigo-400"
+                  onClick={() => navigate(`/project/${projectId}/tags`)}
+                >
+                  <Tag className="w-4 h-4 mr-2" />
+                  Управление тегами
                 </DropdownMenuItem>
                 <DropdownMenuItem 
                   className="text-pink-400"

@@ -1249,3 +1249,16 @@
 - [x] Add seedDefaultTags function to relationsRouter
 - [x] Integrate default tags creation into project creation flow
 - [x] Add getDefaultTagTemplates endpoint for UI preview
+
+## Phase 62: Tag Management Page
+- [x] Add sortOrder field to tags schema
+- [x] Add reorderTags endpoint to relationsRouter
+- [x] Add archiveTag endpoint to relationsRouter
+- [x] Create TagManagement page component with drag-and-drop reordering
+- [x] Add tag editing dialog with color picker (15 colors)
+- [x] Add archive/unarchive functionality with toggle
+- [x] Add create new tag functionality
+- [x] Add seed default tags button for existing projects
+- [x] Add route /project/:id/tags to App.tsx
+- [x] Add "Управление тегами" menu item in ProjectView dropdown
+- [x] 379 total tests passing

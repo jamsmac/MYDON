@@ -30,6 +30,7 @@ const ApiKeysManagement = lazy(() => import("./pages/ApiKeysManagement"));
 const ApiDocs = lazy(() => import("./pages/ApiDocs"));
 const GamificationPage = lazy(() => import("./pages/GamificationPage"));
 const AIChatPage = lazy(() => import("./pages/AIChatPage"));
+const TagManagement = lazy(() => import("./pages/TagManagement"));
 
 // Loading fallback component
 function PageLoader() {
@@ -64,6 +65,7 @@ function Router() {
         <Route path="/api-docs" component={ApiDocs} />
         <Route path="/achievements" component={GamificationPage} />
         <Route path="/ai-chat" component={AIChatPage} />
+        <Route path="/project/:id/tags" component={TagManagement} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
