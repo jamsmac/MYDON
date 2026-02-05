@@ -438,3 +438,18 @@
 - [ ] Cost estimation before execution
 - [ ] Usage tracking per provider
 
+
+
+## Phase 33: Advanced Task Management (Completed)
+- [x] Backend: Split task into subtasks procedure
+- [x] Backend: Merge multiple tasks procedure
+- [x] Backend: Convert task to section procedure
+- [x] Backend: Convert section to task procedure
+- [x] Backend: Bulk status change procedure
+- [x] Backend: Bulk delete procedure
+- [x] UI: Split task dialog with subtask input
+- [x] UI: Merge tasks dialog with task selection
+- [x] UI: Convert buttons in task/section context menu
+- [x] UI: Multi-select mode for bulk operations
+- [x] UI: Bulk action toolbar
+- [ ] Quick inline editing for task names

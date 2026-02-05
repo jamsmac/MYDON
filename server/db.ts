@@ -1,4 +1,4 @@
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { 
   InsertUser, users,
@@ -1113,4 +1113,277 @@ export async function getPitchDecksByProject(projectId: number, userId: number):
   return db.select().from(pitchDecks)
     .where(and(eq(pitchDecks.projectId, projectId), eq(pitchDecks.userId, userId)))
     .orderBy(desc(pitchDecks.createdAt));
+}
+
+
+// ============ ADVANCED TASK MANAGEMENT ============
+
+export async function getTaskById(id: number): Promise<Task | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+  return task || null;
+}
+
+export async function getSectionById(id: number): Promise<Section | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [section] = await db.select().from(sections).where(eq(sections.id, id));
+  return section || null;
+}
+
+export async function getBlockById(id: number): Promise<Block | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [block] = await db.select().from(blocks).where(eq(blocks.id, id));
+  return block || null;
+}
+
+// Split a task into multiple subtasks
+export async function splitTaskIntoSubtasks(
+  taskId: number, 
+  subtaskTitles: string[]
+): Promise<{ task: Task; subtasks: Subtask[] }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  if (!task) throw new Error("Task not found");
+  
+  // Create subtasks
+  const createdSubtasks: Subtask[] = [];
+  for (let i = 0; i < subtaskTitles.length; i++) {
+    const result = await db.insert(subtasks).values({
+      taskId,
+      title: subtaskTitles[i],
+      status: "not_started",
+      sortOrder: i,
+    });
+    const [subtask] = await db.select().from(subtasks).where(eq(subtasks.id, result[0].insertId));
+    createdSubtasks.push(subtask);
+  }
+  
+  // Update task status to in_progress if it was not_started
+  if (task.status === "not_started") {
+    await db.update(tasks)
+      .set({ status: "in_progress", updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+  }
+  
+  const [updatedTask] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  return { task: updatedTask, subtasks: createdSubtasks };
+}
+
+// Merge multiple tasks into one
+export async function mergeTasks(
+  taskIds: number[], 
+  newTitle: string,
+  sectionId: number
+): Promise<Task> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  if (taskIds.length < 2) throw new Error("Need at least 2 tasks to merge");
+  
+  // Get all tasks to merge
+  const tasksToMerge = await db.select().from(tasks).where(inArray(tasks.id, taskIds));
+  if (tasksToMerge.length !== taskIds.length) throw new Error("Some tasks not found");
+  
+  // Combine descriptions
+  const combinedDescription = tasksToMerge
+    .map(t => `**${t.title}**\n${t.description || ''}`)
+    .join('\n\n---\n\n');
+  
+  // Get max sort order in section
+  const existingTasks = await db.select().from(tasks).where(eq(tasks.sectionId, sectionId));
+  const maxSortOrder = Math.max(...existingTasks.map(t => t.sortOrder || 0), 0);
+  
+  // Create new merged task
+  const result = await db.insert(tasks).values({
+    sectionId,
+    title: newTitle,
+    description: combinedDescription,
+    status: "not_started",
+    sortOrder: maxSortOrder + 1,
+  });
+  
+  const [newTask] = await db.select().from(tasks).where(eq(tasks.id, result[0].insertId));
+  
+  // Move all subtasks from merged tasks to new task
+  for (const oldTask of tasksToMerge) {
+    await db.update(subtasks)
+      .set({ taskId: newTask.id, updatedAt: new Date() })
+      .where(eq(subtasks.taskId, oldTask.id));
+  }
+  
+  // Delete old tasks
+  await db.delete(tasks).where(inArray(tasks.id, taskIds));
+  
+  return newTask;
+}
+
+// Convert a task to a section (promote)
+export async function convertTaskToSection(
+  taskId: number
+): Promise<Section> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  if (!task) throw new Error("Task not found");
+  
+  // Get the section to find the block
+  const [oldSection] = await db.select().from(sections).where(eq(sections.id, task.sectionId));
+  if (!oldSection) throw new Error("Section not found");
+  
+  // Get max sort order for sections in this block
+  const existingSections = await db.select().from(sections).where(eq(sections.blockId, oldSection.blockId));
+  const maxSortOrder = Math.max(...existingSections.map(s => s.sortOrder || 0), 0);
+  
+  // Create new section from task
+  const result = await db.insert(sections).values({
+    blockId: oldSection.blockId,
+    title: task.title,
+    description: task.description,
+    sortOrder: maxSortOrder + 1,
+  });
+  
+  const [newSection] = await db.select().from(sections).where(eq(sections.id, result[0].insertId));
+  
+  // Convert subtasks to tasks in the new section
+  const taskSubtasks = await db.select().from(subtasks).where(eq(subtasks.taskId, taskId));
+  for (let i = 0; i < taskSubtasks.length; i++) {
+    await db.insert(tasks).values({
+      sectionId: newSection.id,
+      title: taskSubtasks[i].title,
+      status: taskSubtasks[i].status,
+      sortOrder: i,
+    });
+  }
+  
+  // Delete old subtasks and task
+  await db.delete(subtasks).where(eq(subtasks.taskId, taskId));
+  await db.delete(tasks).where(eq(tasks.id, taskId));
+  
+  return newSection;
+}
+
+// Convert a section to a task (demote)
+export async function convertSectionToTask(
+  sectionId: number,
+  targetSectionId: number
+): Promise<Task> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const [section] = await db.select().from(sections).where(eq(sections.id, sectionId));
+  if (!section) throw new Error("Section not found");
+  
+  // Get all tasks in the section
+  const sectionTasks = await db.select().from(tasks).where(eq(tasks.sectionId, sectionId));
+  
+  // Get max sort order in target section
+  const existingTasks = await db.select().from(tasks).where(eq(tasks.sectionId, targetSectionId));
+  const maxSortOrder = Math.max(...existingTasks.map(t => t.sortOrder || 0), 0);
+  
+  // Create new task from section
+  const result = await db.insert(tasks).values({
+    sectionId: targetSectionId,
+    title: section.title,
+    description: section.description,
+    status: "not_started",
+    sortOrder: maxSortOrder + 1,
+  });
+  
+  const [newTask] = await db.select().from(tasks).where(eq(tasks.id, result[0].insertId));
+  
+  // Convert tasks to subtasks
+  for (let i = 0; i < sectionTasks.length; i++) {
+    await db.insert(subtasks).values({
+      taskId: newTask.id,
+      title: sectionTasks[i].title,
+      status: sectionTasks[i].status,
+      sortOrder: i,
+    });
+    
+    // Delete subtasks of old task first
+    await db.delete(subtasks).where(eq(subtasks.taskId, sectionTasks[i].id));
+  }
+  
+  // Delete old tasks and section
+  await db.delete(tasks).where(eq(tasks.sectionId, sectionId));
+  await db.delete(sections).where(eq(sections.id, sectionId));
+  
+  return newTask;
+}
+
+// Bulk update task status
+export async function bulkUpdateTaskStatus(
+  taskIds: number[], 
+  status: "not_started" | "in_progress" | "completed"
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  const result = await db.update(tasks)
+    .set({ status, updatedAt: new Date() })
+    .where(inArray(tasks.id, taskIds));
+  
+  return result[0].affectedRows;
+}
+
+// Bulk delete tasks
+export async function bulkDeleteTasks(taskIds: number[]): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  // First delete all subtasks
+  for (const taskId of taskIds) {
+    await db.delete(subtasks).where(eq(subtasks.taskId, taskId));
+  }
+  
+  // Then delete tasks
+  const result = await db.delete(tasks).where(inArray(tasks.id, taskIds));
+  return result[0].affectedRows;
+}
+
+// Duplicate a task
+export async function duplicateTask(taskId: number): Promise<Task> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  if (!task) throw new Error("Task not found");
+  
+  // Get max sort order
+  const existingTasks = await db.select().from(tasks).where(eq(tasks.sectionId, task.sectionId));
+  const maxSortOrder = Math.max(...existingTasks.map(t => t.sortOrder || 0), 0);
+  
+  // Create duplicate
+  const result = await db.insert(tasks).values({
+    sectionId: task.sectionId,
+    title: `${task.title} (копия)`,
+    description: task.description,
+    status: "not_started",
+    notes: task.notes,
+    sortOrder: maxSortOrder + 1,
+  });
+  
+  const [newTask] = await db.select().from(tasks).where(eq(tasks.id, result[0].insertId));
+  
+  // Duplicate subtasks
+  const taskSubtasks = await db.select().from(subtasks).where(eq(subtasks.taskId, taskId));
+  for (const subtask of taskSubtasks) {
+    await db.insert(subtasks).values({
+      taskId: newTask.id,
+      title: subtask.title,
+      status: "not_started",
+      sortOrder: subtask.sortOrder,
+    });
+  }
+  
+  return newTask;
 }

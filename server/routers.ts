@@ -227,6 +227,16 @@ const sectionRouter = router({
     .mutation(async ({ input }) => {
       return db.moveSection(input.id, input.blockId, input.sortOrder);
     }),
+
+  // Convert section to task
+  convertToTask: protectedProcedure
+    .input(z.object({
+      sectionId: z.number(),
+      targetSectionId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return db.convertSectionToTask(input.sectionId, input.targetSectionId);
+    }),
 });
 
 // ============ TASK ROUTER ============
@@ -280,6 +290,62 @@ const taskRouter = router({
     }))
     .mutation(async ({ input }) => {
       return db.moveTask(input.id, input.sectionId, input.sortOrder);
+    }),
+
+  // Split task into subtasks
+  split: protectedProcedure
+    .input(z.object({
+      taskId: z.number(),
+      subtaskTitles: z.array(z.string().min(1)).min(1),
+    }))
+    .mutation(async ({ input }) => {
+      return db.splitTaskIntoSubtasks(input.taskId, input.subtaskTitles);
+    }),
+
+  // Merge multiple tasks into one
+  merge: protectedProcedure
+    .input(z.object({
+      taskIds: z.array(z.number()).min(2),
+      newTitle: z.string().min(1),
+      sectionId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return db.mergeTasks(input.taskIds, input.newTitle, input.sectionId);
+    }),
+
+  // Convert task to section
+  convertToSection: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .mutation(async ({ input }) => {
+      return db.convertTaskToSection(input.taskId);
+    }),
+
+  // Bulk update status
+  bulkUpdateStatus: protectedProcedure
+    .input(z.object({
+      taskIds: z.array(z.number()).min(1),
+      status: z.enum(["not_started", "in_progress", "completed"]),
+    }))
+    .mutation(async ({ input }) => {
+      const count = await db.bulkUpdateTaskStatus(input.taskIds, input.status);
+      return { updated: count };
+    }),
+
+  // Bulk delete
+  bulkDelete: protectedProcedure
+    .input(z.object({
+      taskIds: z.array(z.number()).min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const count = await db.bulkDeleteTasks(input.taskIds);
+      return { deleted: count };
+    }),
+
+  // Duplicate task
+  duplicate: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .mutation(async ({ input }) => {
+      return db.duplicateTask(input.taskId);
     }),
 });
 
