@@ -40,7 +40,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useProjectContext } from '@/contexts/ProjectContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -790,6 +791,61 @@ export default function ProjectView() {
     { id: projectId },
     { enabled: isAuthenticated && projectId > 0 }
   );
+
+  // Set project context for AI chat
+  const { setCurrentProject, clearProject } = useProjectContext();
+  
+  useEffect(() => {
+    if (project) {
+      // Calculate task counts
+      let totalTasks = 0;
+      let completedTasks = 0;
+      const recentTasks: Array<{ id: number; title: string; status: string; priority: string }> = [];
+      const phases: Array<{ id: number; name: string; status: string; tasksCount: number }> = [];
+      
+      project.blocks?.forEach(block => {
+        let blockTasks = 0;
+        block.sections?.forEach(section => {
+          section.tasks?.forEach(task => {
+            totalTasks++;
+            blockTasks++;
+            if (task.status === 'completed') {
+              completedTasks++;
+            }
+            if (recentTasks.length < 10) {
+              recentTasks.push({
+                id: task.id,
+                title: task.title,
+                status: task.status || 'not_started',
+                priority: task.priority || 'medium'
+              });
+            }
+          });
+        });
+        phases.push({
+          id: block.id,
+          name: block.title,
+          status: 'in_progress',
+          tasksCount: blockTasks
+        });
+      });
+      
+      setCurrentProject({
+        id: project.id,
+        name: project.name,
+        description: project.description || undefined,
+        status: project.status || 'active',
+        tasksCount: totalTasks,
+        completedTasksCount: completedTasks,
+        phases,
+        recentTasks
+      });
+    }
+    
+    return () => {
+      clearProject();
+    };
+  }, [project, setCurrentProject, clearProject]);
 
   // Mutations
   const createBlock = trpc.block.create.useMutation({

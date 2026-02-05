@@ -1176,3 +1176,14 @@
 - [x] Integrate with existing AI streaming
 - [x] Keyboard shortcuts: Ctrl+K toggle, Esc close
 - [x] 355 total tests passing
+
+
+### 58.8 AI Project Context Integration (Phase 8) - Completed
+- [x] Create ProjectContextProvider to track current project
+- [x] Create useProjectContext hook for accessing project data
+- [x] Update AIChatWidget to include project context in requests
+- [x] Update /api/ai/stream to build context-aware system prompts
+- [x] Display current project context badge in chat header (all modes)
+- [x] Auto-set project context when viewing ProjectView
+- [x] Auto-clear project context when leaving ProjectView
+- [x] 355 total tests passing

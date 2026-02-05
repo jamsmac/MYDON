@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { Loader2 } from "lucide-react";
 import { AchievementNotificationProvider } from "@/components/gamification/AchievementNotificationProvider";
 import { AIChatWidget } from "@/components/AIChatWidget";
+import { ProjectContextProvider } from "@/contexts/ProjectContext";
 
 // Eager load critical pages
 import Dashboard from "./pages/Dashboard";
@@ -74,6 +75,7 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
+        <ProjectContextProvider>
         <TooltipProvider>
           <Toaster 
             position="top-right"
@@ -87,6 +89,7 @@ function App() {
           <AchievementNotificationProvider />
           <AIChatWidget />
         </TooltipProvider>
+        </ProjectContextProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

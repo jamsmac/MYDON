@@ -175,7 +175,7 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
         return;
       }
 
-      const { messages, sessionId, taskType } = req.body;
+      const { messages, sessionId, taskType, projectContext } = req.body;
 
       if (!messages || !Array.isArray(messages)) {
         res.status(400).json({ error: "Messages array required" });
@@ -203,7 +203,12 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
         creative: "Ты креативный писатель. Генерируй оригинальные идеи, истории и контент.",
       };
 
-      const systemPrompt = taskPrompts[taskType || 'chat'] || taskPrompts.chat;
+      let systemPrompt = taskPrompts[taskType || 'chat'] || taskPrompts.chat;
+
+      // Add project context if available
+      if (projectContext) {
+        systemPrompt += `\n\nКонтекст проекта пользователя:\n${projectContext}\n\nИспользуй эту информацию для ответов на вопросы о проекте, задачах и прогрессе.`;
+      }
 
       const llmMessages = [
         { role: "system" as const, content: systemPrompt },

@@ -5,6 +5,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useOptionalProjectContext } from '@/contexts/ProjectContext';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +33,7 @@ import {
   MessageSquare,
   Zap,
   Clock,
+  FolderKanban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -77,6 +79,7 @@ const setStoredMode = (mode: ChatMode) => {
 
 export function AIChatWidget() {
   const { user } = useAuth();
+  const projectContext = useOptionalProjectContext();
   const [mode, setMode] = useState<ChatMode>('closed');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -147,7 +150,11 @@ export function AIChatWidget() {
       const response = await fetch('/api/ai/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: contextMessages, taskType }),
+        body: JSON.stringify({ 
+          messages: contextMessages, 
+          taskType,
+          projectContext: projectContext?.getContextSummary() || undefined,
+        }),
         credentials: 'include',
         signal: abortControllerRef.current.signal,
       });
@@ -270,6 +277,12 @@ export function AIChatWidget() {
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
             <span className="font-medium text-sm">AI Ассистент</span>
+            {projectContext?.currentProject && (
+              <Badge variant="secondary" className="text-xs gap-1 max-w-[120px] truncate">
+                <FolderKanban className="w-3 h-3" />
+                {projectContext.currentProject.name}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -400,6 +413,12 @@ export function AIChatWidget() {
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-primary" />
           <span className="font-semibold">AI Ассистент</span>
+          {projectContext?.currentProject && (
+            <Badge variant="secondary" className="text-xs gap-1 max-w-[140px] truncate">
+              <FolderKanban className="w-3 h-3" />
+              {projectContext.currentProject.name}
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={clearChat} title="Очистить">
@@ -523,6 +542,12 @@ export function AIChatWidget() {
         <div className="flex items-center gap-3">
           <Sparkles className="w-6 h-6 text-primary" />
           <h1 className="text-xl font-semibold">AI Ассистент</h1>
+          {projectContext?.currentProject && (
+            <Badge variant="secondary" className="text-sm gap-1.5">
+              <FolderKanban className="w-4 h-4" />
+              {projectContext.currentProject.name}
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Select value={taskType} onValueChange={(v) => setTaskType(v as TaskType)}>
