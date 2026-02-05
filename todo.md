@@ -229,3 +229,52 @@
 - [x] Add visual feedback on hover and active state (ring highlight)
 - [x] Filter projects list in place when widget clicked
 - [x] Show active filter indicator with "Reset filter" button
+
+
+## Phase 17: Project Search
+- [x] Add search input field above projects list
+- [x] Filter projects by name as user types
+- [x] Show "no results" message when search has no matches
+- [x] Clear search button (X icon in input field)
+
+
+## Phase 18: MAYDON Personal AI Life Planner Transformation
+
+### Core Philosophy
+- [ ] Rebrand: "Any goal = micro-project with AI-generated plan"
+- [ ] Quick start: user enters goal in plain language → AI asks 3-5 questions → generates roadmap
+
+### Daily AI Assistant
+- [ ] Morning briefing component (today's tasks, priorities, progress forecast)
+- [ ] Evening review component (completed tasks, productivity analysis, tomorrow recommendations)
+- [ ] Smart context awareness (low energy → lighter tasks, busy day → essential only)
+
+### Roadmap Library (Pre-made Templates)
+- [ ] Career category: "Transition to IT", "Promotion to Senior", "Freelance launch"
+- [ ] Health category: "Lose 10kg", "Couch to 5K", "30 days meditation"
+- [ ] Education category: "English B1→B2", "Python basics", "50 books challenge"
+- [ ] Finance category: "Save for vacation", "Start investing", "Mortgage preparation"
+- [ ] Creative category: "Learn guitar", "Master photography", "Write a book"
+
+### Smart Adaptive Planning
+- [ ] Auto-detect stuck tasks (3+ postponements → suggest smaller steps)
+- [ ] Pace adjustment (ahead of schedule → suggest acceleration)
+- [ ] Overload detection (too many active projects → suggest freezing some)
+- [ ] Calendar integration (Google Calendar sync, free time detection)
+
+### Specialized AI Agents
+- [ ] English Tutor Agent (homework check, material selection, conversation practice)
+- [ ] Fitness Coach Agent (workout suggestions, progress tracking, motivation)
+- [ ] Career Advisor Agent (resume analysis, interview prep, job tracking)
+- [ ] Financial Planner Agent (spending analysis, budget optimization, investment tips)
+
+### Social Motivation
+- [ ] Find people with similar goals
+- [ ] Group challenges ("30 days of coding")
+- [ ] Accountability partners
+- [ ] Public achievements and success stories
+
+### Smart Reminders
+- [ ] Context-aware notifications (time of day, weather, location, energy level)
+- [ ] Streak tracking with gamification
+- [ ] Adaptive frequency (don't spam)

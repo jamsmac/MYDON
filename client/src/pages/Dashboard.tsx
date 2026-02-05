@@ -16,7 +16,9 @@ import {
   AlertCircle,
   ChevronRight,
   Calendar,
-  Upload
+  Upload,
+  Search,
+  X
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
@@ -37,29 +39,45 @@ export default function Dashboard() {
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed' | 'overdue'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const { data: projects, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
     undefined,
     { enabled: isAuthenticated }
   );
 
-  // Filter projects based on selected status
+  // Filter projects based on selected status and search query
   const filteredProjects = useMemo(() => {
     if (!projects) return [];
+    
+    // First filter by status
+    let filtered = projects;
     switch (statusFilter) {
       case 'active':
-        return projects.filter(p => p.status === 'active');
+        filtered = projects.filter(p => p.status === 'active');
+        break;
       case 'completed':
-        return projects.filter(p => p.status === 'completed');
+        filtered = projects.filter(p => p.status === 'completed');
+        break;
       case 'overdue':
-        return projects.filter(p => {
+        filtered = projects.filter(p => {
           if (!p.targetDate) return false;
           return new Date(p.targetDate) < new Date() && p.status !== 'completed';
         });
-      default:
-        return projects;
+        break;
     }
-  }, [projects, statusFilter]);
+    
+    // Then filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(p => 
+        p.name.toLowerCase().includes(query) ||
+        (p.description && p.description.toLowerCase().includes(query))
+      );
+    }
+    
+    return filtered;
+  }, [projects, statusFilter, searchQuery]);
 
   // Get filter label for display
   const getFilterLabel = () => {
@@ -274,7 +292,7 @@ export default function Dashboard() {
         )}
 
         {/* Projects Section */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-semibold text-white">{getFilterLabel()}</h2>
             {statusFilter !== 'all' && (
@@ -283,6 +301,26 @@ export default function Dashboard() {
                 className="text-xs text-slate-400 hover:text-white bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded transition-colors"
               >
                 Сбросить фильтр
+              </button>
+            )}
+          </div>
+          
+          {/* Search Input */}
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              type="text"
+              placeholder="Поиск проектов..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 pr-9 bg-slate-800 border-slate-600 text-white placeholder:text-slate-500 focus:border-amber-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
@@ -402,6 +440,26 @@ export default function Dashboard() {
               </Link>
             ))}
           </div>
+        ) : searchQuery ? (
+          <Card className="bg-slate-800/30 border-slate-700 border-dashed">
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-4">
+                <Search className="w-8 h-8 text-slate-600" />
+              </div>
+              <h3 className="text-lg font-medium text-white mb-2">Ничего не найдено</h3>
+              <p className="text-slate-400 text-center mb-4">
+                По запросу «{searchQuery}» проекты не найдены
+              </p>
+              <Button 
+                onClick={() => setSearchQuery('')}
+                variant="outline"
+                className="border-slate-600 text-slate-300 hover:bg-slate-700"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Очистить поиск
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
           <Card className="bg-slate-800/30 border-slate-700 border-dashed">
             <CardContent className="flex flex-col items-center justify-center py-12">
