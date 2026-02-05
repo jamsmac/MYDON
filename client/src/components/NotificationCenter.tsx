@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
@@ -28,6 +29,8 @@ import {
   Users,
   Target,
   Zap,
+  Search,
+  SearchX,
 } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -176,9 +179,45 @@ function groupByDate(notifications: any[]) {
   return groups;
 }
 
+// Highlight search matches in text
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const parts = text.split(regex);
+  
+  return parts.map((part, i) => 
+    regex.test(part) ? (
+      <mark key={i} className="bg-amber-500/30 text-amber-200 rounded px-0.5">
+        {part}
+      </mark>
+    ) : (
+      part
+    )
+  );
+}
+
 export function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus search input when search is shown
+  useEffect(() => {
+    if (showSearch && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [showSearch]);
+
+  // Reset search when popover closes
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery("");
+      setShowSearch(false);
+    }
+  }, [open]);
 
   // Fetch notifications
   const { data: notificationsData, refetch } = trpc.notifications.list.useQuery(
@@ -211,11 +250,31 @@ export function NotificationCenter() {
 
   const notifications = notificationsData?.items || [];
 
-  // Filter notifications
+  // Filter and search notifications
   const filteredNotifications = useMemo(() => {
-    if (!filter) return notifications;
-    return notifications.filter((n) => n.type === filter);
-  }, [notifications, filter]);
+    let result = notifications;
+    
+    // Apply type filter
+    if (filter) {
+      result = result.filter((n) => n.type === filter);
+    }
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter((n) => {
+        const titleMatch = n.title.toLowerCase().includes(query);
+        const messageMatch = n.message?.toLowerCase().includes(query);
+        const data = n.data as NotificationData | null;
+        const projectMatch = data?.projectName?.toLowerCase().includes(query);
+        const taskMatch = data?.taskName?.toLowerCase().includes(query);
+        const userMatch = data?.userName?.toLowerCase().includes(query);
+        return titleMatch || messageMatch || projectMatch || taskMatch || userMatch;
+      });
+    }
+    
+    return result;
+  }, [notifications, filter, searchQuery]);
 
   // Group by date
   const groupedNotifications = useMemo(
@@ -239,6 +298,11 @@ export function NotificationCenter() {
       setOpen(false);
       window.location.href = `/project/${data.projectId}`;
     }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    searchInputRef.current?.focus();
   };
 
   return (
@@ -278,6 +342,20 @@ export function NotificationCenter() {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {/* Search toggle button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowSearch(!showSearch)}
+                className={cn(
+                  "h-8 px-2 transition-colors",
+                  showSearch 
+                    ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20" 
+                    : "text-slate-400 hover:text-white hover:bg-slate-800"
+                )}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
               {notifications.length > 0 && (
                 <>
                   <Button
@@ -303,8 +381,53 @@ export function NotificationCenter() {
             </div>
           </div>
 
+          {/* Search bar */}
+          {showSearch && (
+            <div className="relative mb-3 animate-in slide-in-from-top-2 duration-200">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+              <Input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Поиск уведомлений..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-9 h-9 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 focus:border-amber-500 focus:ring-amber-500/20"
+              />
+              {searchQuery && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={clearSearch}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-slate-500 hover:text-white hover:bg-slate-700"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Search results count */}
+          {searchQuery && (
+            <div className="flex items-center gap-2 mb-3 text-xs text-slate-400">
+              <Search className="h-3 w-3" />
+              <span>
+                Найдено: <span className="text-amber-400 font-medium">{filteredNotifications.length}</span> из {notifications.length}
+              </span>
+              {filteredNotifications.length === 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearSearch}
+                  className="h-5 px-2 text-xs text-slate-500 hover:text-white"
+                >
+                  Очистить
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Filter chips */}
-          {notificationTypes.length > 1 && (
+          {notificationTypes.length > 1 && !searchQuery && (
             <div className="flex gap-1.5 flex-wrap">
               <Badge
                 variant={filter === null ? "default" : "outline"}
@@ -351,6 +474,27 @@ export function NotificationCenter() {
               <p className="text-sm text-slate-600 mt-1">
                 Здесь появятся ваши уведомления
               </p>
+            </div>
+          ) : filteredNotifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[300px] text-slate-500">
+              <div className="w-20 h-20 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                <SearchX className="h-10 w-10 opacity-30" />
+              </div>
+              <p className="font-medium">Ничего не найдено</p>
+              <p className="text-sm text-slate-600 mt-1 text-center px-8">
+                Попробуйте изменить поисковый запрос или сбросить фильтры
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("");
+                  setFilter(null);
+                }}
+                className="mt-4 border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                Сбросить фильтры
+              </Button>
             </div>
           ) : (
             <div>
@@ -437,11 +581,11 @@ export function NotificationCenter() {
                                       : "text-slate-300"
                                   )}
                                 >
-                                  {notification.title}
+                                  {highlightMatch(notification.title, searchQuery)}
                                 </p>
                                 {notification.message && (
                                   <p className="text-sm text-slate-400 mt-1 line-clamp-2">
-                                    {notification.message}
+                                    {highlightMatch(notification.message, searchQuery)}
                                   </p>
                                 )}
                                 {/* Context info */}
@@ -450,13 +594,13 @@ export function NotificationCenter() {
                                     {data?.projectName && (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800 text-xs text-slate-400">
                                         <Target className="h-3 w-3" />
-                                        {data.projectName}
+                                        {highlightMatch(data.projectName, searchQuery)}
                                       </span>
                                     )}
                                     {data?.taskName && (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800 text-xs text-slate-400">
                                         <FileText className="h-3 w-3" />
-                                        {data.taskName}
+                                        {highlightMatch(data.taskName, searchQuery)}
                                       </span>
                                     )}
                                   </div>
