@@ -1164,3 +1164,15 @@
 - [x] Handle stream errors and cancellation with AbortController
 - [x] Add cancel button during streaming
 - [x] 355 total tests passing
+
+
+### 58.7 AI Chat UX Redesign (Phase 7) - Completed
+- [x] Create floating AI chat button component (bottom-right corner with pulse indicator)
+- [x] Create popup quick input modal (compact 96w with task selector)
+- [x] Add dockable side panel mode (slide-in from right, 96w)
+- [x] Add expandable fullscreen mode (max-w-4xl centered)
+- [x] Persist user preference for chat mode (localStorage)
+- [x] Add smooth animations (slide-in, fade-in, hover scale)
+- [x] Integrate with existing AI streaming
+- [x] Keyboard shortcuts: Ctrl+K toggle, Esc close
+- [x] 355 total tests passing
