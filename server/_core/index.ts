@@ -11,6 +11,7 @@ import { getUserFromRequest } from "./context";
 import * as db from "../db";
 import { serveStatic, setupVite } from "./vite";
 import { generateMarkdownReport, generateHtmlReport } from "../export";
+import { parseRoadmap, generateMarkdownTemplate, generateJsonTemplate } from "../import";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -196,6 +197,150 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
       console.error("Export error:", error);
       res.status(500).json({ error: "Failed to export project" });
     }
+  });
+
+  // Import roadmap endpoint
+  app.post("/api/import/roadmap", async (req, res) => {
+    try {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const { content, filename } = req.body;
+      
+      if (!content || typeof content !== 'string') {
+        res.status(400).json({ error: "Missing or invalid content" });
+        return;
+      }
+
+      // Parse the roadmap
+      const parsed = parseRoadmap(content, filename);
+      
+      // Create the project
+      const project = await db.createProject({
+        userId: user.id,
+        name: parsed.name,
+        description: parsed.description || null,
+        status: 'active'
+      });
+
+      // Create blocks, sections, tasks, and subtasks
+      for (let blockIndex = 0; blockIndex < parsed.blocks.length; blockIndex++) {
+        const blockData = parsed.blocks[blockIndex];
+        
+        const block = await db.createBlock({
+          projectId: project.id,
+          number: parseInt(blockData.number) || (blockIndex + 1),
+          title: blockData.title,
+          titleRu: blockData.titleRu || null,
+          icon: blockData.icon || 'layers',
+          sortOrder: blockIndex
+        });
+
+        if (blockData.sections) {
+          for (let sectionIndex = 0; sectionIndex < blockData.sections.length; sectionIndex++) {
+            const sectionData = blockData.sections[sectionIndex];
+            
+            const section = await db.createSection({
+              blockId: block.id,
+              title: sectionData.title,
+              sortOrder: sectionIndex
+            });
+
+            if (sectionData.tasks) {
+              for (let taskIndex = 0; taskIndex < sectionData.tasks.length; taskIndex++) {
+                const taskData = sectionData.tasks[taskIndex];
+                
+                const task = await db.createTask({
+                  sectionId: section.id,
+                  title: taskData.title,
+                  description: taskData.description || null,
+                  status: taskData.status || 'not_started',
+                  notes: taskData.notes || null,
+                  summary: taskData.finalDocument || null,
+                  sortOrder: taskIndex
+                });
+
+                if (taskData.subtasks) {
+                  for (let subtaskIndex = 0; subtaskIndex < taskData.subtasks.length; subtaskIndex++) {
+                    const subtaskData = taskData.subtasks[subtaskIndex];
+                    
+                    await db.createSubtask({
+                      taskId: task.id,
+                      title: subtaskData.title,
+                      status: subtaskData.completed ? 'completed' : 'not_started',
+                      sortOrder: subtaskIndex
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        projectId: project.id,
+        stats: {
+          blocks: parsed.blocks.length,
+          sections: parsed.blocks.reduce((acc, b) => acc + (b.sections?.length || 0), 0),
+          tasks: parsed.blocks.reduce((acc, b) => 
+            acc + (b.sections?.reduce((sacc, s) => sacc + (s.tasks?.length || 0), 0) || 0), 0)
+        }
+      });
+    } catch (error) {
+      console.error("Import error:", error);
+      res.status(400).json({ 
+        error: error instanceof Error ? error.message : "Failed to import roadmap" 
+      });
+    }
+  });
+
+  // Preview import (parse without creating)
+  app.post("/api/import/preview", async (req, res) => {
+    try {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const { content, filename } = req.body;
+      
+      if (!content || typeof content !== 'string') {
+        res.status(400).json({ error: "Missing or invalid content" });
+        return;
+      }
+
+      const parsed = parseRoadmap(content, filename);
+      
+      res.json({ 
+        success: true, 
+        preview: parsed,
+        stats: {
+          blocks: parsed.blocks.length,
+          sections: parsed.blocks.reduce((acc, b) => acc + (b.sections?.length || 0), 0),
+          tasks: parsed.blocks.reduce((acc, b) => 
+            acc + (b.sections?.reduce((sacc, s) => sacc + (s.tasks?.length || 0), 0) || 0), 0)
+        }
+      });
+    } catch (error) {
+      console.error("Preview error:", error);
+      res.status(400).json({ 
+        error: error instanceof Error ? error.message : "Failed to parse roadmap" 
+      });
+    }
+  });
+
+  // Get import templates
+  app.get("/api/import/templates", async (req, res) => {
+    res.json({
+      markdown: generateMarkdownTemplate(),
+      json: generateJsonTemplate()
+    });
   });
 
   // tRPC API

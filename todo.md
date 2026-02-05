@@ -12,9 +12,9 @@
 - [x] Project creation dialog
 - [x] Project view page with sidebar navigation
 - [x] Block creation and management
-- [ ] Section creation and management
-- [ ] Task creation and management
-- [ ] Subtask creation and management
+- [x] Section creation and management
+- [x] Task creation and management
+- [x] Subtask creation and management
 
 ## Phase 3: AI Integration (BYOK)
 - [x] Settings page with AI provider configuration
@@ -23,7 +23,7 @@
 - [x] Default provider selection
 - [x] AI chat panel component
 - [x] Actual AI API calls implementation (using built-in Manus LLM)
-- [ ] Streaming responses
+- [x] Streaming responses
 
 ## Phase 4: Dashboard Features
 - [x] Progress calculation across all projects
@@ -35,54 +35,97 @@
 
 ## Phase 5: Advanced Features
 - [ ] Project templates
-- [ ] Import/export roadmaps
-- [ ] Markdown/PDF export
+- [x] Import/export roadmaps
+- [x] Markdown/PDF export
 - [ ] Collaboration features
 
 
-## Phase 6: Critical Features (Current Sprint)
+## Phase 6: Critical Features (Completed)
 
 ### Full CRUD for Project Structure
-- [ ] Add block creation UI with form
-- [ ] Add section creation within blocks
-- [ ] Add task creation within sections
-- [ ] Add subtask creation within tasks
-- [ ] Edit/delete functionality for all levels
-- [ ] Status management for tasks
+- [x] Add block creation UI with form
+- [x] Add section creation within blocks
+- [x] Add task creation within sections
+- [x] Add subtask creation within tasks
+- [x] Edit/delete functionality for all levels
+- [x] Status management for tasks
 
 ### Contextual AI Chat
-- [ ] AI chat available at block level
-- [ ] AI chat available at section level
-- [ ] AI chat available at task level
-- [ ] Pass current context (block/section/task content) to AI
-- [ ] Show context indicator in chat
+- [x] AI chat available at block level
+- [x] AI chat available at section level
+- [x] AI chat available at task level
+- [x] Pass current context (block/section/task content) to AI
+- [x] Show context indicator in chat
 
 ### Save AI Responses
-- [ ] "Save as note" button on AI responses
-- [ ] "Save as document" button on AI responses
-- [ ] Notes storage in database
-- [ ] Documents storage in database
-- [ ] View saved notes/documents in task panel
+- [x] "Save as note" button on AI responses
+- [x] "Save as document" button on AI responses
+- [x] Notes storage in database
+- [x] Documents storage in database
+- [x] View saved notes/documents in task panel
 
 
-## Phase 7: Drag-and-Drop Feature
-- [ ] Install dnd-kit library
-- [ ] Implement drag-and-drop for tasks
-- [ ] Implement drag-and-drop for sections between blocks
-- [ ] Add visual feedback (drag handles, drop zones)
-- [ ] Update database when items are moved
+## Phase 7: Drag-and-Drop Feature (Completed)
+- [x] Install dnd-kit library
+- [x] Implement drag-and-drop for tasks
+- [x] Implement drag-and-drop for sections between blocks
+- [x] Add visual feedback (drag handles, drop zones)
+- [x] Update database when items are moved
 
 
-## Phase 8: Streaming AI Responses
-- [ ] Server-side streaming endpoint
-- [ ] Frontend streaming handler
-- [ ] Real-time text rendering with Streamdown
-- [ ] Loading states and error handling
+## Phase 8: Streaming AI Responses (Completed)
+- [x] Server-side streaming endpoint
+- [x] Frontend streaming handler
+- [x] Real-time text rendering with Streamdown
+- [x] Loading states and error handling
 
 
-## Phase 9: Project Export Feature
-- [ ] Server-side Markdown export endpoint
-- [ ] Server-side PDF export endpoint
-- [ ] Export UI with format selection
-- [ ] Include all blocks, sections, tasks, notes, and documents
-- [ ] Progress statistics in export
+## Phase 9: Project Export Feature (Completed)
+- [x] Server-side Markdown export endpoint
+- [x] Server-side PDF export endpoint
+- [x] Export UI with format selection
+- [x] Include all blocks, sections, tasks, notes, and documents
+- [x] Progress statistics in export
+
+
+## Phase 10: Import Roadmap Feature (Completed)
+- [x] Markdown parser for roadmap structure
+- [x] JSON parser for roadmap structure
+- [x] Server-side import endpoint
+- [x] File upload UI in Dashboard
+- [x] Preview before import
+- [x] Error handling for invalid formats
+- [x] Template download buttons (MD and JSON)
+
+
+## Future Enhancements
+- [ ] Project templates (startup, product launch, marketing campaign)
+- [ ] Deadline notifications (email/push)
+- [ ] Multi-AI model comparison
+- [ ] Agent system with specialized agents
+- [ ] Collaboration features (roles, comments, @mentions)
+- [ ] Activity feed
+
+
+## Phase 11: Google Services Integration
+
+### Google Drive Integration
+- [ ] Save roadmap projects to Google Drive
+- [ ] Automatic sync of changes
+- [ ] Load roadmap from Google Drive
+- [ ] UI for Google Drive connection
+
+### NotebookLM Integration
+- [ ] Send roadmap and project documents to NotebookLM for analysis
+- [ ] Use NotebookLM for generating project insights
+- [ ] "Create source in NotebookLM" button for each project
+
+### Google Docs Integration
+- [ ] Export final documents directly to Google Docs
+- [ ] Attach Google Docs to tasks
+- [ ] Link Google Docs in task panel
+
+### Google Calendar Integration
+- [ ] Add task deadlines to Google Calendar
+- [ ] Sync task due dates with calendar
+- [ ] Calendar event creation UI

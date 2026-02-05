@@ -15,9 +15,11 @@ import {
   CheckCircle2,
   AlertCircle,
   ChevronRight,
-  Calendar
+  Calendar,
+  Upload
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
+import { ImportDialog } from '@/components/ImportDialog';
 import { Link, useLocation } from 'wouter';
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -30,6 +32,7 @@ export default function Dashboard() {
   const { user, loading: authLoading, isAuthenticated, logout } = useAuth();
   const [, navigate] = useLocation();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
 
@@ -225,7 +228,16 @@ export default function Dashboard() {
         {/* Projects Section */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold text-white">Мои проекты</h2>
-          <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              className="border-slate-600 text-slate-300 hover:bg-slate-700"
+              onClick={() => setImportDialogOpen(true)}
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Импорт
+            </Button>
+            <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button className="bg-amber-500 hover:bg-amber-600 text-slate-900">
                 <Plus className="w-4 h-4 mr-2" />
@@ -272,8 +284,12 @@ export default function Dashboard() {
                 </Button>
               </div>
             </DialogContent>
-          </Dialog>
+            </Dialog>
+          </div>
         </div>
+
+        {/* Import Dialog */}
+        <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
 
         {/* Projects Grid */}
         {projectsLoading ? (
