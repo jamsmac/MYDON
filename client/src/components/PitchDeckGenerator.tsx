@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -14,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Presentation, ChevronLeft, ChevronRight, Download, Sparkles } from 'lucide-react';
+import { Loader2, Presentation, ChevronLeft, ChevronRight, Download, Sparkles, Pencil, Save, X, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 type PitchDeckSlide = {
@@ -45,6 +47,8 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
   const [language, setLanguage] = useState<'ru' | 'en'>('ru');
   const [currentSlide, setCurrentSlide] = useState(0);
   const [generatedDeck, setGeneratedDeck] = useState<PitchDeck | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedSlide, setEditedSlide] = useState<PitchDeckSlide | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -66,6 +70,18 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
     },
   });
 
+  const updateMutation = trpc.pitchDeck.update.useMutation({
+    onSuccess: () => {
+      toast.success('Слайд сохранён!');
+      setIsEditing(false);
+      setEditedSlide(null);
+      utils.pitchDeck.listByProject.invalidate({ projectId });
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Ошибка сохранения');
+    },
+  });
+
   const handleGenerate = () => {
     generateMutation.mutate({ projectId, language });
   };
@@ -73,11 +89,68 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
   const handleViewDeck = (deck: PitchDeck) => {
     setGeneratedDeck(deck);
     setCurrentSlide(0);
+    setIsEditing(false);
+    setEditedSlide(null);
+  };
+
+  const handleStartEdit = () => {
+    if (generatedDeck) {
+      setEditedSlide({ ...generatedDeck.slides[currentSlide] });
+      setIsEditing(true);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedSlide(null);
+  };
+
+  const handleSaveEdit = () => {
+    if (!generatedDeck || !editedSlide) return;
+
+    const updatedSlides = [...generatedDeck.slides];
+    updatedSlides[currentSlide] = editedSlide;
+
+    updateMutation.mutate({
+      id: generatedDeck.id,
+      slides: updatedSlides,
+    });
+
+    // Update local state immediately for better UX
+    setGeneratedDeck({
+      ...generatedDeck,
+      slides: updatedSlides,
+    });
+  };
+
+  const handleBulletChange = (index: number, value: string) => {
+    if (!editedSlide) return;
+    const newBullets = [...(editedSlide.bullets || [])];
+    newBullets[index] = value;
+    setEditedSlide({ ...editedSlide, bullets: newBullets });
+  };
+
+  const handleAddBullet = () => {
+    if (!editedSlide) return;
+    const newBullets = [...(editedSlide.bullets || []), ''];
+    setEditedSlide({ ...editedSlide, bullets: newBullets });
+  };
+
+  const handleRemoveBullet = (index: number) => {
+    if (!editedSlide) return;
+    const newBullets = (editedSlide.bullets || []).filter((_, i) => i !== index);
+    setEditedSlide({ ...editedSlide, bullets: newBullets });
+  };
+
+  const handleMetricChange = (index: number, field: 'label' | 'value', value: string) => {
+    if (!editedSlide || !editedSlide.metrics) return;
+    const newMetrics = [...editedSlide.metrics];
+    newMetrics[index] = { ...newMetrics[index], [field]: value };
+    setEditedSlide({ ...editedSlide, metrics: newMetrics });
   };
 
   const exportMutation = trpc.pitchDeck.exportPptx.useMutation({
     onSuccess: (data) => {
-      // Convert base64 to blob and download
       const byteCharacters = atob(data.data);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -86,7 +159,6 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: data.mimeType });
       
-      // Create download link
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -112,12 +184,16 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
   const nextSlide = () => {
     if (generatedDeck && currentSlide < generatedDeck.slides.length - 1) {
       setCurrentSlide(currentSlide + 1);
+      setIsEditing(false);
+      setEditedSlide(null);
     }
   };
 
   const prevSlide = () => {
     if (currentSlide > 0) {
       setCurrentSlide(currentSlide - 1);
+      setIsEditing(false);
+      setEditedSlide(null);
     }
   };
 
@@ -138,8 +214,112 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
   };
 
   const renderSlide = (slide: PitchDeckSlide) => {
+    if (isEditing && editedSlide) {
+      return (
+        <div className="bg-slate-800 rounded-lg p-6 min-h-[400px] flex flex-col">
+          {/* Edit Title */}
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-3xl">{getSlideIcon(slide.type)}</span>
+            <Input
+              value={editedSlide.title}
+              onChange={(e) => setEditedSlide({ ...editedSlide, title: e.target.value })}
+              className="text-xl font-bold bg-slate-700 border-slate-600"
+              placeholder="Заголовок слайда"
+            />
+          </div>
+          
+          {/* Edit Content */}
+          <div className="mb-4">
+            <label className="text-sm text-slate-400 mb-1 block">Описание</label>
+            <Textarea
+              value={editedSlide.content}
+              onChange={(e) => setEditedSlide({ ...editedSlide, content: e.target.value })}
+              className="bg-slate-700 border-slate-600 min-h-[80px]"
+              placeholder="Основной текст слайда"
+            />
+          </div>
+          
+          {/* Edit Bullets */}
+          {(editedSlide.bullets !== undefined || ['problem', 'solution', 'business_model', 'competition', 'roadmap', 'team', 'ask'].includes(slide.type)) && (
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm text-slate-400">Пункты</label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleAddBullet}
+                  className="text-amber-400 hover:text-amber-300"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Добавить
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {(editedSlide.bullets || []).map((bullet, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <span className="text-amber-400">•</span>
+                    <Input
+                      value={bullet}
+                      onChange={(e) => handleBulletChange(idx, e.target.value)}
+                      className="flex-1 bg-slate-700 border-slate-600"
+                      placeholder={`Пункт ${idx + 1}`}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveBullet(idx)}
+                      className="text-red-400 hover:text-red-300 p-1"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Edit Metrics */}
+          {editedSlide.metrics && editedSlide.metrics.length > 0 && (
+            <div className="mt-4">
+              <label className="text-sm text-slate-400 mb-2 block">Метрики</label>
+              <div className="grid grid-cols-3 gap-3">
+                {editedSlide.metrics.map((metric, idx) => (
+                  <div key={idx} className="bg-slate-700/50 rounded-lg p-3 space-y-2">
+                    <Input
+                      value={metric.value}
+                      onChange={(e) => handleMetricChange(idx, 'value', e.target.value)}
+                      className="bg-slate-600 border-slate-500 text-center font-bold text-amber-400"
+                      placeholder="Значение"
+                    />
+                    <Input
+                      value={metric.label}
+                      onChange={(e) => handleMetricChange(idx, 'label', e.target.value)}
+                      className="bg-slate-600 border-slate-500 text-center text-sm"
+                      placeholder="Подпись"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // View mode
     return (
-      <div className="bg-slate-800 rounded-lg p-8 min-h-[400px] flex flex-col">
+      <div className="bg-slate-800 rounded-lg p-8 min-h-[400px] flex flex-col relative group">
+        {/* Edit button overlay */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleStartEdit}
+          className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-700/80 hover:bg-slate-600"
+        >
+          <Pencil className="w-4 h-4 mr-1" />
+          Редактировать
+        </Button>
+
         <div className="flex items-center gap-3 mb-6">
           <span className="text-3xl">{getSlideIcon(slide.type)}</span>
           <h2 className="text-2xl font-bold text-white">{slide.title}</h2>
@@ -263,74 +443,118 @@ export function PitchDeckGenerator({ projectId, projectName, open, onOpenChange 
               {renderSlide(generatedDeck.slides[currentSlide])}
               
               {/* Navigation */}
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-900/80 px-4 py-2 rounded-full">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={prevSlide}
-                  disabled={currentSlide === 0}
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </Button>
-                <span className="text-sm font-medium">
-                  {currentSlide + 1} / {generatedDeck.slides.length}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={nextSlide}
-                  disabled={currentSlide === generatedDeck.slides.length - 1}
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </Button>
-              </div>
+              {!isEditing && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-900/80 px-4 py-2 rounded-full">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={prevSlide}
+                    disabled={currentSlide === 0}
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </Button>
+                  <span className="text-sm font-medium">
+                    {currentSlide + 1} / {generatedDeck.slides.length}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={nextSlide}
+                    disabled={currentSlide === generatedDeck.slides.length - 1}
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </Button>
+                </div>
+              )}
             </div>
 
             {/* Slide Thumbnails */}
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {generatedDeck.slides.map((slide, idx) => (
-                <button
-                  key={slide.id}
-                  onClick={() => setCurrentSlide(idx)}
-                  className={`flex-shrink-0 w-24 h-16 rounded border-2 transition-colors flex items-center justify-center text-xs font-medium ${
-                    idx === currentSlide
-                      ? 'border-amber-400 bg-amber-400/10'
-                      : 'border-slate-600 bg-slate-800 hover:border-slate-500'
-                  }`}
-                >
-                  <span className="mr-1">{getSlideIcon(slide.type)}</span>
-                  {idx + 1}
-                </button>
-              ))}
-            </div>
+            {!isEditing && (
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {generatedDeck.slides.map((slide, idx) => (
+                  <button
+                    key={slide.id}
+                    onClick={() => setCurrentSlide(idx)}
+                    className={`flex-shrink-0 w-24 h-16 rounded border-2 transition-colors flex items-center justify-center text-xs font-medium ${
+                      idx === currentSlide
+                        ? 'border-amber-400 bg-amber-400/10'
+                        : 'border-slate-600 bg-slate-800 hover:border-slate-500'
+                    }`}
+                  >
+                    <span className="mr-1">{getSlideIcon(slide.type)}</span>
+                    {idx + 1}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Actions - sticky at bottom */}
             <div className="flex justify-between items-center pt-4 border-t border-slate-700 bg-slate-900 sticky bottom-0 pb-2">
-              <Button
-                variant="outline"
-                onClick={() => setGeneratedDeck(null)}
-              >
-                ← Назад
-              </Button>
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleExport}
-                  disabled={exportMutation.isPending}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  {exportMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Генерация...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4 mr-2" />
-                      Скачать PowerPoint
-                    </>
-                  )}
-                </Button>
-              </div>
+              {isEditing ? (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={handleCancelEdit}
+                    className="border-slate-600"
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Отмена
+                  </Button>
+                  <Button
+                    onClick={handleSaveEdit}
+                    disabled={updateMutation.isPending}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    {updateMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Сохранение...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        Сохранить изменения
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setGeneratedDeck(null)}
+                  >
+                    ← Назад
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleStartEdit}
+                      className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                    >
+                      <Pencil className="w-4 h-4 mr-2" />
+                      Редактировать
+                    </Button>
+                    <Button
+                      onClick={handleExport}
+                      disabled={exportMutation.isPending}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      {exportMutation.isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Генерация...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4 mr-2" />
+                          Скачать PowerPoint
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

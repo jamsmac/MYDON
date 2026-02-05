@@ -348,3 +348,12 @@
 - [x] Update PitchDeckGenerator UI with download button
 - [x] Style slides with professional design (colors, fonts, layouts)
 - [x] Test export and download functionality
+
+
+## Phase 25: Pitch Deck Slide Editing
+- [x] Backend: Create updatePitchDeck procedure to save edited slides
+- [x] UI: Add edit mode toggle button to slide preview
+- [x] UI: Create inline editing for slide title, content, and bullets
+- [x] UI: Add save/cancel buttons for edit mode
+- [x] UI: Show visual feedback when changes are saved
+- [x] Test editing and saving slides
