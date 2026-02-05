@@ -17,15 +17,17 @@ import {
   Clock,
   Layers,
   FileText,
-  Settings,
   MoreVertical,
-  Calendar,
   Trash2,
-  Edit
+  Edit,
+  Save,
+  X,
+  Bookmark,
+  Copy
 } from 'lucide-react';
 import { Link, useParams, useLocation } from 'wouter';
 import { useState, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -34,19 +36,27 @@ import {
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuItem, 
-  DropdownMenuTrigger 
+  DropdownMenuTrigger,
+  DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Streamdown } from 'streamdown';
 
-// AI Chat Panel Component
+// ============ AI CHAT PANEL ============
 function AIChatPanel({ 
   contextType, 
   contextId, 
-  contextTitle 
+  contextTitle,
+  contextContent,
+  onSaveAsNote,
+  onSaveAsDocument
 }: { 
   contextType: 'project' | 'block' | 'section' | 'task';
   contextId: number;
   contextTitle: string;
+  contextContent?: string;
+  onSaveAsNote?: (content: string) => void;
+  onSaveAsDocument?: (content: string) => void;
 }) {
   const [message, setMessage] = useState('');
   const { data: history, refetch } = trpc.chat.history.useQuery({
@@ -70,8 +80,14 @@ function AIChatPanel({
     sendMessage.mutate({
       contextType,
       contextId,
-      content: message.trim()
+      content: message.trim(),
+      projectContext: contextContent
     });
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Скопировано в буфер обмена');
   };
 
   return (
@@ -82,8 +98,11 @@ function AIChatPanel({
           <CardTitle className="text-sm text-white">AI Ассистент</CardTitle>
         </div>
         <p className="text-xs text-slate-500 mt-1">Контекст: {contextTitle}</p>
+        {contextContent && (
+          <p className="text-xs text-emerald-500 mt-1">✓ Контекст загружен</p>
+        )}
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col p-0">
+      <CardContent className="flex-1 flex flex-col p-0 min-h-0">
         <ScrollArea className="flex-1 p-4">
           {history && history.length > 0 ? (
             <div className="space-y-4">
@@ -91,24 +110,70 @@ function AIChatPanel({
                 <div 
                   key={msg.id}
                   className={cn(
-                    "p-3 rounded-lg text-sm",
+                    "p-3 rounded-lg text-sm relative group",
                     msg.role === 'user' 
                       ? "bg-amber-500/10 text-amber-100 ml-8" 
-                      : "bg-slate-700/50 text-slate-300 mr-8"
+                      : "bg-slate-700/50 text-slate-300 mr-4"
                   )}
                 >
                   <p className="text-xs text-slate-500 mb-1">
                     {msg.role === 'user' ? 'Вы' : 'AI'}
                     {msg.provider && ` (${msg.provider})`}
                   </p>
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  <div className="prose prose-invert prose-sm max-w-none">
+                    <Streamdown>{msg.content}</Streamdown>
+                  </div>
+                  
+                  {/* Action buttons for AI messages */}
+                  {msg.role === 'assistant' && (
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-slate-400 hover:text-white"
+                        onClick={() => copyToClipboard(msg.content)}
+                        title="Копировать"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                      {onSaveAsNote && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-slate-400 hover:text-amber-400"
+                          onClick={() => onSaveAsNote(msg.content)}
+                          title="Сохранить как заметку"
+                        >
+                          <Bookmark className="w-3 h-3" />
+                        </Button>
+                      )}
+                      {onSaveAsDocument && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-slate-400 hover:text-emerald-400"
+                          onClick={() => onSaveAsDocument(msg.content)}
+                          title="Сохранить как документ"
+                        >
+                          <Save className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
+              {sendMessage.isPending && (
+                <div className="bg-slate-700/50 text-slate-300 mr-4 p-3 rounded-lg">
+                  <p className="text-xs text-slate-500 mb-1">AI</p>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center text-slate-500 py-8">
               <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
               <p className="text-sm">Начните диалог с AI</p>
+              <p className="text-xs mt-2">AI видит контекст текущего элемента</p>
             </div>
           )}
         </ScrollArea>
@@ -120,6 +185,7 @@ function AIChatPanel({
               placeholder="Задайте вопрос..."
               className="bg-slate-900 border-slate-600 text-white text-sm"
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+              disabled={sendMessage.isPending}
             />
             <Button 
               onClick={handleSend}
@@ -140,6 +206,155 @@ function AIChatPanel({
   );
 }
 
+// ============ TASK DETAIL PANEL ============
+function TaskDetailPanel({
+  task,
+  onClose,
+  onUpdate,
+  onSaveNote,
+  onSaveDocument
+}: {
+  task: {
+    id: number;
+    title: string;
+    description?: string | null;
+    status: string | null;
+    notes?: string | null;
+    summary?: string | null;
+  };
+  onClose: () => void;
+  onUpdate: (data: { status?: 'not_started' | 'in_progress' | 'completed'; notes?: string; summary?: string }) => void;
+  onSaveNote: (content: string) => void;
+  onSaveDocument: (content: string) => void;
+}) {
+  const [notes, setNotes] = useState(task.notes || '');
+  const [summary, setSummary] = useState(task.summary || '');
+  const [isEditing, setIsEditing] = useState(false);
+
+  const handleSave = () => {
+    onUpdate({ notes, summary });
+    setIsEditing(false);
+    toast.success('Сохранено');
+  };
+
+  const statusOptions: { value: 'not_started' | 'in_progress' | 'completed'; label: string; icon: typeof Circle; color: string }[] = [
+    { value: 'not_started', label: 'Не начато', icon: Circle, color: 'text-slate-500' },
+    { value: 'in_progress', label: 'В работе', icon: Clock, color: 'text-amber-500' },
+    { value: 'completed', label: 'Готово', icon: CheckCircle2, color: 'text-emerald-500' },
+  ];
+
+  const currentStatus = statusOptions.find(s => s.value === task.status) || statusOptions[0];
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+        <h3 className="text-lg font-medium text-white truncate flex-1">{task.title}</h3>
+        <Button variant="ghost" size="icon" onClick={onClose} className="text-slate-400">
+          <X className="w-4 h-4" />
+        </Button>
+      </div>
+      
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-6">
+          {/* Status */}
+          <div>
+            <Label className="text-slate-400 text-xs mb-2 block">Статус</Label>
+            <div className="flex gap-2">
+              {statusOptions.map((option) => {
+                const Icon = option.icon;
+                return (
+                  <Button
+                    key={option.value}
+                    variant={task.status === option.value ? "default" : "outline"}
+                    size="sm"
+                    className={cn(
+                      task.status === option.value 
+                        ? "bg-slate-700 text-white" 
+                        : "border-slate-600 text-slate-400"
+                    )}
+                    onClick={() => onUpdate({ status: option.value })}
+                  >
+                    <Icon className={cn("w-4 h-4 mr-1", option.color)} />
+                    {option.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Description */}
+          {task.description && (
+            <div>
+              <Label className="text-slate-400 text-xs mb-2 block">Описание</Label>
+              <p className="text-slate-300 text-sm">{task.description}</p>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-slate-400 text-xs">Заметки</Label>
+              {!isEditing && (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setIsEditing(true)}
+                  className="text-slate-400 h-6"
+                >
+                  <Edit className="w-3 h-3 mr-1" />
+                  Редактировать
+                </Button>
+              )}
+            </div>
+            {isEditing ? (
+              <div className="space-y-2">
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Добавьте заметки..."
+                  className="bg-slate-900 border-slate-600 text-white min-h-[100px]"
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSave} className="bg-amber-500 hover:bg-amber-600 text-slate-900">
+                    <Save className="w-3 h-3 mr-1" />
+                    Сохранить
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setIsEditing(false)} className="border-slate-600">
+                    Отмена
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-900/50 rounded-lg p-3 min-h-[60px]">
+                {notes ? (
+                  <p className="text-slate-300 text-sm whitespace-pre-wrap">{notes}</p>
+                ) : (
+                  <p className="text-slate-500 text-sm italic">Нет заметок</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Summary/Document */}
+          <div>
+            <Label className="text-slate-400 text-xs mb-2 block">Итоговый документ</Label>
+            <div className="bg-slate-900/50 rounded-lg p-3 min-h-[60px]">
+              {summary ? (
+                <div className="prose prose-invert prose-sm max-w-none">
+                  <Streamdown>{summary}</Streamdown>
+                </div>
+              ) : (
+                <p className="text-slate-500 text-sm italic">Нет итогового документа. Используйте AI чат и сохраните ответ как документ.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// ============ MAIN COMPONENT ============
 export default function ProjectView() {
   const params = useParams<{ id: string }>();
   const projectId = parseInt(params.id || '0');
@@ -147,22 +362,41 @@ export default function ProjectView() {
   const { isAuthenticated, loading: authLoading } = useAuth();
   
   const [expandedBlocks, setExpandedBlocks] = useState<Set<number>>(new Set());
+  const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
   const [selectedContext, setSelectedContext] = useState<{
     type: 'project' | 'block' | 'section' | 'task';
     id: number;
     title: string;
+    content?: string;
+  } | null>(null);
+  const [selectedTask, setSelectedTask] = useState<{
+    id: number;
+    title: string;
+    description?: string | null;
+    status: string | null;
+    notes?: string | null;
+    summary?: string | null;
+    sectionId: number;
   } | null>(null);
 
-  // Block creation dialog
+  // Dialog states
   const [createBlockOpen, setCreateBlockOpen] = useState(false);
+  const [createSectionOpen, setCreateSectionOpen] = useState(false);
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [newBlockTitle, setNewBlockTitle] = useState('');
   const [newBlockTitleRu, setNewBlockTitleRu] = useState('');
+  const [newSectionTitle, setNewSectionTitle] = useState('');
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
+  const [targetBlockId, setTargetBlockId] = useState<number | null>(null);
+  const [targetSectionId, setTargetSectionId] = useState<number | null>(null);
 
   const { data: project, isLoading, refetch } = trpc.project.getFull.useQuery(
     { id: projectId },
     { enabled: isAuthenticated && projectId > 0 }
   );
 
+  // Mutations
   const createBlock = trpc.block.create.useMutation({
     onSuccess: () => {
       toast.success('Блок создан');
@@ -171,9 +405,62 @@ export default function ProjectView() {
       setNewBlockTitleRu('');
       refetch();
     },
-    onError: (error) => {
-      toast.error('Ошибка: ' + error.message);
-    }
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const deleteBlock = trpc.block.delete.useMutation({
+    onSuccess: () => {
+      toast.success('Блок удалён');
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const createSection = trpc.section.create.useMutation({
+    onSuccess: () => {
+      toast.success('Раздел создан');
+      setCreateSectionOpen(false);
+      setNewSectionTitle('');
+      setTargetBlockId(null);
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const deleteSection = trpc.section.delete.useMutation({
+    onSuccess: () => {
+      toast.success('Раздел удалён');
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const createTask = trpc.task.create.useMutation({
+    onSuccess: () => {
+      toast.success('Задача создана');
+      setCreateTaskOpen(false);
+      setNewTaskTitle('');
+      setNewTaskDescription('');
+      setTargetSectionId(null);
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const updateTask = trpc.task.update.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const deleteTask = trpc.task.delete.useMutation({
+    onSuccess: () => {
+      toast.success('Задача удалена');
+      setSelectedTask(null);
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
   });
 
   const deleteProject = trpc.project.delete.useMutation({
@@ -181,19 +468,23 @@ export default function ProjectView() {
       toast.success('Проект удалён');
       navigate('/');
     },
-    onError: (error) => {
-      toast.error('Ошибка: ' + error.message);
-    }
+    onError: (error) => toast.error('Ошибка: ' + error.message)
   });
 
   const toggleBlock = (blockId: number) => {
     setExpandedBlocks(prev => {
       const next = new Set(prev);
-      if (next.has(blockId)) {
-        next.delete(blockId);
-      } else {
-        next.add(blockId);
-      }
+      if (next.has(blockId)) next.delete(blockId);
+      else next.add(blockId);
+      return next;
+    });
+  };
+
+  const toggleSection = (sectionId: number) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
       return next;
     });
   };
@@ -220,6 +511,69 @@ export default function ProjectView() {
       percentage: total > 0 ? Math.round((completed / total) * 100) : 0
     };
   }, [project]);
+
+  // Build context content for AI
+  const getContextContent = (type: string, id: number): string => {
+    if (!project) return '';
+    
+    if (type === 'project') {
+      return `Проект: ${project.name}\nОписание: ${project.description || 'Нет описания'}\nБлоков: ${project.blocks?.length || 0}`;
+    }
+    
+    if (type === 'block') {
+      const block = project.blocks?.find(b => b.id === id);
+      if (!block) return '';
+      const sections = block.sections?.map(s => `- ${s.title} (${s.tasks?.length || 0} задач)`).join('\n') || 'Нет разделов';
+      return `Блок: ${block.titleRu || block.title}\nРазделы:\n${sections}`;
+    }
+    
+    if (type === 'section') {
+      for (const block of project.blocks || []) {
+        const section = block.sections?.find(s => s.id === id);
+        if (section) {
+          const tasks = section.tasks?.map(t => `- [${t.status === 'completed' ? 'x' : ' '}] ${t.title}`).join('\n') || 'Нет задач';
+          return `Раздел: ${section.title}\nБлок: ${block.titleRu || block.title}\nЗадачи:\n${tasks}`;
+        }
+      }
+    }
+    
+    if (type === 'task') {
+      for (const block of project.blocks || []) {
+        for (const section of block.sections || []) {
+          const task = section.tasks?.find(t => t.id === id);
+          if (task) {
+            return `Задача: ${task.title}\nСтатус: ${task.status}\nОписание: ${task.description || 'Нет описания'}\nЗаметки: ${task.notes || 'Нет заметок'}\nРаздел: ${section.title}\nБлок: ${block.titleRu || block.title}`;
+          }
+        }
+      }
+    }
+    
+    return '';
+  };
+
+  // Handle save AI response as note
+  const handleSaveAsNote = (content: string) => {
+    if (selectedTask) {
+      const currentNotes = selectedTask.notes || '';
+      const newNotes = currentNotes ? `${currentNotes}\n\n---\n\n${content}` : content;
+      updateTask.mutate({ id: selectedTask.id, notes: newNotes });
+      setSelectedTask({ ...selectedTask, notes: newNotes });
+      toast.success('Сохранено как заметка');
+    } else {
+      toast.error('Выберите задачу для сохранения заметки');
+    }
+  };
+
+  // Handle save AI response as document
+  const handleSaveAsDocument = (content: string) => {
+    if (selectedTask) {
+      updateTask.mutate({ id: selectedTask.id, summary: content });
+      setSelectedTask({ ...selectedTask, summary: content });
+      toast.success('Сохранено как итоговый документ');
+    } else {
+      toast.error('Выберите задачу для сохранения документа');
+    }
+  };
 
   if (authLoading) {
     return (
@@ -268,15 +622,15 @@ export default function ProjectView() {
             </Button>
           </Link>
           <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-lg font-semibold text-white">{project.name}</h1>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-lg font-semibold text-white truncate">{project.name}</h1>
               {project.description && (
                 <p className="text-sm text-slate-400 mt-1 line-clamp-2">{project.description}</p>
               )}
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-slate-400">
+                <Button variant="ghost" size="icon" className="text-slate-400 flex-shrink-0">
                   <MoreVertical className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -316,13 +670,17 @@ export default function ProjectView() {
         {/* Blocks List */}
         <ScrollArea className="flex-1">
           <div className="p-2">
-            {/* Project-level chat button */}
+            {/* Project AI Chat */}
             <button
-              onClick={() => setSelectedContext({ 
-                type: 'project', 
-                id: project.id, 
-                title: project.name 
-              })}
+              onClick={() => {
+                setSelectedTask(null);
+                setSelectedContext({ 
+                  type: 'project', 
+                  id: project.id, 
+                  title: project.name,
+                  content: getContextContent('project', project.id)
+                });
+              }}
               className={cn(
                 "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-2 transition-colors",
                 selectedContext?.type === 'project' && selectedContext?.id === project.id
@@ -338,30 +696,73 @@ export default function ProjectView() {
             {project.blocks && project.blocks.length > 0 ? (
               project.blocks.map((block, index) => (
                 <div key={block.id} className="mb-1">
-                  <button
-                    onClick={() => toggleBlock(block.id)}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left hover:bg-slate-800 transition-colors"
-                  >
-                    {expandedBlocks.has(block.id) ? (
-                      <ChevronDown className="w-4 h-4 text-slate-500" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-slate-500" />
-                    )}
-                    <span className="text-amber-500 font-mono text-xs">
-                      {String(index + 1).padStart(2, '0')}
-                    </span>
-                    <span className="text-slate-300 flex-1 truncate">{block.title}</span>
-                  </button>
+                  {/* Block Header */}
+                  <div className="flex items-center group">
+                    <button
+                      onClick={() => toggleBlock(block.id)}
+                      className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left hover:bg-slate-800 transition-colors"
+                    >
+                      {expandedBlocks.has(block.id) ? (
+                        <ChevronDown className="w-4 h-4 text-slate-500" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-500" />
+                      )}
+                      <span className="text-amber-500 font-mono text-xs">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <span className="text-slate-300 flex-1 truncate">{block.titleRu || block.title}</span>
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 opacity-0 group-hover:opacity-100 text-slate-500"
+                        >
+                          <MoreVertical className="w-3 h-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="bg-slate-800 border-slate-700">
+                        <DropdownMenuItem 
+                          className="text-slate-300"
+                          onClick={() => {
+                            setTargetBlockId(block.id);
+                            setCreateSectionOpen(true);
+                          }}
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Добавить раздел
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator className="bg-slate-700" />
+                        <DropdownMenuItem 
+                          className="text-red-400"
+                          onClick={() => {
+                            if (confirm('Удалить блок?')) {
+                              deleteBlock.mutate({ id: block.id });
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Удалить блок
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                   
+                  {/* Expanded Block Content */}
                   {expandedBlocks.has(block.id) && (
                     <div className="ml-6 pl-4 border-l border-slate-700">
-                      {/* Block chat */}
+                      {/* Block AI Chat */}
                       <button
-                        onClick={() => setSelectedContext({ 
-                          type: 'block', 
-                          id: block.id, 
-                          title: block.title 
-                        })}
+                        onClick={() => {
+                          setSelectedTask(null);
+                          setSelectedContext({ 
+                            type: 'block', 
+                            id: block.id, 
+                            title: block.titleRu || block.title,
+                            content: getContextContent('block', block.id)
+                          });
+                        }}
                         className={cn(
                           "w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors",
                           selectedContext?.type === 'block' && selectedContext?.id === block.id
@@ -374,28 +775,147 @@ export default function ProjectView() {
                       </button>
                       
                       {/* Sections */}
-                      {block.sections?.map(section => (
-                        <button
-                          key={section.id}
-                          onClick={() => setSelectedContext({ 
-                            type: 'section', 
-                            id: section.id, 
-                            title: section.title 
-                          })}
-                          className={cn(
-                            "w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors",
-                            selectedContext?.type === 'section' && selectedContext?.id === section.id
-                              ? "bg-slate-700 text-white"
-                              : "text-slate-400 hover:bg-slate-800 hover:text-slate-300"
-                          )}
-                        >
-                          <FileText className="w-3 h-3" />
-                          <span className="truncate">{section.title}</span>
-                          <span className="ml-auto text-slate-600">
-                            {section.tasks?.length || 0}
-                          </span>
-                        </button>
-                      ))}
+                      {block.sections && block.sections.length > 0 ? (
+                        block.sections.map(section => (
+                          <div key={section.id}>
+                            <div className="flex items-center group">
+                              <button
+                                onClick={() => toggleSection(section.id)}
+                                className={cn(
+                                  "flex-1 flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors",
+                                  selectedContext?.type === 'section' && selectedContext?.id === section.id
+                                    ? "bg-slate-700 text-white"
+                                    : "text-slate-400 hover:bg-slate-800 hover:text-slate-300"
+                                )}
+                              >
+                                {expandedSections.has(section.id) ? (
+                                  <ChevronDown className="w-3 h-3 text-slate-500" />
+                                ) : (
+                                  <ChevronRight className="w-3 h-3 text-slate-500" />
+                                )}
+                                <FileText className="w-3 h-3" />
+                                <span className="truncate flex-1 text-left">{section.title}</span>
+                                <span className="text-slate-600">
+                                  {section.tasks?.length || 0}
+                                </span>
+                              </button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 text-slate-500"
+                                  >
+                                    <MoreVertical className="w-3 h-3" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="bg-slate-800 border-slate-700">
+                                  <DropdownMenuItem 
+                                    className="text-slate-300"
+                                    onClick={() => {
+                                      setTargetSectionId(section.id);
+                                      setCreateTaskOpen(true);
+                                    }}
+                                  >
+                                    <Plus className="w-4 h-4 mr-2" />
+                                    Добавить задачу
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem 
+                                    className="text-slate-300"
+                                    onClick={() => {
+                                      setSelectedTask(null);
+                                      setSelectedContext({ 
+                                        type: 'section', 
+                                        id: section.id, 
+                                        title: section.title,
+                                        content: getContextContent('section', section.id)
+                                      });
+                                    }}
+                                  >
+                                    <MessageSquare className="w-4 h-4 mr-2" />
+                                    AI чат раздела
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator className="bg-slate-700" />
+                                  <DropdownMenuItem 
+                                    className="text-red-400"
+                                    onClick={() => {
+                                      if (confirm('Удалить раздел?')) {
+                                        deleteSection.mutate({ id: section.id });
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Удалить раздел
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                            
+                            {/* Tasks */}
+                            {expandedSections.has(section.id) && section.tasks && (
+                              <div className="ml-4 pl-2 border-l border-slate-800">
+                                {section.tasks.map(task => (
+                                  <button
+                                    key={task.id}
+                                    onClick={() => {
+                                      setSelectedTask({
+                                        ...task,
+                                        sectionId: section.id
+                                      });
+                                      setSelectedContext({
+                                        type: 'task',
+                                        id: task.id,
+                                        title: task.title,
+                                        content: getContextContent('task', task.id)
+                                      });
+                                    }}
+                                    className={cn(
+                                      "w-full flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors",
+                                      selectedTask?.id === task.id
+                                        ? "bg-slate-700 text-white"
+                                        : "text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+                                    )}
+                                  >
+                                    {task.status === 'completed' ? (
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+                                    ) : task.status === 'in_progress' ? (
+                                      <Clock className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                    ) : (
+                                      <Circle className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                                    )}
+                                    <span className="truncate text-left">{task.title}</span>
+                                  </button>
+                                ))}
+                                {/* Add task button */}
+                                <button
+                                  onClick={() => {
+                                    setTargetSectionId(section.id);
+                                    setCreateTaskOpen(true);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-2 py-1 rounded text-xs text-slate-600 hover:text-slate-400 hover:bg-slate-800 transition-colors"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  Добавить задачу
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-600 px-3 py-2">Нет разделов</p>
+                      )}
+                      
+                      {/* Add section button */}
+                      <button
+                        onClick={() => {
+                          setTargetBlockId(block.id);
+                          setCreateSectionOpen(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs text-slate-600 hover:text-slate-400 hover:bg-slate-800 transition-colors"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Добавить раздел
+                      </button>
                     </div>
                   )}
                 </div>
@@ -404,6 +924,7 @@ export default function ProjectView() {
               <div className="text-center py-8 text-slate-500">
                 <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">Нет блоков</p>
+                <p className="text-xs mt-1">Создайте первый блок</p>
               </div>
             )}
           </div>
@@ -424,7 +945,7 @@ export default function ProjectView() {
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 <div className="space-y-2">
-                  <Label className="text-slate-300">Название (EN)</Label>
+                  <Label className="text-slate-300">Название</Label>
                   <Input
                     value={newBlockTitle}
                     onChange={(e) => setNewBlockTitle(e.target.value)}
@@ -471,53 +992,96 @@ export default function ProjectView() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex">
-        {/* Content Area */}
-        <div className="flex-1 p-6 overflow-auto">
-          {selectedContext ? (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-4">
-                {selectedContext.title}
-              </h2>
+      <main className="flex-1 flex min-w-0">
+        {/* Task Detail or Welcome */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {selectedTask ? (
+            <TaskDetailPanel
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
+              onUpdate={(data) => {
+                updateTask.mutate({ id: selectedTask.id, ...data });
+                setSelectedTask({ ...selectedTask, ...data });
+              }}
+              onSaveNote={handleSaveAsNote}
+              onSaveDocument={handleSaveAsDocument}
+            />
+          ) : selectedContext ? (
+            <div className="p-6">
+              <h2 className="text-xl font-semibold text-white mb-2">{selectedContext.title}</h2>
+              <p className="text-sm text-slate-400 mb-4">
+                {selectedContext.type === 'project' && 'Используйте AI чат справа для работы с проектом'}
+                {selectedContext.type === 'block' && 'Используйте AI чат справа для работы с блоком'}
+                {selectedContext.type === 'section' && 'Выберите задачу или используйте AI чат'}
+              </p>
+              
+              {/* Show tasks for selected section */}
               {selectedContext.type === 'section' && (
                 <div className="space-y-2">
-                  {/* Show tasks for selected section */}
                   {project.blocks?.map(block => 
                     block.sections?.map(section => {
                       if (section.id !== selectedContext.id) return null;
-                      return section.tasks?.map(task => (
-                        <Card 
-                          key={task.id} 
-                          className="bg-slate-800/50 border-slate-700 hover:border-slate-600 cursor-pointer"
-                          onClick={() => setSelectedContext({
-                            type: 'task',
-                            id: task.id,
-                            title: task.title
-                          })}
-                        >
-                          <CardContent className="py-3 px-4 flex items-center gap-3">
-                            {task.status === 'completed' ? (
-                              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                            ) : task.status === 'in_progress' ? (
-                              <Clock className="w-5 h-5 text-amber-500" />
-                            ) : (
-                              <Circle className="w-5 h-5 text-slate-500" />
-                            )}
-                            <span className="text-slate-300 flex-1">{task.title}</span>
-                            <ChevronRight className="w-4 h-4 text-slate-600" />
-                          </CardContent>
-                        </Card>
-                      ));
+                      return (
+                        <div key={section.id}>
+                          {section.tasks && section.tasks.length > 0 ? (
+                            section.tasks.map(task => (
+                              <Card 
+                                key={task.id} 
+                                className="bg-slate-800/50 border-slate-700 hover:border-slate-600 cursor-pointer mb-2"
+                                onClick={() => {
+                                  setSelectedTask({
+                                    ...task,
+                                    sectionId: section.id
+                                  });
+                                  setSelectedContext({
+                                    type: 'task',
+                                    id: task.id,
+                                    title: task.title,
+                                    content: getContextContent('task', task.id)
+                                  });
+                                }}
+                              >
+                                <CardContent className="py-3 px-4 flex items-center gap-3">
+                                  {task.status === 'completed' ? (
+                                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                                  ) : task.status === 'in_progress' ? (
+                                    <Clock className="w-5 h-5 text-amber-500" />
+                                  ) : (
+                                    <Circle className="w-5 h-5 text-slate-500" />
+                                  )}
+                                  <span className="text-slate-300 flex-1">{task.title}</span>
+                                  <ChevronRight className="w-4 h-4 text-slate-600" />
+                                </CardContent>
+                              </Card>
+                            ))
+                          ) : (
+                            <p className="text-slate-500 text-sm">Нет задач в этом разделе</p>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 border-slate-600 text-slate-400"
+                            onClick={() => {
+                              setTargetSectionId(section.id);
+                              setCreateTaskOpen(true);
+                            }}
+                          >
+                            <Plus className="w-4 h-4 mr-2" />
+                            Добавить задачу
+                          </Button>
+                        </div>
+                      );
                     })
                   )}
                 </div>
               )}
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full text-slate-500">
+            <div className="flex-1 flex items-center justify-center text-slate-500">
               <div className="text-center">
                 <Layers className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>Выберите блок или раздел для просмотра</p>
+                <p>Выберите блок, раздел или задачу</p>
+                <p className="text-sm mt-2">или создайте новый блок</p>
               </div>
             </div>
           )}
@@ -525,15 +1089,111 @@ export default function ProjectView() {
 
         {/* AI Chat Panel */}
         {selectedContext && (
-          <div className="w-96 border-l border-slate-800 p-4">
+          <div className="w-96 border-l border-slate-800 flex-shrink-0">
             <AIChatPanel
               contextType={selectedContext.type}
               contextId={selectedContext.id}
               contextTitle={selectedContext.title}
+              contextContent={selectedContext.content}
+              onSaveAsNote={selectedTask ? handleSaveAsNote : undefined}
+              onSaveAsDocument={selectedTask ? handleSaveAsDocument : undefined}
             />
           </div>
         )}
       </main>
+
+      {/* Create Section Dialog */}
+      <Dialog open={createSectionOpen} onOpenChange={setCreateSectionOpen}>
+        <DialogContent className="bg-slate-800 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">Новый раздел</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label className="text-slate-300">Название раздела</Label>
+              <Input
+                value={newSectionTitle}
+                onChange={(e) => setNewSectionTitle(e.target.value)}
+                placeholder="Например: Анализ рынка"
+                className="bg-slate-900 border-slate-600 text-white"
+              />
+            </div>
+            <Button 
+              onClick={() => {
+                if (!newSectionTitle.trim() || !targetBlockId) {
+                  toast.error('Введите название');
+                  return;
+                }
+                createSection.mutate({
+                  blockId: targetBlockId,
+                  title: newSectionTitle.trim(),
+                });
+              }}
+              disabled={createSection.isPending}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-slate-900"
+            >
+              {createSection.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4 mr-2" />
+              )}
+              Создать
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Task Dialog */}
+      <Dialog open={createTaskOpen} onOpenChange={setCreateTaskOpen}>
+        <DialogContent className="bg-slate-800 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">Новая задача</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label className="text-slate-300">Название задачи</Label>
+              <Input
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                placeholder="Например: Провести исследование конкурентов"
+                className="bg-slate-900 border-slate-600 text-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-300">Описание (опционально)</Label>
+              <Textarea
+                value={newTaskDescription}
+                onChange={(e) => setNewTaskDescription(e.target.value)}
+                placeholder="Детальное описание задачи..."
+                className="bg-slate-900 border-slate-600 text-white"
+                rows={3}
+              />
+            </div>
+            <Button 
+              onClick={() => {
+                if (!newTaskTitle.trim() || !targetSectionId) {
+                  toast.error('Введите название');
+                  return;
+                }
+                createTask.mutate({
+                  sectionId: targetSectionId,
+                  title: newTaskTitle.trim(),
+                  description: newTaskDescription.trim() || undefined,
+                });
+              }}
+              disabled={createTask.isPending}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-slate-900"
+            >
+              {createTask.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4 mr-2" />
+              )}
+              Создать
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -38,3 +38,28 @@
 - [ ] Import/export roadmaps
 - [ ] Markdown/PDF export
 - [ ] Collaboration features
+
+
+## Phase 6: Critical Features (Current Sprint)
+
+### Full CRUD for Project Structure
+- [ ] Add block creation UI with form
+- [ ] Add section creation within blocks
+- [ ] Add task creation within sections
+- [ ] Add subtask creation within tasks
+- [ ] Edit/delete functionality for all levels
+- [ ] Status management for tasks
+
+### Contextual AI Chat
+- [ ] AI chat available at block level
+- [ ] AI chat available at section level
+- [ ] AI chat available at task level
+- [ ] Pass current context (block/section/task content) to AI
+- [ ] Show context indicator in chat
+
+### Save AI Responses
+- [ ] "Save as note" button on AI responses
+- [ ] "Save as document" button on AI responses
+- [ ] Notes storage in database
+- [ ] Documents storage in database
+- [ ] View saved notes/documents in task panel
