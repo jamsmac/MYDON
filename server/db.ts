@@ -322,6 +322,20 @@ export async function deleteSubtask(id: number): Promise<boolean> {
   return result[0].affectedRows > 0;
 }
 
+export async function reorderSubtasks(taskId: number, subtaskIds: number[]): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  // Update sortOrder for each subtask based on position in array
+  for (let i = 0; i < subtaskIds.length; i++) {
+    await db.update(subtasks)
+      .set({ sortOrder: i, updatedAt: new Date() })
+      .where(eq(subtasks.id, subtaskIds[i]));
+  }
+
+  return true;
+}
+
 // ============ AI SETTINGS QUERIES ============
 
 export async function getAiSettingsByUser(userId: number): Promise<AiSetting[]> {

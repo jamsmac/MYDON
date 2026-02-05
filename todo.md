@@ -634,3 +634,41 @@
 - [x] Create overdue task notification helper
 - [x] Create task unblocked notification helper
 - [ ] Scheduled job to check deadlines and send notifications
+
+
+## Phase 48: Deadline Filters, Priority Sorting & Timeline Dependencies (Completed)
+
+### 1. Deadline Filters in Sidebar
+- [x] Create FilterChip component with counter badges
+- [x] Add filter options: "Все", "Сегодня", "Эта неделя", "Просроченные"
+- [x] Create TaskFiltersBar component integrating filters and sorting
+- [x] Save selected filter to localStorage
+- [x] Add animation when switching filters (AnimatePresence)
+
+### 2. Priority Sorting
+- [x] Create SortDropdown component
+- [x] Add sort options: "По приоритету", "По дедлайну", "По названию", "По дате создания"
+- [x] Add ascending/descending toggle
+- [x] Apply sorting via sortTasks utility function
+- [x] Save selected sort to localStorage
+
+### 3. Timeline Dependencies Visualization
+- [x] Create DependencyLines component with SVG arrows
+- [x] Color-code dependencies (green = completed, red = blocking, gray = pending)
+- [x] Add tooltip on hover showing dependency info
+- [x] Create DependencyLegend component
+- [ ] Enable drag&drop to create dependencies on Timeline (future)
+
+### 4. Overdue Tasks Indicator in Dashboard
+- [x] Create OverdueTasksWidget for dashboard
+- [x] Create OverdueHeaderIndicator for header
+- [x] Quick actions: "Отметить выполненной", "Перенести на сегодня"
+- [x] Create useOverdueTasks hook for calculating overdue tasks
+
+### 5. Subtasks/Checklist
+- [x] Subtasks table already exists in database schema
+- [x] Backend CRUD already implemented (subtaskRouter)
+- [x] Create SubtasksChecklist component with checkboxes
+- [x] Show progress indicator (3/5 completed) with SubtaskProgress
+- [x] Add drag&drop for reordering subtasks (Reorder from framer-motion)
+- [x] Add reorderSubtasks API endpoint

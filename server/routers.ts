@@ -436,6 +436,15 @@ const subtaskRouter = router({
     .mutation(async ({ input }) => {
       return db.deleteSubtask(input.id);
     }),
+
+  reorder: protectedProcedure
+    .input(z.object({
+      taskId: z.number(),
+      subtaskIds: z.array(z.number()),
+    }))
+    .mutation(async ({ input }) => {
+      return db.reorderSubtasks(input.taskId, input.subtaskIds);
+    }),
 });
 
 // ============ AI SETTINGS ROUTER ============

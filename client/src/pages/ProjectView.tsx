@@ -56,6 +56,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Streamdown } from 'streamdown';
 import { DraggableSidebar } from '@/components/DraggableSidebar';
+import { TaskFiltersBar } from '@/components/TaskFiltersBar';
 import { StreamingAIChat } from '@/components/StreamingAIChat';
 import { CalendarDialog } from '@/components/CalendarDialog';
 import { SaveAsTemplateDialog } from '@/components/SaveAsTemplateDialog';
@@ -854,19 +855,36 @@ export default function ProjectView() {
     };
   }, [project]);
 
-  // Get all tasks for dependencies selection
+  // Get all tasks for dependencies selection and filtering
   const allTasks = useMemo(() => {
     if (!project?.blocks) return [];
-    const tasks: { id: number; title: string; status: string | null }[] = [];
+    const tasks: { 
+      id: number; 
+      title: string; 
+      status: string | null;
+      priority?: 'critical' | 'high' | 'medium' | 'low' | null;
+      deadline?: Date | string | null;
+      createdAt?: Date | string | null;
+    }[] = [];
     project.blocks.forEach(block => {
       block.sections?.forEach(section => {
         section.tasks?.forEach(task => {
-          tasks.push({ id: task.id, title: task.title, status: task.status });
+          tasks.push({ 
+            id: task.id, 
+            title: task.title, 
+            status: task.status,
+            priority: task.priority as any,
+            deadline: task.deadline,
+            createdAt: task.createdAt
+          });
         });
       });
     });
     return tasks;
   }, [project]);
+
+  // Filtered task IDs based on filters
+  const [filteredTaskIds, setFilteredTaskIds] = useState<Set<number>>(new Set());
 
   // Build context content for AI
   const getContextContent = (type: string, id: number): string => {
@@ -1141,6 +1159,16 @@ export default function ProjectView() {
               <MessageSquare className="w-4 h-4" />
               AI чат проекта
             </button>
+
+            {/* Task Filters */}
+            {allTasks.length > 0 && (
+              <TaskFiltersBar
+                tasks={allTasks}
+                projectId={projectId}
+                onFilteredTasksChange={setFilteredTaskIds}
+                className="mb-2"
+              />
+            )}
 
             {/* Draggable Blocks with Sections and Tasks */}
             {project.blocks && project.blocks.length > 0 ? (
