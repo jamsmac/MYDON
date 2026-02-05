@@ -12,6 +12,7 @@ import { DeadlinePicker } from './DeadlinePicker';
 import { DeadlineBadge } from './DeadlineBadge';
 import { FilterBar } from './FilterBar';
 import { CalendarExport } from './CalendarExport';
+import { TaskTagBadges } from './TaskTagBadges';
 import { useEffect, useMemo } from 'react';
 import { 
   Check, Clock, Circle, Download, FileText, 
@@ -457,6 +458,11 @@ function TaskCard({ task, isSelected, onClick, isBlockOverdue = false }: TaskCar
                 </span>
               </div>
             )}
+
+            {/* Tags */}
+            <div className="mt-2">
+              <TaskTagBadges taskId={task.id} maxVisible={3} />
+            </div>
 
             {/* Indicators */}
             <div className="flex items-center gap-2 mt-2">
