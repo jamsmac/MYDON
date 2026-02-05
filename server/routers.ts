@@ -25,6 +25,7 @@ import { restApiRouter } from "./restApiRouter";
 import { apiKeysRouter } from "./apiKeysRouter";
 import { timeTrackingRouter } from "./timeTrackingRouter";
 import { gamificationRouter } from "./gamificationRouter";
+import { aiTrpcRouter } from "./aiTrpcRouter";
 import { checkAndAwardAchievements, type AchievementResult } from "./achievementService";
 import { TRPCError } from "@trpc/server";
 
@@ -1531,6 +1532,7 @@ export const appRouter = router({
   apiKeys: apiKeysRouter,
   timeTracking: timeTrackingRouter,
   gamification: gamificationRouter,
+  aiRouter: aiTrpcRouter,
 });
 
 export type AppRouter = typeof appRouter;

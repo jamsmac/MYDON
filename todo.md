@@ -1126,3 +1126,19 @@
 - [x] Integrate with AICache for caching
 - [x] Write tests for AI Router (15 new tests)
 - [x] 333 total tests passing
+
+
+### 58.4 AI tRPC Procedures (Phase 4) - Completed
+- [x] Create aiTrpcRouter.ts with tRPC procedures
+- [x] Add ai.chat procedure for sending messages
+- [x] Add ai.getSessions procedure for listing chat sessions
+- [x] Add ai.getSessionMessages procedure for message history
+- [x] Add ai.getUsageStats procedure for usage statistics
+- [x] Add ai.getCacheStats procedure for cache statistics
+- [x] Add ai.getProviders procedure for available providers
+- [x] Add ai.quickChat procedure for single messages
+- [x] Add ai.createSession, updateSession, deleteSession procedures
+- [x] Add ai.getSessionContext procedure
+- [x] Add to main router as aiRouter
+- [x] Write tests for AI tRPC procedures (22 new tests)
+- [x] 355 total tests passing
