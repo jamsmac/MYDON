@@ -935,3 +935,30 @@
 - [x] Touch-friendly button sizes (min 44px)
 - [x] Haptic feedback CSS classes
 - [x] 235 tests passing
+
+
+## Phase 54: Integrations (Completed)
+### 54.1 Google Calendar Integration
+- [x] Create iCal format generator (icalRouter.ts)
+- [x] Export tasks with deadlines as calendar events (VEVENT)
+- [x] Generate shareable calendar URL with token
+- [x] Export project and all tasks endpoints
+### 54.2 Webhook System
+- [x] Create webhooks and webhookDeliveries tables
+- [x] Implement webhook CRUD API (webhookRouter.ts)
+- [x] Add 17 event triggers (task.*, project.*, member.*, deadline.*)
+- [x] Webhook delivery with retry logic and signature verification
+- [x] Test webhook endpoint
+### 54.3 REST API
+- [x] Create OpenAPI 3.0.3 specification (restApiRouter.ts)
+- [x] Define schemas for Project, Block, Section, Task, Subtask
+- [x] API versioning (/api/v1)
+- [x] Security scheme with X-API-Key header
+### 54.4 API Keys Management
+- [x] Create apiKeys and apiUsage tables
+- [x] Generate API keys with mr_ prefix (apiKeysRouter.ts)
+- [x] 11 API scopes (projects/tasks/blocks/sections/subtasks:read/write, analytics:read)
+- [x] Rate limiting (100-10000 requests/hour)
+- [x] Usage tracking with endpoint breakdown
+- [x] Key regeneration and expiration
+- [x] 257 tests passing

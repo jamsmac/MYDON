@@ -1010,3 +1010,84 @@ export const executiveSummaries = mysqlTable("executive_summaries", {
 });
 export type ExecutiveSummary = typeof executiveSummaries.$inferSelect;
 export type InsertExecutiveSummary = typeof executiveSummaries.$inferInsert;
+
+
+/**
+ * Webhooks - external integrations
+ */
+export const webhooks = mysqlTable("webhooks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  projectId: int("projectId"), // Optional - null means all projects
+  name: varchar("name", { length: 255 }).notNull(),
+  url: varchar("url", { length: 2048 }).notNull(),
+  secret: varchar("secret", { length: 255 }), // For signature verification
+  events: json("events").$type<string[]>().notNull(), // Array of event types
+  headers: json("headers").$type<Record<string, string>>(), // Custom headers
+  isActive: boolean("isActive").default(true),
+  lastTriggeredAt: timestamp("lastTriggeredAt"),
+  failureCount: int("failureCount").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type Webhook = typeof webhooks.$inferSelect;
+export type InsertWebhook = typeof webhooks.$inferInsert;
+
+/**
+ * Webhook Deliveries - log of webhook calls
+ */
+export const webhookDeliveries = mysqlTable("webhook_deliveries", {
+  id: int("id").autoincrement().primaryKey(),
+  webhookId: int("webhookId").notNull(),
+  event: varchar("event", { length: 100 }).notNull(),
+  payload: json("payload").notNull(),
+  responseStatus: int("responseStatus"),
+  responseBody: text("responseBody"),
+  duration: int("duration"), // ms
+  success: boolean("success").default(false),
+  error: text("error"),
+  attempts: int("attempts").default(1),
+  nextRetryAt: timestamp("nextRetryAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+export type InsertWebhookDelivery = typeof webhookDeliveries.$inferInsert;
+
+/**
+ * API Keys - for external API access
+ */
+export const apiKeys = mysqlTable("api_keys", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  keyHash: varchar("keyHash", { length: 255 }).notNull(), // SHA-256 hash of the key
+  keyPrefix: varchar("keyPrefix", { length: 12 }).notNull(), // First 8 chars for identification
+  scopes: json("scopes").$type<string[]>().notNull(), // Array of allowed scopes
+  rateLimit: int("rateLimit").default(1000), // Requests per hour
+  expiresAt: timestamp("expiresAt"),
+  lastUsedAt: timestamp("lastUsedAt"),
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertApiKey = typeof apiKeys.$inferInsert;
+
+/**
+ * API Usage - rate limiting and analytics
+ */
+export const apiUsage = mysqlTable("api_usage", {
+  id: int("id").autoincrement().primaryKey(),
+  apiKeyId: int("apiKeyId").notNull(),
+  endpoint: varchar("endpoint", { length: 255 }).notNull(),
+  method: varchar("method", { length: 10 }).notNull(),
+  statusCode: int("statusCode"),
+  responseTime: int("responseTime"), // ms
+  requestSize: int("requestSize"), // bytes
+  responseSize: int("responseSize"), // bytes
+  ipAddress: varchar("ipAddress", { length: 45 }),
+  userAgent: varchar("userAgent", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ApiUsage = typeof apiUsage.$inferSelect;
+export type InsertApiUsage = typeof apiUsage.$inferInsert;

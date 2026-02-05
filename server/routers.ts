@@ -19,6 +19,10 @@ import { analyticsRouter } from "./analyticsRouter";
 import { analyticsExportRouter } from "./analyticsExport";
 import { templateEnhancedRouter } from "./templateEnhancedRouter";
 import { aiEnhancementsRouter } from "./aiEnhancementsRouter";
+import { icalRouter } from "./icalRouter";
+import { webhookRouter } from "./webhookRouter";
+import { restApiRouter } from "./restApiRouter";
+import { apiKeysRouter } from "./apiKeysRouter";
 import { TRPCError } from "@trpc/server";
 
 // ============ PROJECT ROUTER ============
@@ -1477,6 +1481,10 @@ export const appRouter = router({
   analyticsExport: analyticsExportRouter,
   templateEnhanced: templateEnhancedRouter,
   aiEnhancements: aiEnhancementsRouter,
+  ical: icalRouter,
+  webhook: webhookRouter,
+  restApi: restApiRouter,
+  apiKeys: apiKeysRouter,
 });
 
 export type AppRouter = typeof appRouter;
