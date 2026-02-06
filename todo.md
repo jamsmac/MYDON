@@ -1478,3 +1478,46 @@
 - [x] Add manual "regenerate title" option in session menu (Wand2 icon)
 - [x] Add tests for title generation
 - [x] 432 total tests passing
+
+
+## Phase 72: Admin Panel Overhaul - Stage 1 (Completed)
+
+### 1. New Sidebar Navigation Structure
+- [x] Replace horizontal tabs with collapsible sidebar menu
+- [x] Create AdminLayout component with sidebar
+- [x] Add icon + short name for each section
+- [x] Implement collapse/expand functionality
+- [x] Group sections:
+  - [x] 📊 Dashboard (Overview)
+  - [x] 🤖 AI Configuration (Agents, Skills, Prompts, MCP, Orchestrator)
+  - [x] 👥 Users (List, Roles)
+  - [x] 💰 Credits (Balance, Limits, Tariffs)
+  - [x] 📁 Content (Projects, Templates)
+  - [x] 🎨 UI Settings (Branding, Navbar, Localization)
+  - [x] 🔗 Integrations (Webhooks, API Keys, Notifications)
+  - [x] 📋 Logs & Analytics
+
+### 2. Admin Dashboard
+- [x] Stats cards: users, AI requests today, credits spent, active projects, errors
+- [x] Mini chart: credits usage last 7 days
+- [x] Last 5 AI requests table
+- [x] System status (API providers online/offline)
+- [x] Quick actions: create agent, invite user, view logs
+
+### 3. Fix Skills Creation
+- [x] Create working modal with fields: Name, Slug, Description, Type, System Prompt
+- [x] Skills list with cards: edit/delete/clone/toggle active
+
+### 4. Fix MCP Server Creation
+- [x] Create working modal: Name, URL, Transport type, Auth config, Description
+- [x] Add "Test Connection" button
+- [x] Status indicator (green/red)
+- [x] Server list with enable/disable toggle
+
+### 5. Improve Agents
+- [x] Show bound skills as chips/badges on agent cards
+- [x] Add Active/Inactive toggle
+- [x] Add "Clone Agent" button
+- [x] Add "Test" button (opens mini-chat with agent)
+
+**448 total tests passing**

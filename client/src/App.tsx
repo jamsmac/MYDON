@@ -17,7 +17,7 @@ import NotFound from "@/pages/NotFound";
 // Lazy load secondary pages for better initial bundle size
 const ProjectView = lazy(() => import("./pages/ProjectView"));
 const Settings = lazy(() => import("./pages/Settings"));
-const AdminPanel = lazy(() => import("./pages/AdminPanel"));
+const AdminPanel = lazy(() => import("./pages/admin/index"));
 const AIIntegrations = lazy(() => import("./pages/AIIntegrations"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const SubscriptionSuccess = lazy(() => import("./pages/SubscriptionSuccess"));
@@ -53,7 +53,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/project/:id" component={ProjectView} />
         <Route path="/settings" component={Settings} />
-        <Route path="/admin" component={AdminPanel} />
+        <Route path="/admin/:rest*" component={AdminPanel} />
         <Route path="/integrations" component={AIIntegrations} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/subscription/success" component={SubscriptionSuccess} />
