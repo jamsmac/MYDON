@@ -24,7 +24,7 @@ interface Message {
 }
 
 interface EntityAIChatProps {
-  entityType: 'block' | 'section';
+  entityType: 'block' | 'section' | 'task';
   entityId: number;
   entityTitle: string;
   projectId: number;
@@ -50,6 +50,14 @@ const defaultSectionPrompts = (title: string) => [
   { label: 'Найти зависимости', prompt: `Какие зависимости и блокеры могут быть у раздела "${title}"?` },
 ];
 
+const defaultTaskPrompts = (title: string) => [
+  { label: 'Разбить на подзадачи', prompt: `Разбей задачу "${title}" на конкретные подзадачи с оценкой времени` },
+  { label: 'Оценить сложность', prompt: `Оцени сложность и трудозатраты задачи "${title}". Какие навыки нужны?` },
+  { label: 'Найти риски', prompt: `Какие риски и блокеры могут возникнуть при выполнении задачи "${title}"?` },
+  { label: 'Написать ТЗ', prompt: `Напиши техническое задание для задачи "${title}" с критериями приёмки` },
+  { label: 'Как выполнить', prompt: `Опиши пошаговый план выполнения задачи "${title}" с рекомендациями и ресурсами` },
+];
+
 export function EntityAIChat({
   entityType,
   entityId,
@@ -67,7 +75,13 @@ export function EntityAIChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const prompts = quickPrompts || (entityType === 'block' ? defaultBlockPrompts(entityTitle) : defaultSectionPrompts(entityTitle));
+  const prompts = quickPrompts || (
+    entityType === 'block' 
+      ? defaultBlockPrompts(entityTitle) 
+      : entityType === 'section' 
+        ? defaultSectionPrompts(entityTitle) 
+        : defaultTaskPrompts(entityTitle)
+  );
 
   const { data: history, refetch } = trpc.chat.history.useQuery(
     { contextType: entityType, contextId: entityId, limit: 50 },
@@ -283,7 +297,7 @@ export function EntityAIChat({
                     handleSend();
                   }
                 }}
-                placeholder={entityType === 'block' ? 'Спросите AI о блоке...' : 'Спросите AI о разделе...'}
+                placeholder={entityType === 'block' ? 'Спросите AI о блоке...' : entityType === 'section' ? 'Спросите AI о разделе...' : 'Спросите AI о задаче...'}
                 className="bg-slate-900/60 border-slate-600 text-white text-sm placeholder:text-slate-500"
                 disabled={isStreaming}
               />

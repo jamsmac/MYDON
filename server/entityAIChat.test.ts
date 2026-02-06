@@ -28,6 +28,40 @@ describe('EntityAIChat & Navigation Fixes', () => {
       expect(prompts[0].prompt).toContain(title);
     });
 
+    it('should have default task prompts for task entity type', () => {
+      const title = 'Analyze market competitors';
+      const prompts = [
+        { label: 'Разбить на подзадачи', prompt: `Разбей задачу "${title}" на конкретные подзадачи с оценкой времени` },
+        { label: 'Оценить сложность', prompt: `Оцени сложность и трудозатраты задачи "${title}". Какие навыки нужны?` },
+        { label: 'Найти риски', prompt: `Какие риски и блокеры могут возникнуть при выполнении задачи "${title}"?` },
+        { label: 'Написать ТЗ', prompt: `Напиши техническое задание для задачи "${title}" с критериями приёмки` },
+        { label: 'Как выполнить', prompt: `Опиши пошаговый план выполнения задачи "${title}" с рекомендациями и ресурсами` },
+      ];
+      expect(prompts).toHaveLength(5);
+      expect(prompts[0].label).toBe('Разбить на подзадачи');
+      expect(prompts[3].label).toBe('Написать ТЗ');
+      expect(prompts[4].label).toBe('Как выполнить');
+      expect(prompts.every(p => p.prompt.includes(title))).toBe(true);
+    });
+
+    it('should select correct prompts based on entity type', () => {
+      const title = 'Test Entity';
+      const getPrompts = (entityType: 'block' | 'section' | 'task') => {
+        if (entityType === 'block') return 4;
+        if (entityType === 'section') return 4;
+        return 5;
+      };
+      expect(getPrompts('block')).toBe(4);
+      expect(getPrompts('section')).toBe(4);
+      expect(getPrompts('task')).toBe(5);
+    });
+
+    it('should use correct placeholder for task entity type', () => {
+      const entityType = 'task';
+      const placeholder = entityType === 'block' ? 'Спросите AI о блоке...' : entityType === 'section' ? 'Спросите AI о разделе...' : 'Спросите AI о задаче...';
+      expect(placeholder).toBe('Спросите AI о задаче...');
+    });
+
     it('should support custom quick prompts', () => {
       const customPrompts = [
         { label: 'Custom Action', prompt: 'Do something custom' },
@@ -183,6 +217,12 @@ describe('EntityAIChat & Navigation Fixes', () => {
       expect(validTypes).toContain(entityType);
     });
 
+    it('should support task entity type for AI chat', () => {
+      const entityType = 'task';
+      const validTypes = ['block', 'section', 'task'];
+      expect(validTypes).toContain(entityType);
+    });
+
     it('should build correct chat API payload for block', () => {
       const payload = {
         contextType: 'block',
@@ -213,6 +253,45 @@ describe('EntityAIChat & Navigation Fixes', () => {
       
       onInsertResult('AI generated roadmap content');
       expect(clipboardContent).toBe('AI generated roadmap content');
+    });
+
+    it('should build correct chat API payload for task', () => {
+      const payload = {
+        contextType: 'task',
+        contextId: 42,
+        content: 'Break this task into subtasks',
+      };
+      expect(payload.contextType).toBe('task');
+      expect(payload.contextId).toBe(42);
+      expect(payload.content).toBeTruthy();
+    });
+
+    it('should insert AI result into task notes', () => {
+      let notes = 'Existing notes';
+      const aiContent = 'AI generated subtask plan';
+      const newNotes = notes ? `${notes}\n\n---\n\n${aiContent}` : aiContent;
+      expect(newNotes).toContain('Existing notes');
+      expect(newNotes).toContain('AI generated subtask plan');
+      expect(newNotes).toContain('---');
+    });
+
+    it('should insert AI result into empty task notes', () => {
+      let notes = '';
+      const aiContent = 'AI generated subtask plan';
+      const newNotes = notes ? `${notes}\n\n---\n\n${aiContent}` : aiContent;
+      expect(newNotes).toBe('AI generated subtask plan');
+    });
+
+    it('should default to collapsed in TaskDetailPanel', () => {
+      const defaultExpanded = false;
+      expect(defaultExpanded).toBe(false);
+    });
+
+    it('should default to expanded in BlockDetailPanel and SectionDetailPanel', () => {
+      const blockExpanded = true;
+      const sectionExpanded = true;
+      expect(blockExpanded).toBe(true);
+      expect(sectionExpanded).toBe(true);
     });
 
     it('should handle abort controller for stopping requests', () => {

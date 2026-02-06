@@ -2334,3 +2334,9 @@
 - [x] Fix section click in sidebar to show SectionDetailPanel (clear selectedTask when selecting block/section)
 - [x] Fix context menu actions to clear selectedTask when navigating to block/section
 - [x] Add 25 vitest tests for EntityAIChat logic, navigation fixes, and context menu fixes
+
+## Embedded AI Chat in TaskDetailPanel
+- [x] Add EntityAIChat component to TaskDetailPanel with task-specific quick prompts
+- [x] Add task entity type support in EntityAIChat (subtasks, estimate, risks, spec, howto prompts)
+- [x] Write vitest tests for task-level AI chat integration
+- [x] Verify consistent AI chat experience across blocks, sections, and tasks

@@ -78,6 +78,7 @@ import { BreadcrumbNav } from '@/components/BreadcrumbNav';
 import { AIDependencySuggestions } from '@/components/AIDependencySuggestions';
 import { BlockDetailPanel } from '@/components/BlockDetailPanel';
 import { SectionDetailPanel } from '@/components/SectionDetailPanel';
+import { EntityAIChat } from '@/components/EntityAIChat';
 import { 
   SplitTaskDialog, 
   MergeTasksDialog, 
@@ -674,6 +675,21 @@ function TaskDetailPanel({
               }}
             />
           </div>
+
+          {/* AI Chat */}
+          <EntityAIChat
+            entityType="task"
+            entityId={task.id}
+            entityTitle={task.title}
+            projectId={projectId}
+            defaultExpanded={false}
+            onInsertResult={(content) => {
+              const newNotes = notes ? `${notes}\n\n---\n\n${content}` : content;
+              setNotes(newNotes);
+              onUpdate({ notes: newNotes });
+              toast.success('Результат добавлен в заметки');
+            }}
+          />
 
           {/* Custom Fields */}
           <div>
