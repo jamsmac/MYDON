@@ -1,6 +1,6 @@
 /**
  * AdminLayout - Sidebar navigation for admin panel
- * Collapsible sidebar with grouped menu items
+ * Collapsible sidebar with grouped menu items and favorites
  */
 
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -55,9 +55,11 @@ import {
   Shield,
   ArrowLeft,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Star,
+  LucideIcon
 } from "lucide-react";
-import { CSSProperties, useState, ReactNode } from "react";
+import { CSSProperties, useState, ReactNode, useCallback, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
@@ -69,8 +71,20 @@ import {
 } from "@/components/ui/collapsible";
 import { AdminBreadcrumbs } from "@/components/admin/AdminBreadcrumbs";
 
+interface MenuItem {
+  icon: LucideIcon;
+  label: string;
+  path: string;
+}
+
+interface MenuGroup {
+  id: string;
+  label: string;
+  items: MenuItem[];
+}
+
 // Menu structure with groups - consolidated for cleaner navigation
-const menuGroups = [
+const menuGroups: MenuGroup[] = [
   {
     id: "overview",
     label: "Обзор",
@@ -130,7 +144,11 @@ const menuGroups = [
   },
 ];
 
+// Get all menu items as flat array
+const allMenuItems = menuGroups.flatMap(g => g.items);
+
 const SIDEBAR_WIDTH_KEY = "admin-sidebar-width";
+const FAVORITES_KEY = "admin-favorites";
 const DEFAULT_WIDTH = 260;
 
 interface AdminLayoutProps {
@@ -211,6 +229,37 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
   const isCollapsed = state === "collapsed";
   const isMobile = useIsMobile();
   
+  // Favorites state with localStorage persistence
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(FAVORITES_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Save favorites to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+  }, [favorites]);
+
+  const toggleFavorite = useCallback((path: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFavorites(prev => 
+      prev.includes(path) 
+        ? prev.filter(p => p !== path)
+        : [...prev, path]
+    );
+  }, []);
+
+  const isFavorite = useCallback((path: string) => favorites.includes(path), [favorites]);
+
+  // Get favorite items
+  const favoriteItems = favorites
+    .map(path => allMenuItems.find(item => item.path === path))
+    .filter((item): item is MenuItem => item !== undefined);
+  
   // Track which groups are expanded - only expand the group containing active item
   const [expandedGroups, setExpandedGroups] = useState<string[]>(() => {
     // Find which group contains the current path
@@ -229,9 +278,48 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
   };
 
   // Find active menu item
-  const activeItem = menuGroups
-    .flatMap(g => g.items)
+  const activeItem = allMenuItems
     .find(item => location === item.path || location.startsWith(item.path + "/"));
+
+  // Render a menu item with star icon
+  const renderMenuItem = (item: MenuItem, showStar: boolean = true) => {
+    const isActive = location === item.path || location.startsWith(item.path + "/");
+    const starred = isFavorite(item.path);
+    
+    return (
+      <SidebarMenuItem key={item.path}>
+        <SidebarMenuButton
+          isActive={isActive}
+          onClick={() => setLocation(item.path)}
+          tooltip={item.label}
+          className={cn(
+            "h-9 transition-all font-normal group/item",
+            isActive && "bg-amber-500/10 text-amber-400 border-l-2 border-amber-400"
+          )}
+        >
+          <item.icon className={cn("h-4 w-4 shrink-0", isActive && "text-amber-400")} />
+          <span className="flex-1 truncate">{item.label}</span>
+          {showStar && !isCollapsed && (
+            <button
+              onClick={(e) => toggleFavorite(item.path, e)}
+              className={cn(
+                "h-5 w-5 flex items-center justify-center rounded opacity-0 group-hover/item:opacity-100 transition-opacity hover:bg-accent",
+                starred && "opacity-100"
+              )}
+              title={starred ? "Убрать из избранного" : "Добавить в избранное"}
+            >
+              <Star 
+                className={cn(
+                  "h-3.5 w-3.5 transition-colors",
+                  starred ? "fill-amber-400 text-amber-400" : "text-muted-foreground hover:text-amber-400"
+                )} 
+              />
+            </button>
+          )}
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
 
   return (
     <>
@@ -257,6 +345,50 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
         </SidebarHeader>
 
         <SidebarContent className="gap-0 overflow-y-auto">
+          {/* Favorites section - only show if there are favorites */}
+          {favoriteItems.length > 0 && (
+            <SidebarGroup className="py-1">
+              {!isCollapsed ? (
+                <>
+                  <SidebarGroupLabel className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-amber-400/80 uppercase tracking-wider">
+                    <Star className="h-3 w-3 fill-amber-400" />
+                    <span>Избранное</span>
+                  </SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu className="px-1">
+                      {favoriteItems.map(item => renderMenuItem(item, true))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </>
+              ) : (
+                <SidebarMenu className="px-1">
+                  {favoriteItems.map(item => {
+                    const isActive = location === item.path || location.startsWith(item.path + "/");
+                    return (
+                      <SidebarMenuItem key={`fav-${item.path}`}>
+                        <SidebarMenuButton
+                          isActive={isActive}
+                          onClick={() => setLocation(item.path)}
+                          tooltip={`⭐ ${item.label}`}
+                          className={cn(
+                            "h-9 transition-all",
+                            isActive && "bg-amber-500/10 text-amber-400"
+                          )}
+                        >
+                          <item.icon className={cn("h-4 w-4", isActive && "text-amber-400")} />
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              )}
+              {!isCollapsed && (
+                <div className="mx-3 my-2 border-b border-border/30" />
+              )}
+            </SidebarGroup>
+          )}
+
+          {/* Regular menu groups */}
           {menuGroups.map((group) => (
             <SidebarGroup key={group.id} className="py-1">
               {!isCollapsed ? (
@@ -277,25 +409,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
                   <CollapsibleContent>
                     <SidebarGroupContent>
                       <SidebarMenu className="px-1">
-                        {group.items.map((item) => {
-                          const isActive = location === item.path || location.startsWith(item.path + "/");
-                          return (
-                            <SidebarMenuItem key={item.path}>
-                              <SidebarMenuButton
-                                isActive={isActive}
-                                onClick={() => setLocation(item.path)}
-                                tooltip={item.label}
-                                className={cn(
-                                  "h-9 transition-all font-normal",
-                                  isActive && "bg-amber-500/10 text-amber-400 border-l-2 border-amber-400"
-                                )}
-                              >
-                                <item.icon className={cn("h-4 w-4", isActive && "text-amber-400")} />
-                                <span>{item.label}</span>
-                              </SidebarMenuButton>
-                            </SidebarMenuItem>
-                          );
-                        })}
+                        {group.items.map(item => renderMenuItem(item))}
                       </SidebarMenu>
                     </SidebarGroupContent>
                   </CollapsibleContent>

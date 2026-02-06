@@ -1732,3 +1732,12 @@
 - [x] Integrate breadcrumbs into AdminLayout header
 - [x] Style breadcrumbs with proper separators and hover states
 - [x] Make breadcrumb items clickable for navigation
+
+
+## Phase 78: Admin Sidebar Favorites
+
+- [x] Add favorites state with localStorage persistence
+- [x] Add star icon to each menu item (click to toggle favorite)
+- [x] Create "Избранное" section at top of sidebar
+- [x] Show favorited pages in the favorites section
+- [x] Visual feedback for starred items (filled vs outline star)
