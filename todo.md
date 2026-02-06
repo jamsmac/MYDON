@@ -1698,3 +1698,10 @@
 - [x] Search across agents, skills, users, projects, prompts, settings
 - [x] Results with links to corresponding sections
 
+
+## Phase 75: Analytics Time Period Filter
+
+- [x] Add time period filter to AdminLogs analytics section
+- [x] Support preset periods: Today, Yesterday, Last 7 days, Last 30 days, This month, Last month, Custom range
+- [x] Update backend to filter by date range
+- [x] Apply filter to all analytics data (charts, metrics, logs table)

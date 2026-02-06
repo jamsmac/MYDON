@@ -136,15 +136,30 @@ export const adminLogsRouter = router({
   // Get top users by AI requests
   getTopUsersByRequests: adminProcedure
     .input(z.object({
-      days: z.number().default(30),
+      days: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
       limit: z.number().default(10),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
       
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - input.days);
+      let startDate: Date;
+      let endDate: Date | undefined;
+      
+      if (input.dateFrom) {
+        startDate = new Date(input.dateFrom);
+        endDate = input.dateTo ? new Date(input.dateTo) : undefined;
+      } else {
+        startDate = new Date();
+        startDate.setDate(startDate.getDate() - (input.days || 30));
+      }
+      
+      const conditions = [gte(schema.aiRequestLogs.createdAt, startDate)];
+      if (endDate) {
+        conditions.push(lte(schema.aiRequestLogs.createdAt, endDate));
+      }
       
       const topUsers = await db
         .select({
@@ -157,7 +172,7 @@ export const adminLogsRouter = router({
         })
         .from(schema.aiRequestLogs)
         .leftJoin(schema.users, eq(schema.aiRequestLogs.userId, schema.users.id))
-        .where(gte(schema.aiRequestLogs.createdAt, startDate))
+        .where(and(...conditions))
         .groupBy(schema.aiRequestLogs.userId, schema.users.name, schema.users.email)
         .orderBy(desc(count()))
         .limit(input.limit);
@@ -168,14 +183,29 @@ export const adminLogsRouter = router({
   // Get model usage breakdown
   getModelUsageBreakdown: adminProcedure
     .input(z.object({
-      days: z.number().default(30),
+      days: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
       
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - input.days);
+      let startDate: Date;
+      let endDate: Date | undefined;
+      
+      if (input.dateFrom) {
+        startDate = new Date(input.dateFrom);
+        endDate = input.dateTo ? new Date(input.dateTo) : undefined;
+      } else {
+        startDate = new Date();
+        startDate.setDate(startDate.getDate() - (input.days || 30));
+      }
+      
+      const conditions = [gte(schema.aiRequestLogs.createdAt, startDate)];
+      if (endDate) {
+        conditions.push(lte(schema.aiRequestLogs.createdAt, endDate));
+      }
       
       const breakdown = await db
         .select({
@@ -187,7 +217,7 @@ export const adminLogsRouter = router({
           errorRate: sql<number>`AVG(CASE WHEN ${schema.aiRequestLogs.status} = 'error' THEN 1 ELSE 0 END) * 100`,
         })
         .from(schema.aiRequestLogs)
-        .where(gte(schema.aiRequestLogs.createdAt, startDate))
+        .where(and(...conditions))
         .groupBy(schema.aiRequestLogs.model)
         .orderBy(desc(count()));
       
@@ -197,14 +227,29 @@ export const adminLogsRouter = router({
   // Get overall AI statistics
   getAIStats: adminProcedure
     .input(z.object({
-      days: z.number().default(30),
+      days: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return null;
       
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - input.days);
+      let startDate: Date;
+      let endDate: Date | undefined;
+      
+      if (input.dateFrom) {
+        startDate = new Date(input.dateFrom);
+        endDate = input.dateTo ? new Date(input.dateTo) : undefined;
+      } else {
+        startDate = new Date();
+        startDate.setDate(startDate.getDate() - (input.days || 30));
+      }
+      
+      const conditions = [gte(schema.aiRequestLogs.createdAt, startDate)];
+      if (endDate) {
+        conditions.push(lte(schema.aiRequestLogs.createdAt, endDate));
+      }
       
       const [stats] = await db
         .select({
@@ -217,7 +262,7 @@ export const adminLogsRouter = router({
           uniqueUsers: sql<number>`COUNT(DISTINCT ${schema.aiRequestLogs.userId})`,
         })
         .from(schema.aiRequestLogs)
-        .where(gte(schema.aiRequestLogs.createdAt, startDate));
+        .where(and(...conditions));
       
       return {
         ...stats,

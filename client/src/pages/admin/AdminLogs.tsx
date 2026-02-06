@@ -13,16 +13,50 @@ import {
 import { formatDistanceToNow, format, subDays } from "date-fns";
 import { ru } from "date-fns/locale";
 
+// Time period presets
+const TIME_PERIODS = [
+  { label: "Сегодня", value: "today", getDates: () => ({ from: new Date(), to: new Date() }) },
+  { label: "Вчера", value: "yesterday", getDates: () => ({ from: subDays(new Date(), 1), to: subDays(new Date(), 1) }) },
+  { label: "7 дней", value: "7days", getDates: () => ({ from: subDays(new Date(), 7), to: new Date() }) },
+  { label: "30 дней", value: "30days", getDates: () => ({ from: subDays(new Date(), 30), to: new Date() }) },
+  { label: "Этот месяц", value: "thisMonth", getDates: () => {
+    const now = new Date();
+    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: now };
+  }},
+  { label: "Прошлый месяц", value: "lastMonth", getDates: () => {
+    const now = new Date();
+    return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
+  }},
+  { label: "Произвольный", value: "custom", getDates: () => null },
+];
+
 export default function AdminLogs() {
+  const [timePeriod, setTimePeriod] = useState("30days");
   const [filters, setFilters] = useState({
     userId: undefined as number | undefined,
     type: undefined as string | undefined,
     model: undefined as string | undefined,
     status: undefined as string | undefined,
-    dateFrom: format(subDays(new Date(), 7), "yyyy-MM-dd"),
+    dateFrom: format(subDays(new Date(), 30), "yyyy-MM-dd"),
     dateTo: format(new Date(), "yyyy-MM-dd"),
   });
   const [search, setSearch] = useState("");
+
+  // Handle time period change
+  const handleTimePeriodChange = (value: string) => {
+    setTimePeriod(value);
+    const preset = TIME_PERIODS.find(p => p.value === value);
+    if (preset && preset.value !== "custom") {
+      const dates = preset.getDates();
+      if (dates) {
+        setFilters(f => ({
+          ...f,
+          dateFrom: format(dates.from, "yyyy-MM-dd"),
+          dateTo: format(dates.to, "yyyy-MM-dd"),
+        }));
+      }
+    }
+  };
 
   const { data: logsData, isLoading } = trpc.adminLogs.getAILogs.useQuery({
     userId: filters.userId,
@@ -34,9 +68,19 @@ export default function AdminLogs() {
     limit: 50,
   });
 
-  const { data: analytics } = trpc.adminLogs.getAIStats.useQuery({ days: 30 });
-  const { data: topUsers = [] } = trpc.adminLogs.getTopUsersByRequests.useQuery({ limit: 5, days: 30 });
-  const { data: modelUsage = [] } = trpc.adminLogs.getModelUsageBreakdown.useQuery({ days: 30 });
+  const { data: analytics } = trpc.adminLogs.getAIStats.useQuery({ 
+    dateFrom: filters.dateFrom, 
+    dateTo: filters.dateTo 
+  });
+  const { data: topUsers = [] } = trpc.adminLogs.getTopUsersByRequests.useQuery({ 
+    limit: 5, 
+    dateFrom: filters.dateFrom, 
+    dateTo: filters.dateTo 
+  });
+  const { data: modelUsage = [] } = trpc.adminLogs.getModelUsageBreakdown.useQuery({ 
+    dateFrom: filters.dateFrom, 
+    dateTo: filters.dateTo 
+  });
   const { data: recentErrors = [] } = trpc.adminLogs.getRecentErrors.useQuery({ limit: 5 });
 
   const exportLogsMutation = trpc.adminLogs.exportLogs.useMutation({
@@ -149,6 +193,52 @@ export default function AdminLogs() {
           Экспорт CSV
         </Button>
       </div>
+
+      {/* Time Period Filter */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Период:</span>
+              <div className="flex flex-wrap gap-1">
+                {TIME_PERIODS.map((period) => (
+                  <Button
+                    key={period.value}
+                    variant={timePeriod === period.value ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleTimePeriodChange(period.value)}
+                    className="h-7 text-xs"
+                  >
+                    {period.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            
+            {timePeriod === "custom" && (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => setFilters(f => ({ ...f, dateFrom: e.target.value }))}
+                  className="h-8 w-36"
+                />
+                <span className="text-muted-foreground">—</span>
+                <Input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => setFilters(f => ({ ...f, dateTo: e.target.value }))}
+                  className="h-8 w-36"
+                />
+              </div>
+            )}
+            
+            <div className="ml-auto text-sm text-muted-foreground">
+              {format(new Date(filters.dateFrom), "d MMM yyyy", { locale: ru })} — {format(new Date(filters.dateTo), "d MMM yyyy", { locale: ru })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Recent Errors Alert */}
       {recentErrors.length > 0 && (
