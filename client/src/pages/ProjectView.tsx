@@ -689,6 +689,11 @@ function TaskDetailPanel({
               onUpdate({ notes: newNotes });
               toast.success('Результат добавлен в заметки');
             }}
+            onSaveAsDocument={(content) => {
+              setSummary(content);
+              onUpdate({ summary: content });
+              toast.success('Сохранено как итоговый документ');
+            }}
           />
 
           {/* Custom Fields */}

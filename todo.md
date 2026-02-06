@@ -2340,3 +2340,10 @@
 - [x] Add task entity type support in EntityAIChat (subtasks, estimate, risks, spec, howto prompts)
 - [x] Write vitest tests for task-level AI chat integration
 - [x] Verify consistent AI chat experience across blocks, sections, and tasks
+
+## Save AI Response as Document
+- [x] Add onSaveAsDocument callback prop to EntityAIChat component
+- [x] Add "Как документ" button next to "В заметки" in AI response actions
+- [x] Wire onSaveAsDocument in TaskDetailPanel to save AI response as task summary
+- [x] Write vitest tests for save-as-document functionality
+- [x] Verify visually that button appears and works correctly

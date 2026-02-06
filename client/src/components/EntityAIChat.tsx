@@ -13,6 +13,7 @@ import {
   Send,
   StopCircle,
   MessageSquare,
+  FileText,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -34,6 +35,8 @@ interface EntityAIChatProps {
   defaultExpanded?: boolean;
   /** Callback when AI generates content that can be used */
   onInsertResult?: (content: string) => void;
+  /** Callback when AI generates content to save as document/summary */
+  onSaveAsDocument?: (content: string) => void;
 }
 
 const defaultBlockPrompts = (title: string) => [
@@ -66,6 +69,7 @@ export function EntityAIChat({
   quickPrompts,
   defaultExpanded = true,
   onInsertResult,
+  onSaveAsDocument,
 }: EntityAIChatProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [message, setMessage] = useState('');
@@ -259,7 +263,16 @@ export function EntityAIChat({
                             className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
                           >
                             <MessageSquare className="w-3 h-3" />
-                            Использовать
+                            В заметки
+                          </button>
+                        )}
+                        {onSaveAsDocument && (
+                          <button
+                            onClick={() => onSaveAsDocument(msg.content)}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
+                          >
+                            <FileText className="w-3 h-3" />
+                            Как документ
                           </button>
                         )}
                       </div>

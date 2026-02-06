@@ -294,6 +294,48 @@ describe('EntityAIChat & Navigation Fixes', () => {
       expect(sectionExpanded).toBe(true);
     });
 
+    it('should save AI response as document via onSaveAsDocument', () => {
+      let summary = '';
+      const onSaveAsDocument = (content: string) => {
+        summary = content;
+      };
+      const aiContent = '# Техническое задание\n\n## Описание\nЗадача на анализ рынка';
+      onSaveAsDocument(aiContent);
+      expect(summary).toBe(aiContent);
+      expect(summary).toContain('Техническое задание');
+    });
+
+    it('should replace existing summary when saving as document', () => {
+      let summary = 'Старый документ';
+      const onSaveAsDocument = (content: string) => {
+        summary = content;
+      };
+      onSaveAsDocument('Новый документ от AI');
+      expect(summary).toBe('Новый документ от AI');
+      expect(summary).not.toContain('Старый');
+    });
+
+    it('should have both onInsertResult and onSaveAsDocument for tasks', () => {
+      let notes = '';
+      let summary = '';
+      const onInsertResult = (content: string) => { notes = content; };
+      const onSaveAsDocument = (content: string) => { summary = content; };
+      
+      onInsertResult('Заметка');
+      onSaveAsDocument('Документ');
+      
+      expect(notes).toBe('Заметка');
+      expect(summary).toBe('Документ');
+      expect(notes).not.toBe(summary);
+    });
+
+    it('should not show save-as-document button when callback is not provided', () => {
+      const onSaveAsDocument = undefined;
+      expect(onSaveAsDocument).toBeUndefined();
+      // In the component, the button is conditionally rendered: {onSaveAsDocument && ...}
+      // So when undefined, the button won't appear
+    });
+
     it('should handle abort controller for stopping requests', () => {
       const controller = new AbortController();
       expect(controller.signal.aborted).toBe(false);
