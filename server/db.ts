@@ -1670,13 +1670,24 @@ export async function getOverdueTasks(userId: number): Promise<Array<{
 export async function reorderTasks(sectionId: number, taskIds: number[]): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-
   // Update sortOrder for each task based on position in array
   for (let i = 0; i < taskIds.length; i++) {
     await db
       .update(tasks)
       .set({ sortOrder: i, updatedAt: new Date() })
       .where(and(eq(tasks.id, taskIds[i]), eq(tasks.sectionId, sectionId)));
+  }
+}
+
+// Reorder tasks globally (across sections) - used by Table View drag & drop
+export async function reorderTasksGlobal(taskIds: number[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  for (let i = 0; i < taskIds.length; i++) {
+    await db
+      .update(tasks)
+      .set({ sortOrder: i, updatedAt: new Date() })
+      .where(eq(tasks.id, taskIds[i]));
   }
 }
 

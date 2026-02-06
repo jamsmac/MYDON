@@ -515,6 +515,14 @@ const taskRouter = router({
     .mutation(async ({ input }) => {
       return db.reorderTasks(input.sectionId, input.taskIds);
     }),
+  // Reorder tasks globally (across sections) - used by Table View drag & drop
+  reorderGlobal: protectedProcedure
+    .input(z.object({
+      taskIds: z.array(z.number()).min(1),
+    }))
+    .mutation(async ({ input }) => {
+      return db.reorderTasksGlobal(input.taskIds);
+    }),
 
   // Get all overdue tasks for user
   getOverdue: protectedProcedure

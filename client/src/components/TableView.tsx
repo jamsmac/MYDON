@@ -72,7 +72,24 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Settings2, Keyboard } from 'lucide-react';
+import { Settings2, Keyboard, GripVertical } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 
 // Status configuration
 const STATUS_CONFIG = {
@@ -636,6 +653,63 @@ function CustomFieldCell({ field, value, taskId }: { field: CustomFieldData; val
 }
 
 // Main Table View Component
+// Sortable row wrapper for drag & drop
+function SortableTableRow({
+  id,
+  children,
+  className,
+  onClick,
+  isDragDisabled,
+}: {
+  id: number;
+  children: React.ReactNode;
+  className?: string;
+  onClick?: () => void;
+  isDragDisabled?: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled: isDragDisabled });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : undefined,
+    position: isDragging ? 'relative' as const : undefined,
+  };
+
+  return (
+    <TableRow
+      ref={setNodeRef}
+      style={style}
+      data-task-id={id}
+      className={cn(className, isDragging && 'bg-slate-700/80 shadow-lg')}
+      onClick={onClick}
+    >
+      <TableCell className="w-8 px-1">
+        <button
+          {...attributes}
+          {...listeners}
+          className={cn(
+            "cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors",
+            isDragDisabled && "opacity-30 cursor-not-allowed"
+          )}
+          tabIndex={-1}
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+      </TableCell>
+      {children}
+    </TableRow>
+  );
+}
+
 export function TableView({
   tasks,
   members,
@@ -753,6 +827,24 @@ export function TableView({
   const [bulkFieldBooleanValue, setBulkFieldBooleanValue] = useState<boolean>(false);
   const [bulkFieldDateValue, setBulkFieldDateValue] = useState<string>('');
   const [bulkFieldJsonValue, setBulkFieldJsonValue] = useState<string[]>([]);
+
+  // Drag & drop reorder mutation
+  const reorderGlobal = trpc.task.reorderGlobal.useMutation({
+    onSuccess: () => {
+      toast.success('Порядок задач обновлён');
+      utils.task.invalidate();
+      utils.project.invalidate();
+    },
+    onError: () => toast.error('Ошибка при изменении порядка'),
+  });
+
+  // DnD sensors with activation distance to avoid accidental drags
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  );
+
+  // Whether drag is allowed (only when no sort/group/search is active)
+  const isDragEnabled = !sortField && groupBy === 'none' && !searchQuery && customFieldFilters.length === 0;
 
   const isBulkLoading = bulkUpdateStatus.isPending || bulkUpdatePriority.isPending || bulkUpdateAssignee.isPending || bulkDelete.isPending || bulkSetCustomField.isPending;
   const selectedTaskIds = Array.from(selectedTasks);
@@ -894,6 +986,19 @@ export function TableView({
 
     return result;
   }, [tasks, sortField, sortDirection, searchQuery, customFieldFilters, filterValuesMap, fieldsMap]);
+
+  // Handle drag end - must be after processedTasks declaration
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = processedTasks.findIndex(t => t.id === active.id);
+    const newIndex = processedTasks.findIndex(t => t.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = arrayMove(processedTasks, oldIndex, newIndex);
+    reorderGlobal.mutate({ taskIds: reordered.map(t => t.id) });
+  }, [processedTasks, reorderGlobal]);
 
   // Group tasks
   const groupedTasks = useMemo(() => {
@@ -1526,9 +1631,30 @@ export function TableView({
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={handleDragEnd}
+        >
         <Table>
           <TableHeader className="sticky top-0 bg-slate-900 z-10">
             <TableRow className="border-slate-700 hover:bg-transparent">
+              <TableHead className="w-8 px-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className={cn("flex items-center justify-center", !isDragEnabled && "opacity-30")}>
+                      <GripVertical className="w-4 h-4 text-slate-500" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-slate-800 border-slate-700">
+                    {isDragEnabled
+                      ? <p>Перетаскивание для сортировки</p>
+                      : <p>Уберите сортировку, группировку и поиск для перетаскивания</p>
+                    }
+                  </TooltipContent>
+                </Tooltip>
+              </TableHead>
               <TableHead className="w-10">
                 <Checkbox
                   checked={selectedTasks.size === processedTasks.length && processedTasks.length > 0}
@@ -1598,6 +1724,7 @@ export function TableView({
               <TableHead className="w-10"></TableHead>
             </TableRow>
           </TableHeader>
+          <SortableContext items={processedTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           <TableBody>
             {Object.entries(groupedTasks).map(([groupKey, groupTasks]) => (
               <>
@@ -1619,9 +1746,10 @@ export function TableView({
                     const isFocused = taskIndex === focusedTaskIndex;
 
                     return (
-                      <TableRow
+                      <SortableTableRow
                         key={task.id}
-                        data-task-id={task.id}
+                        id={task.id}
+                        isDragDisabled={!isDragEnabled}
                         className={cn(
                           "border-slate-700 hover:bg-slate-800/50 transition-colors",
                           isFocused && "bg-purple-500/10 ring-1 ring-inset ring-purple-500/40",
@@ -1747,13 +1875,15 @@ export function TableView({
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
-                      </TableRow>
+                      </SortableTableRow>
                     );
                   })}
               </>
             ))}
           </TableBody>
+          </SortableContext>
         </Table>
+        </DndContext>
 
         {processedTasks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-slate-400">

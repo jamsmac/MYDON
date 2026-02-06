@@ -2172,3 +2172,23 @@
 - [x] Prevent shortcuts when dialog/alert is open
 - [x] Auto-scroll focused row into view
 - [x] 31 new tests (664 total)
+
+## Phase 98: Drag & Drop Task Sorting in Table View
+
+### Backend
+- [x] Tasks table already has sortOrder column
+- [x] Add reorderTasksGlobal procedure (accepts ordered taskIds array)
+- [x] Persist new sort order to database (sequential sortOrder values)
+
+### Frontend
+- [x] Install @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, @dnd-kit/modifiers
+- [x] Add drag handle column (GripVertical icon) to Table View rows
+- [x] Implement DndContext + SortableContext + SortableTableRow component
+- [x] Visual feedback during drag (opacity 0.5, shadow, z-index elevation)
+- [x] Disable drag when sorting/grouping/search/filters are active (tooltip explains why)
+- [x] Vertical axis restriction via restrictToVerticalAxis modifier
+- [x] 8px activation distance to prevent accidental drags
+- [x] Toast notification on reorder success/error
+
+### Tests
+- [x] 22 new tests for Table View drag & drop (686 total)
