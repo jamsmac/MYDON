@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { PrioritySelector, PriorityBadge, type Priority } from "@/components/PriorityBadge";
 import { cn } from "@/lib/utils";
+import { AIDependencySuggestions } from "@/components/AIDependencySuggestions";
 import { toast } from "sonner";
 import { format, addDays, addWeeks, addMonths } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -41,6 +42,7 @@ interface SmartTaskCreatorProps {
     description?: string;
     priority?: Priority;
     dueDate?: number;
+    dependencies?: number[];
   }) => void;
   isCreating?: boolean;
 }
@@ -76,6 +78,7 @@ export function SmartTaskCreator({
   const [dueDate, setDueDate] = useState<Date | undefined>();
   const [showDescription, setShowDescription] = useState(false);
   const [showDeadline, setShowDeadline] = useState(false);
+  const [selectedDependencies, setSelectedDependencies] = useState<number[]>([]);
   
   // AI suggestions
   const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]);
@@ -156,6 +159,7 @@ export function SmartTaskCreator({
       description: description.trim() || undefined,
       priority: priority || undefined,
       dueDate: dueDate ? dueDate.getTime() : undefined,
+      dependencies: selectedDependencies.length > 0 ? selectedDependencies : undefined,
     });
   };
 
@@ -180,6 +184,7 @@ export function SmartTaskCreator({
     setShowDeadline(false);
     setAiSuggestions([]);
     setAiPriority(null);
+    setSelectedDependencies([]);
     onClose();
   };
 
@@ -374,6 +379,41 @@ export function SmartTaskCreator({
                 </PopoverContent>
               </Popover>
             </div>
+          </div>
+
+          {/* AI Dependency Suggestions */}
+          <div className="space-y-2">
+            <Label className="text-slate-300 text-sm">Зависимости</Label>
+            <AIDependencySuggestions
+              projectId={projectId}
+              taskTitle={title}
+              taskDescription={description || undefined}
+              sectionId={sectionId}
+              currentDependencies={selectedDependencies}
+              onAddDependency={(depId) => {
+                setSelectedDependencies(prev => [...prev, depId]);
+              }}
+              compact
+            />
+            {selectedDependencies.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {selectedDependencies.map(depId => (
+                  <Badge
+                    key={depId}
+                    variant="outline"
+                    className="text-xs text-amber-400 border-amber-500/30 gap-1"
+                  >
+                    #{depId}
+                    <button
+                      onClick={() => setSelectedDependencies(prev => prev.filter(id => id !== depId))}
+                      className="hover:text-red-400"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Toggle Description */}

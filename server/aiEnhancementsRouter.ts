@@ -712,4 +712,176 @@ Return JSON: {"summary": "...", "achievements": [...], "challenges": [...], "rec
       
       return { content: markdown, format: "markdown" };
     }),
+
+  // ============ AI DEPENDENCY SUGGESTIONS ============
+  suggestDependencies: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      taskId: z.number().optional(), // existing task being edited
+      taskTitle: z.string(),
+      taskDescription: z.string().optional(),
+      sectionId: z.number().optional(),
+      currentDependencies: z.array(z.number()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      
+      // Get all tasks in the project with their context
+      const projectBlocks = await db.select({
+        blockId: blocks.id,
+        blockTitle: blocks.title,
+        sectionId: sections.id,
+        sectionTitle: sections.title,
+        taskId: tasks.id,
+        taskTitle: tasks.title,
+        taskDescription: tasks.description,
+        taskStatus: tasks.status,
+        taskPriority: tasks.priority,
+        taskDependencies: tasks.dependencies,
+      })
+        .from(tasks)
+        .innerJoin(sections, eq(tasks.sectionId, sections.id))
+        .innerJoin(blocks, eq(sections.blockId, blocks.id))
+        .where(eq(blocks.projectId, input.projectId));
+      
+      // Filter out the current task and already-set dependencies
+      const excludeIds = new Set<number>([
+        ...(input.currentDependencies || []),
+        ...(input.taskId ? [input.taskId] : []),
+      ]);
+      
+      const candidateTasks = projectBlocks.filter((t: typeof projectBlocks[number]) => !excludeIds.has(t.taskId));
+      
+      if (candidateTasks.length === 0) {
+        return { suggestions: [], reasoning: "\u041d\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0445 \u0437\u0430\u0434\u0430\u0447 \u0434\u043b\u044f \u0437\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0435\u0439" };
+      }
+      
+      // Build context for AI
+      const taskListForAI = candidateTasks.map((t: typeof projectBlocks[number]) => ({
+        id: t.taskId,
+        title: t.taskTitle,
+        description: t.taskDescription || "",
+        status: t.taskStatus,
+        block: t.blockTitle,
+        section: t.sectionTitle,
+      }));
+      
+      try {
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: `You are a project management dependency analyzer. Given a task and a list of other tasks in the project, suggest which tasks should be dependencies (i.e., tasks that must be completed BEFORE the given task can start).
+
+Rules:
+- Only suggest tasks that logically MUST be completed before the target task
+- Consider technical dependencies (e.g., "design" before "implement")
+- Consider data dependencies (e.g., "research" before "analysis")
+- Consider process dependencies (e.g., "approve" before "deploy")
+- Maximum 5 suggestions, ranked by relevance
+- For each suggestion, provide a brief reason WHY it's a dependency
+- If no logical dependencies exist, return an empty array
+
+Return JSON:
+{
+  "suggestions": [
+    { "taskId": <number>, "reason": "<brief explanation in Russian>", "confidence": <0-100> }
+  ],
+  "reasoning": "<overall analysis in Russian>"
+}`
+            },
+            {
+              role: "user",
+              content: `Target task:\n- Title: ${input.taskTitle}\n- Description: ${input.taskDescription || "No description"}\n\nAvailable tasks in the project:\n${JSON.stringify(taskListForAI, null, 2)}`
+            }
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "dependency_suggestions",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  suggestions: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        taskId: { type: "number", description: "ID of the suggested dependency task" },
+                        reason: { type: "string", description: "Why this task is a dependency" },
+                        confidence: { type: "number", description: "Confidence level 0-100" }
+                      },
+                      required: ["taskId", "reason", "confidence"],
+                      additionalProperties: false
+                    }
+                  },
+                  reasoning: { type: "string", description: "Overall analysis" }
+                },
+                required: ["suggestions", "reasoning"],
+                additionalProperties: false
+              }
+            }
+          }
+        });
+        
+        const content = response.choices[0]?.message?.content;
+        if (typeof content !== 'string') {
+          return { suggestions: [], reasoning: "AI analysis unavailable" };
+        }
+        
+        const result = JSON.parse(content);
+        
+        // Validate that suggested taskIds actually exist in our candidates
+        const validTaskIds = new Set(candidateTasks.map((t: typeof projectBlocks[number]) => t.taskId));
+        const validSuggestions = (result.suggestions || []).filter(
+          (s: any) => validTaskIds.has(s.taskId) && s.confidence >= 30
+        ).map((s: any) => {
+          const taskInfo = candidateTasks.find((t: typeof projectBlocks[number]) => t.taskId === s.taskId);
+          return {
+            taskId: s.taskId,
+            taskTitle: taskInfo?.taskTitle || "Unknown",
+            taskStatus: taskInfo?.taskStatus || "not_started",
+            section: taskInfo?.sectionTitle || "",
+            block: taskInfo?.blockTitle || "",
+            reason: s.reason,
+            confidence: s.confidence,
+          };
+        });
+        
+        return {
+          suggestions: validSuggestions,
+          reasoning: result.reasoning || "AI dependency analysis",
+        };
+      } catch (error) {
+        console.error("[AI Dependencies] Error:", error);
+        
+        // Fallback: simple heuristic-based suggestions
+        const heuristicSuggestions = candidateTasks
+          .filter((t: typeof projectBlocks[number]) => {
+            const title = input.taskTitle.toLowerCase();
+            const candidateTitle = (t.taskTitle || "").toLowerCase();
+            const sameSection = input.sectionId && t.sectionId === input.sectionId;
+            const titleWords = title.split(/\s+/).filter((w: string) => w.length > 3);
+            const hasOverlap = titleWords.some((w: string) => candidateTitle.includes(w));
+            return sameSection || hasOverlap;
+          })
+          .slice(0, 3)
+          .map((t: typeof projectBlocks[number]) => ({
+            taskId: t.taskId,
+            taskTitle: t.taskTitle || "Unknown",
+            taskStatus: t.taskStatus || "not_started",
+            section: t.sectionTitle || "",
+            block: t.blockTitle || "",
+            reason: "Related task (heuristic analysis)",
+            confidence: 50,
+          }));
+        
+        return {
+          suggestions: heuristicSuggestions,
+          reasoning: "Suggestions based on heuristic analysis (AI unavailable)",
+        };
+      }
+    }),
 });

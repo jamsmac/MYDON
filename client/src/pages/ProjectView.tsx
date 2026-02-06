@@ -74,6 +74,7 @@ import { DiscussionPanel } from '@/components/DiscussionPanel';
 import { QuickActionsBar } from '@/components/QuickActionsBar';
 import { SmartTaskCreator } from '@/components/SmartTaskCreator';
 import { BreadcrumbNav } from '@/components/BreadcrumbNav';
+import { AIDependencySuggestions } from '@/components/AIDependencySuggestions';
 import { 
   SplitTaskDialog, 
   MergeTasksDialog, 
@@ -635,6 +636,19 @@ function TaskDetailPanel({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              {/* AI Dependency Suggestions */}
+              <AIDependencySuggestions
+                projectId={projectId}
+                taskId={task.id}
+                taskTitle={task.title}
+                taskDescription={task.description || undefined}
+                currentDependencies={task.dependencies || []}
+                onAddDependency={(depId) => {
+                  const newDeps = [...(task.dependencies || []), depId];
+                  onUpdate({ dependencies: newDeps });
+                }}
+              />
             </div>
           </div>
 

@@ -2277,7 +2277,7 @@
 - [x] Quick deadline buttons (today, tomorrow, 3 days, week, 2 weeks, month)
 - [x] AI task suggestions from section context
 - [x] Quick subtask templates (Research, Analysis, Document, Review, Testing)
-- [ ] Auto-suggest dependencies
+- [x] Auto-suggest dependencies (AI-powered with LLM + heuristic fallback)
 - [x] Simplified task creation: SmartTaskCreator with AI suggestions, priority, deadline
 
 ### UX Overhaul - Additional
@@ -2297,3 +2297,11 @@
 - [x] Display unread count badges on blocks in sidebar
 - [x] Display unread count badges on sections in sidebar
 - [x] Write tests for unread discussion tracking
+
+### AI-Powered Dependency Suggestions
+- [x] Create backend AI endpoint to analyze tasks and suggest dependencies (LLM + heuristic fallback)
+- [x] Integrate dependency suggestions into SmartTaskCreator (task creation)
+- [x] Integrate dependency suggestions into TaskDetailPanel (task editing)
+- [x] Show AI reasoning for each suggested dependency with confidence %
+- [x] Allow one-click accept/reject of suggested dependencies (accept all, dismiss individual)
+- [x] Write tests for AI dependency suggestions
