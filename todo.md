@@ -2313,3 +2313,10 @@
 - [x] Task-level actions: discuss, AI quick actions, add subtask, change status, change priority, delete
 - [x] Integrate context menu into DraggableSidebar for all entity types
 - [x] Write tests for sidebar context menu
+
+### Block & Section Detail Panels (Right Panel Fix)
+- [x] Create BlockDetailPanel with block info, sections list, progress, AI tools, discussions
+- [x] Create SectionDetailPanel with section info, tasks list, progress, AI tools, discussions
+- [x] Replace empty "welcome" screen with actual detail panels when block/section selected
+- [x] Add quick actions and navigation between child entities
+- [x] Write tests for detail panels (27 tests)

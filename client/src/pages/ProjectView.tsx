@@ -76,6 +76,8 @@ import { type TaskInfo, type SectionInfo, type BlockInfo, type EntityType } from
 import { SmartTaskCreator } from '@/components/SmartTaskCreator';
 import { BreadcrumbNav } from '@/components/BreadcrumbNav';
 import { AIDependencySuggestions } from '@/components/AIDependencySuggestions';
+import { BlockDetailPanel } from '@/components/BlockDetailPanel';
+import { SectionDetailPanel } from '@/components/SectionDetailPanel';
 import { 
   SplitTaskDialog, 
   MergeTasksDialog, 
@@ -1779,44 +1781,151 @@ export default function ProjectView() {
               typingUsers={getTypingUsersForTask(selectedTask.id, user?.id)}
             />
           ) : selectedContext ? (
-            <div className="p-6">
-              {/* Breadcrumb Navigation */}
-              <BreadcrumbNav
-                items={(() => {
-                  const crumbs: { type: 'project' | 'block' | 'section' | 'task'; id: number; title: string }[] = [
-                    { type: 'project', id: projectId, title: project.name }
-                  ];
-                  if (selectedContext.type === 'block') {
-                    crumbs.push({ type: 'block', id: selectedContext.id, title: selectedContext.title });
-                  } else if (selectedContext.type === 'section') {
-                    const block = project.blocks?.find(b => b.sections?.some(s => s.id === selectedContext.id));
-                    if (block) crumbs.push({ type: 'block', id: block.id, title: block.titleRu || block.title });
-                    crumbs.push({ type: 'section', id: selectedContext.id, title: selectedContext.title });
-                  } else if (selectedContext.type === 'task') {
-                    for (const block of project.blocks || []) {
-                      for (const section of block.sections || []) {
-                        if (section.tasks?.some(t => t.id === selectedContext.id)) {
-                          crumbs.push({ type: 'block', id: block.id, title: block.titleRu || block.title });
-                          crumbs.push({ type: 'section', id: section.id, title: section.title });
-                          break;
-                        }
-                      }
+            <ScrollArea className="flex-1">
+            {selectedContext.type === 'block' && (() => {
+              const block = project.blocks?.find(b => b.id === selectedContext.id);
+              if (!block) return null;
+              return (
+                <BlockDetailPanel
+                  block={block}
+                  projectId={projectId}
+                  projectName={project.name}
+                  onSelectSection={(sectionId, sectionTitle) => {
+                    setSelectedContext({
+                      type: 'section',
+                      id: sectionId,
+                      title: sectionTitle,
+                      content: getContextContent('section', sectionId)
+                    });
+                    setSelectedTask(null);
+                  }}
+                  onSelectTask={(taskId, taskTitle, sectionId) => {
+                    const task = block.sections?.flatMap(s => s.tasks || []).find(t => t.id === taskId);
+                    if (task) {
+                      setSelectedTask({ ...task, sectionId } as any);
+                      setSelectedContext({
+                        type: 'task',
+                        id: taskId,
+                        title: taskTitle,
+                        content: getContextContent('task', taskId)
+                      });
                     }
-                    crumbs.push({ type: 'task', id: selectedContext.id, title: selectedContext.title });
-                  }
-                  return crumbs;
-                })()}
-                onNavigate={(item) => {
-                  setSelectedContext({
-                    type: item.type,
-                    id: item.id,
-                    title: item.title,
-                    content: getContextContent(item.type, item.id)
-                  });
-                  if (item.type !== 'task') setSelectedTask(null);
-                }}
-                className="mb-3"
-              />
+                  }}
+                  onCreateSection={(blockId) => {
+                    setTargetBlockId(blockId);
+                    setCreateSectionOpen(true);
+                  }}
+                  onNavigate={(item) => {
+                    setSelectedContext({
+                      type: item.type,
+                      id: item.id,
+                      title: item.title,
+                      content: getContextContent(item.type, item.id)
+                    });
+                    if (item.type !== 'task') setSelectedTask(null);
+                  }}
+                  onMarkRead={(entityType, entityId) => {
+                    markReadMutation.mutate({ entityType: entityType as any, entityId });
+                  }}
+                />
+              );
+            })()}
+
+            {selectedContext.type === 'section' && (() => {
+              const block = project.blocks?.find(b => b.sections?.some(s => s.id === selectedContext.id));
+              const section = block?.sections?.find(s => s.id === selectedContext.id);
+              if (!block || !section) return null;
+              return (
+                <SectionDetailPanel
+                  section={{ ...section, blockId: block.id }}
+                  blockTitle={block.titleRu || block.title}
+                  blockId={block.id}
+                  projectId={projectId}
+                  projectName={project.name}
+                  onSelectTask={(task, sectionId) => {
+                    setSelectedTask({ ...task, sectionId } as any);
+                    setSelectedContext({
+                      type: 'task',
+                      id: task.id,
+                      title: task.title,
+                      content: getContextContent('task', task.id)
+                    });
+                  }}
+                  onCreateTask={(sectionId) => {
+                    setTargetSectionId(sectionId);
+                    setCreateTaskOpen(true);
+                  }}
+                  onNavigate={(item) => {
+                    setSelectedContext({
+                      type: item.type,
+                      id: item.id,
+                      title: item.title,
+                      content: getContextContent(item.type, item.id)
+                    });
+                    if (item.type !== 'task') setSelectedTask(null);
+                  }}
+                  onMarkRead={(entityType, entityId) => {
+                    markReadMutation.mutate({ entityType: entityType as any, entityId });
+                  }}
+                  onDeleteTask={(taskId) => {
+                    deleteTask.mutate({ id: taskId });
+                  }}
+                  onDuplicateTask={(taskId) => {
+                    duplicateTask.mutate({ taskId });
+                  }}
+                  onSplitTask={(task, sectionId) => {
+                    setSelectedTaskForAction({ id: task.id, title: task.title, sectionId, status: task.status || 'not_started' });
+                    setSplitTaskOpen(true);
+                  }}
+                  onConvertTaskToSection={(task, sectionId) => {
+                    setSelectedTaskForAction({ id: task.id, title: task.title, sectionId, status: task.status || 'not_started' });
+                    setConvertToSectionOpen(true);
+                  }}
+                  onMergeTasks={(sectionId) => {
+                    const sec = project.blocks.flatMap(b => b.sections).find(s => s.id === sectionId);
+                    if (sec) {
+                      setSelectedSectionForAction({
+                        id: sec.id,
+                        title: sec.title,
+                        blockId: block.id,
+                        tasks: sec.tasks || []
+                      });
+                      setMergeTasksOpen(true);
+                    }
+                  }}
+                  onConvertSectionToTask={(sectionId) => {
+                    const sec = project.blocks.flatMap(b => b.sections).find(s => s.id === sectionId);
+                    if (sec) {
+                      setSelectedSectionForAction({
+                        id: sec.id,
+                        title: sec.title,
+                        blockId: block.id,
+                        tasks: sec.tasks || []
+                      });
+                      setConvertToTaskOpen(true);
+                    }
+                  }}
+                  selectionMode={selectionMode}
+                  selectedTaskIds={selectedTaskIds}
+                  onToggleSelectionMode={() => {
+                    setSelectionMode(!selectionMode);
+                    if (selectionMode) setSelectedTaskIds([]);
+                  }}
+                  onToggleTaskSelection={(taskId) => {
+                    setSelectedTaskIds(prev =>
+                      prev.includes(taskId)
+                        ? prev.filter(id => id !== taskId)
+                        : [...prev, taskId]
+                    );
+                  }}
+                  onBulkActions={() => setBulkActionsOpen(true)}
+                />
+              );
+            })()}
+
+            {/* Fallback for project-level or other context types */}
+            {selectedContext.type !== 'block' && selectedContext.type !== 'section' && (
+            <div className="p-6">
               <h2 className="text-xl font-semibold text-white mb-2">{selectedContext.title}</h2>
               
               {/* Quick Action Buttons for all entity types */}
@@ -1876,234 +1985,9 @@ export default function ProjectView() {
                 </div>
               )}
 
-              {/* Discussion Panel */}
-              {discussionEntity?.type === selectedContext.type && discussionEntity?.id === selectedContext.id && (
-                <div className="mb-4">
-                  <DiscussionPanel
-                    entityType={discussionEntity.type}
-                    entityId={discussionEntity.id}
-                    entityTitle={discussionEntity.title}
-                    projectId={projectId}
-                  />
-                </div>
-              )}
-              
-              {/* Section Action Buttons */}
-              {selectedContext.type === 'section' && (
-                <div className="flex flex-wrap gap-2 mb-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-slate-600 text-slate-300"
-                    onClick={() => {
-                      const section = project.blocks
-                        .flatMap(b => b.sections)
-                        .find(s => s.id === selectedContext.id);
-                      if (section) {
-                        setSelectedSectionForAction({
-                          id: section.id,
-                          title: section.title,
-                          blockId: project.blocks.find(b => b.sections.some(s => s.id === section.id))?.id || 0,
-                          tasks: section.tasks || []
-                        });
-                        setMergeTasksOpen(true);
-                      }
-                    }}
-                  >
-                    <Merge className="w-4 h-4 mr-2 text-emerald-400" />
-                    Объединить задачи
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "border-slate-600",
-                      selectionMode ? "bg-amber-500/20 text-amber-400 border-amber-500" : "text-slate-300"
-                    )}
-                    onClick={() => {
-                      setSelectionMode(!selectionMode);
-                      if (selectionMode) {
-                        setSelectedTaskIds([]);
-                      }
-                    }}
-                  >
-                    <CheckSquare className="w-4 h-4 mr-2" />
-                    {selectionMode ? 'Отменить выбор' : 'Выбрать задачи'}
-                  </Button>
-                  {selectedTaskIds.length > 0 && (
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="bg-amber-500 hover:bg-amber-600 text-slate-900"
-                      onClick={() => setBulkActionsOpen(true)}
-                    >
-                      Действия ({selectedTaskIds.length})
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-slate-600 text-slate-300"
-                    onClick={() => {
-                      const section = project.blocks
-                        .flatMap(b => b.sections)
-                        .find(s => s.id === selectedContext.id);
-                      if (section) {
-                        const block = project.blocks.find(b => b.sections.some(s => s.id === section.id));
-                        setSelectedSectionForAction({
-                          id: section.id,
-                          title: section.title,
-                          blockId: block?.id || 0,
-                          tasks: section.tasks || []
-                        });
-                        setConvertToTaskOpen(true);
-                      }
-                    }}
-                  >
-                    <ArrowDownCircle className="w-4 h-4 mr-2 text-purple-400" />
-                    Преобразовать в задачу
-                  </Button>
-                </div>
-              )}
-              
-              {/* Show tasks for selected section */}
-              {selectedContext.type === 'section' && (
-                <div className="space-y-2">
-                  {project.blocks?.map(block => 
-                    block.sections?.map(section => {
-                      if (section.id !== selectedContext.id) return null;
-                      return (
-                        <div key={section.id}>
-                          {section.tasks && section.tasks.length > 0 ? (
-                            section.tasks.map(task => (
-                              <Card 
-                                key={task.id} 
-                                className="bg-slate-800/50 border-slate-700 hover:border-slate-600 cursor-pointer mb-2"
-                                onClick={() => {
-                                  if (selectionMode) {
-                                    setSelectedTaskIds(prev => 
-                                      prev.includes(task.id) 
-                                        ? prev.filter(id => id !== task.id)
-                                        : [...prev, task.id]
-                                    );
-                                  } else {
-                                    setSelectedTask({
-                                      ...task,
-                                      sectionId: section.id
-                                    });
-                                    setSelectedContext({
-                                      type: 'task',
-                                      id: task.id,
-                                      title: task.title,
-                                      content: getContextContent('task', task.id)
-                                    });
-                                  }
-                                }}
-                              >
-                                <CardContent className="py-3 px-4 flex items-center gap-3">
-                                  {selectionMode && (
-                                    <Checkbox
-                                      checked={selectedTaskIds.includes(task.id)}
-                                      onCheckedChange={() => {
-                                        setSelectedTaskIds(prev => 
-                                          prev.includes(task.id) 
-                                            ? prev.filter(id => id !== task.id)
-                                            : [...prev, task.id]
-                                        );
-                                      }}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="border-slate-500"
-                                    />
-                                  )}
-                                  {task.status === 'completed' ? (
-                                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                                  ) : task.status === 'in_progress' ? (
-                                    <Clock className="w-5 h-5 text-amber-500" />
-                                  ) : (
-                                    <Circle className="w-5 h-5 text-slate-500" />
-                                  )}
-                                  <span className="text-slate-300 flex-1">{task.title}</span>
-                                  
-                                  {/* Task Actions Dropdown */}
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                      <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-white">
-                                        <MoreVertical className="w-4 h-4" />
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-                                      <DropdownMenuItem 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedTaskForAction({ ...task, sectionId: section.id, status: task.status || 'not_started' });
-                                          setSplitTaskOpen(true);
-                                        }}
-                                        className="text-slate-300 focus:text-white focus:bg-slate-700"
-                                      >
-                                        <Split className="w-4 h-4 mr-2 text-amber-400" />
-                                        Разделить на подзадачи
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          duplicateTask.mutate({ taskId: task.id });
-                                        }}
-                                        className="text-slate-300 focus:text-white focus:bg-slate-700"
-                                      >
-                                        <CopyPlus className="w-4 h-4 mr-2 text-blue-400" />
-                                        Дублировать
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedTaskForAction({ ...task, sectionId: section.id, status: task.status || 'not_started' });
-                                          setConvertToSectionOpen(true);
-                                        }}
-                                        className="text-slate-300 focus:text-white focus:bg-slate-700"
-                                      >
-                                        <ArrowUpCircle className="w-4 h-4 mr-2 text-purple-400" />
-                                        Преобразовать в раздел
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator className="bg-slate-700" />
-                                      <DropdownMenuItem 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (confirm('Удалить задачу?')) {
-                                            deleteTask.mutate({ id: task.id });
-                                          }
-                                        }}
-                                        className="text-red-400 focus:text-red-300 focus:bg-slate-700"
-                                      >
-                                        <Trash2 className="w-4 h-4 mr-2" />
-                                        Удалить
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </CardContent>
-                              </Card>
-                            ))
-                          ) : (
-                            <p className="text-slate-500 text-sm">Нет задач в этом разделе</p>
-                          )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-2 border-slate-600 text-slate-400"
-                            onClick={() => {
-                              setTargetSectionId(section.id);
-                              setCreateTaskOpen(true);
-                            }}
-                          >
-                            <Plus className="w-4 h-4 mr-2" />
-                            Добавить задачу
-                          </Button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              )}
             </div>
+            )}
+            </ScrollArea>
           ) : (
             <div className="flex-1 flex items-center justify-center text-slate-500">
               <div className="text-center">
