@@ -47,6 +47,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
 import { ModelSelector } from '@/components/ModelSelector';
+import { ModelComparison } from '@/components/ModelComparison';
 
 type TaskType = 'chat' | 'reasoning' | 'coding' | 'vision' | 'translation' | 'summarization' | 'creative';
 
@@ -82,6 +83,7 @@ export default function AIChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [selectedModel, setSelectedModel] = useState<string>('');
+  const [comparisonMode, setComparisonMode] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -543,6 +545,16 @@ export default function AIChatPage() {
             </SelectContent>
           </Select>
 
+          <Button
+            variant={comparisonMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => setComparisonMode(!comparisonMode)}
+            className="gap-1"
+          >
+            <BarChart3 className="w-4 h-4" />
+            Сравнить
+          </Button>
+
           {cacheStats && (
             <Badge variant="outline" className="gap-1">
               <Database className="w-3 h-3" />
@@ -557,7 +569,12 @@ export default function AIChatPage() {
           </Link>
         </div>
 
-        {/* Messages Area */}
+        {/* Messages Area or Comparison Mode */}
+        {comparisonMode ? (
+          <div className="flex-1 p-4 overflow-auto">
+            <ModelComparison />
+          </div>
+        ) : (
         <ScrollArea className="flex-1 p-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center gap-4">
@@ -657,6 +674,7 @@ export default function AIChatPage() {
             </div>
           )}
         </ScrollArea>
+        )}
 
         {/* Input Area */}
         <div className="p-4 border-t border-border bg-card">

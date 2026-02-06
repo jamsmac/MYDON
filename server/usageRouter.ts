@@ -289,6 +289,193 @@ export const usageRouter = router({
       };
     }),
 
+  // Compare multiple AI models with the same prompt
+  compareModels: protectedProcedure
+    .input(z.object({
+      prompt: z.string().min(1),
+      modelIds: z.array(z.number()).min(2).max(4),
+      systemPrompt: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database not available');
+      
+      // Get selected models with pricing
+      const models = await db
+        .select()
+        .from(modelPricing)
+        .where(
+          sql`${modelPricing.id} IN (${sql.join(input.modelIds.map(id => sql`${id}`), sql`, `)})`
+        );
+
+      if (models.length === 0) {
+        throw new Error('No valid models selected');
+      }
+
+      // Check user credits
+      const credits = await db.select().from(userCredits).where(eq(userCredits.userId, ctx.user.id)).limit(1).then(r => r[0]);
+      const totalEstimatedCost = models.reduce((sum, m) => sum + (parseFloat(m.inputCostPer1K) || 1), 0);
+      
+      if (!credits?.useBYOK && (credits?.credits || 0) < totalEstimatedCost) {
+        throw new Error(`Insufficient credits. Need ${totalEstimatedCost}, have ${credits?.credits || 0}`);
+      }
+
+      // Call all models in parallel
+      const results = await Promise.allSettled(
+        models.map(async (model) => {
+          const startTime = Date.now();
+          try {
+            // Use the built-in LLM API with model specification
+            const { invokeLLM } = await import('./_core/llm');
+            const response = await invokeLLM({
+              messages: [
+                ...(input.systemPrompt ? [{ role: 'system' as const, content: input.systemPrompt }] : []),
+                { role: 'user' as const, content: input.prompt },
+              ],
+            });
+
+            const endTime = Date.now();
+            const responseTime = endTime - startTime;
+            const content = response.choices[0]?.message?.content || '';
+            const tokensUsed = response.usage?.total_tokens || 0;
+
+            // Log the request
+            await db.insert(aiRequestLogs).values({
+              userId: ctx.user.id,
+              requestType: 'chat',
+              model: model.modelName,
+              provider: model.provider,
+              tokensUsed,
+              creditsCost: parseFloat(model.inputCostPer1K) || 1,
+              status: 'success',
+              responseTimeMs: responseTime,
+            });
+
+            // Deduct credits if not BYOK
+            if (!credits?.useBYOK) {
+              await db.update(userCredits)
+                .set({
+                  credits: sql`${userCredits.credits} - ${parseFloat(model.inputCostPer1K) || 1}`,
+                  totalSpent: sql`${userCredits.totalSpent} + ${parseFloat(model.inputCostPer1K) || 1}`,
+                })
+                .where(eq(userCredits.userId, ctx.user.id));
+            }
+
+            return {
+              modelId: model.id,
+              modelName: model.modelName,
+              provider: model.provider,
+              response: typeof content === 'string' ? content : JSON.stringify(content),
+              tokensUsed,
+              cost: parseFloat(model.inputCostPer1K) || 1,
+              responseTimeMs: responseTime,
+              status: 'success' as const,
+            };
+          } catch (error) {
+            const endTime = Date.now();
+            const responseTime = endTime - startTime;
+
+            // Log failed request
+            await db.insert(aiRequestLogs).values({
+              userId: ctx.user.id,
+              requestType: 'chat',
+              model: model.modelName,
+              provider: model.provider,
+              tokensUsed: 0,
+              creditsCost: 0,
+              status: 'error',
+              responseTimeMs: responseTime,
+              errorMessage: error instanceof Error ? error.message : 'Unknown error',
+            });
+
+            return {
+              modelId: model.id,
+              modelName: model.modelName,
+              provider: model.provider,
+              response: '',
+              tokensUsed: 0,
+              cost: 0,
+              responseTimeMs: responseTime,
+              status: 'error' as const,
+              error: error instanceof Error ? error.message : 'Unknown error',
+            };
+          }
+        })
+      );
+
+      // Process results
+      const processedResults = results.map((result, index) => {
+        if (result.status === 'fulfilled') {
+          return result.value;
+        } else {
+          return {
+            modelId: models[index].id,
+            modelName: models[index].modelName,
+            provider: models[index].provider,
+            response: '',
+            tokensUsed: 0,
+            cost: 0,
+            responseTimeMs: 0,
+            status: 'error' as const,
+            error: result.reason?.message || 'Unknown error',
+          };
+        }
+      });
+
+      // Log activity
+      await db.insert(activityLog).values({
+        userId: ctx.user.id,
+        action: 'ai_comparison' as any,
+        entityType: 'ai' as any,
+        entityTitle: `Compared ${models.length} models`,
+        metadata: {
+          models: models.map(m => m.modelName),
+          prompt: input.prompt.substring(0, 100),
+        },
+      });
+
+      return {
+        prompt: input.prompt,
+        results: processedResults,
+        totalCost: processedResults.reduce((sum, r) => sum + r.cost, 0),
+        totalTokens: processedResults.reduce((sum, r) => sum + r.tokensUsed, 0),
+      };
+    }),
+
+  // Get estimated cost for model comparison
+  getComparisonCost: protectedProcedure
+    .input(z.object({
+      modelIds: z.array(z.number()).min(1),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database not available');
+      
+      const models = await db
+        .select({
+          id: modelPricing.id,
+          modelName: modelPricing.modelName,
+          provider: modelPricing.provider,
+          inputCostPer1K: modelPricing.inputCostPer1K,
+        })
+        .from(modelPricing)
+        .where(
+          sql`${modelPricing.id} IN (${sql.join(input.modelIds.map(id => sql`${id}`), sql`, `)})`
+        );
+
+      const totalCost = models.reduce((sum, m) => sum + (parseFloat(m.inputCostPer1K) || 1), 0);
+
+      return {
+        models: models.map(m => ({
+          id: m.id,
+          name: m.modelName,
+          provider: m.provider,
+          cost: parseFloat(m.inputCostPer1K) || 1,
+        })),
+        totalCost,
+      };
+    }),
+
   // Log an activity
   logActivity: protectedProcedure
     .input(z.object({

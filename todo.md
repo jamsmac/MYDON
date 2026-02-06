@@ -1787,3 +1787,21 @@
 - [x] Make stat cards clickable with navigation
 - [x] Add "Credits" card linking to /usage
 - [x] Add "AI Decisions" card linking to /decisions
+
+
+## Phase 81: AI Model Comparison Feature
+
+### Backend
+- [x] Create compareModels procedure in usageRouter
+- [x] Send same prompt to multiple models in parallel
+- [x] Return responses with model info, tokens, cost, response time
+- [x] Log all comparison requests in AI logs
+
+### Frontend
+- [x] Create ModelComparison component with side-by-side layout
+- [x] Model selection checkboxes (select 2-4 models to compare)
+- [x] Display responses in columns with model name, cost, time
+- [x] Highlight differences in responses
+- [x] Add "Compare Mode" toggle button in AI Chat
+- [x] Show total cost before sending comparison request
+
