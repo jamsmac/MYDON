@@ -1741,3 +1741,12 @@
 - [x] Create "Избранное" section at top of sidebar
 - [x] Show favorited pages in the favorites section
 - [x] Visual feedback for starred items (filled vs outline star)
+
+
+## Phase 79: Favorites Drag-and-Drop Reordering
+
+- [x] Install @dnd-kit/core and @dnd-kit/sortable libraries
+- [x] Implement sortable favorites list with drag handles
+- [x] Save reordered favorites to localStorage
+- [x] Visual feedback during drag (opacity, shadow)
+- [x] Keyboard accessibility for reordering

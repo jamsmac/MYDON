@@ -1,6 +1,6 @@
 /**
  * AdminLayout - Sidebar navigation for admin panel
- * Collapsible sidebar with grouped menu items and favorites
+ * Collapsible sidebar with grouped menu items and draggable favorites
  */
 
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -57,6 +57,7 @@ import {
   ChevronDown,
   ChevronRight,
   Star,
+  GripVertical,
   LucideIcon
 } from "lucide-react";
 import { CSSProperties, useState, ReactNode, useCallback, useEffect } from "react";
@@ -70,6 +71,23 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { AdminBreadcrumbs } from "@/components/admin/AdminBreadcrumbs";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface MenuItem {
   icon: LucideIcon;
@@ -222,6 +240,64 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   );
 }
 
+// Sortable favorite item component
+interface SortableFavoriteItemProps {
+  item: MenuItem;
+  isActive: boolean;
+  onNavigate: (path: string) => void;
+  onToggleFavorite: (path: string, e: React.MouseEvent) => void;
+}
+
+function SortableFavoriteItem({ item, isActive, onNavigate, onToggleFavorite }: SortableFavoriteItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.path });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <SidebarMenuItem ref={setNodeRef} style={style}>
+      <SidebarMenuButton
+        isActive={isActive}
+        onClick={() => onNavigate(item.path)}
+        tooltip={item.label}
+        className={cn(
+          "h-9 transition-all font-normal group/item",
+          isActive && "bg-amber-500/10 text-amber-400 border-l-2 border-amber-400",
+          isDragging && "opacity-50 shadow-lg bg-accent"
+        )}
+      >
+        {/* Drag handle */}
+        <button
+          {...attributes}
+          {...listeners}
+          className="h-5 w-5 flex items-center justify-center rounded cursor-grab active:cursor-grabbing hover:bg-accent/50 -ml-1 mr-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-3 w-3 text-muted-foreground" />
+        </button>
+        <item.icon className={cn("h-4 w-4 shrink-0", isActive && "text-amber-400")} />
+        <span className="flex-1 truncate">{item.label}</span>
+        <button
+          onClick={(e) => onToggleFavorite(item.path, e)}
+          className="h-5 w-5 flex items-center justify-center rounded opacity-100 hover:bg-accent"
+          title="Убрать из избранного"
+        >
+          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+        </button>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 function AdminLayoutContent({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
@@ -255,7 +331,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
 
   const isFavorite = useCallback((path: string) => favorites.includes(path), [favorites]);
 
-  // Get favorite items
+  // Get favorite items in order
   const favoriteItems = favorites
     .map(path => allMenuItems.find(item => item.path === path))
     .filter((item): item is MenuItem => item !== undefined);
@@ -280,6 +356,31 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
   // Find active menu item
   const activeItem = allMenuItems
     .find(item => location === item.path || location.startsWith(item.path + "/"));
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id) {
+      setFavorites((items) => {
+        const oldIndex = items.indexOf(active.id as string);
+        const newIndex = items.indexOf(over.id as string);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  }, []);
 
   // Render a menu item with star icon
   const renderMenuItem = (item: MenuItem, showStar: boolean = true) => {
@@ -345,7 +446,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
         </SidebarHeader>
 
         <SidebarContent className="gap-0 overflow-y-auto">
-          {/* Favorites section - only show if there are favorites */}
+          {/* Favorites section with drag-and-drop - only show if there are favorites */}
           {favoriteItems.length > 0 && (
             <SidebarGroup className="py-1">
               {!isCollapsed ? (
@@ -353,11 +454,34 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
                   <SidebarGroupLabel className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-amber-400/80 uppercase tracking-wider">
                     <Star className="h-3 w-3 fill-amber-400" />
                     <span>Избранное</span>
+                    <span className="text-[10px] text-muted-foreground ml-auto">(перетащите для сортировки)</span>
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
-                    <SidebarMenu className="px-1">
-                      {favoriteItems.map(item => renderMenuItem(item, true))}
-                    </SidebarMenu>
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <SortableContext
+                        items={favorites}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <SidebarMenu className="px-1">
+                          {favoriteItems.map(item => {
+                            const isActive = location === item.path || location.startsWith(item.path + "/");
+                            return (
+                              <SortableFavoriteItem
+                                key={item.path}
+                                item={item}
+                                isActive={isActive}
+                                onNavigate={setLocation}
+                                onToggleFavorite={toggleFavorite}
+                              />
+                            );
+                          })}
+                        </SidebarMenu>
+                      </SortableContext>
+                    </DndContext>
                   </SidebarGroupContent>
                 </>
               ) : (
