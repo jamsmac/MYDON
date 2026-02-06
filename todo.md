@@ -2234,3 +2234,4 @@
 - [x] Wire Stripe routes in App.tsx
 - [x] Write vitest tests for Stripe integration (24 tests)
 - [x] Push database migrations
+- [x] Add CreditCard icon with link to /payments in Dashboard header navigation (emerald color, next to Settings)

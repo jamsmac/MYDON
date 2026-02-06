@@ -23,7 +23,8 @@ import {
   Trophy,
   Bot,
   Brain,
-  Shield
+  Shield,
+  CreditCard
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
@@ -281,6 +282,11 @@ export default function Dashboard() {
                 </Button>
               </Link>
             )}
+            <Link href="/payments">
+              <Button variant="ghost" size="icon" className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10" title="Биллинг">
+                <CreditCard className="w-5 h-5" />
+              </Button>
+            </Link>
             <Link href="/settings">
               <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
                 <Settings className="w-5 h-5" />
