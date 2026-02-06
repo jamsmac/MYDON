@@ -2562,3 +2562,18 @@ export interface SavedViewConfig {
 
 export type SavedView = typeof savedViews.$inferSelect;
 export type InsertSavedView = typeof savedViews.$inferInsert;
+
+
+/**
+ * Discussion Read Status - tracks when a user last read discussions for an entity
+ */
+export const discussionReadStatus = mysqlTable("discussion_read_status", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  entityType: mysqlEnum("entityType", ["project", "block", "section", "task"]).notNull(),
+  entityId: int("entityId").notNull(),
+  lastReadAt: timestamp("lastReadAt").defaultNow().notNull(),
+});
+
+export type DiscussionReadStatus = typeof discussionReadStatus.$inferSelect;
+export type InsertDiscussionReadStatus = typeof discussionReadStatus.$inferInsert;

@@ -2282,10 +2282,18 @@
 
 ### UX Overhaul - Additional
 - [x] Breadcrumb navigation in right panel (project > block > section > task)
-- [ ] Unread discussion badge on blocks/sections
+- [x] Unread discussion badge on blocks/sections
 
 ### Subtask Templates
 - [x] Add quick subtask template buttons (Исследование, Анализ, Документация, Ревью, Тестирование)
 - [x] Each template creates a subtask with pre-filled title and optional description
 - [x] Integrate templates into SubtasksSection component
 - [x] Write tests for subtask templates
+
+### Unread Discussion Badges
+- [x] Create discussion_read_status table to track last read timestamp per user per entity
+- [x] Add backend endpoint to get unread discussion counts for blocks/sections
+- [x] Add backend endpoint to mark discussions as read
+- [x] Display unread count badges on blocks in sidebar
+- [x] Display unread count badges on sections in sidebar
+- [x] Write tests for unread discussion tracking

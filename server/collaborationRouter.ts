@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
-import { projectMembers, projectInvitations, taskComments, commentReactions, users, projects, blocks, sections, tasks } from "../drizzle/schema";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { projectMembers, projectInvitations, taskComments, commentReactions, users, projects, blocks, sections, tasks, discussionReadStatus } from "../drizzle/schema";
+import { eq, and, desc, inArray, gt, sql, count } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { invokeLLM } from "./_core/llm";
@@ -834,5 +834,127 @@ export const collaborationRouter = router({
       }
       
       return allUsers;
+    }),
+
+  // ============ UNREAD DISCUSSION TRACKING ============
+
+  // Get unread discussion counts for all blocks and sections in a project
+  getUnreadCounts: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+      const userId = ctx.user.id;
+
+      // Get all blocks for this project
+      const projectBlocks = await db.select({ id: blocks.id }).from(blocks).where(eq(blocks.projectId, input.projectId));
+      const blockIds = projectBlocks.map(b => b.id);
+
+      // Get all sections for these blocks
+      let sectionIds: number[] = [];
+      if (blockIds.length > 0) {
+        const projectSections = await db.select({ id: sections.id }).from(sections).where(inArray(sections.blockId, blockIds));
+        sectionIds = projectSections.map(s => s.id);
+      }
+
+      // Get all read statuses for this user
+      const readStatuses = await db.select().from(discussionReadStatus).where(
+        eq(discussionReadStatus.userId, userId)
+      );
+
+      const readStatusMap = new Map<string, Date>();
+      for (const rs of readStatuses) {
+        readStatusMap.set(`${rs.entityType}-${rs.entityId}`, rs.lastReadAt);
+      }
+
+      // Count unread comments for blocks
+      const blockUnreads: Record<number, number> = {};
+      for (const blockId of blockIds) {
+        const lastRead = readStatusMap.get(`block-${blockId}`);
+        let unreadCount: { count: number }[];
+        if (lastRead) {
+          unreadCount = await db.select({ count: count() }).from(taskComments).where(
+            and(
+              eq(taskComments.entityType, "block"),
+              eq(taskComments.entityId, blockId),
+              gt(taskComments.createdAt, lastRead)
+            )
+          );
+        } else {
+          unreadCount = await db.select({ count: count() }).from(taskComments).where(
+            and(
+              eq(taskComments.entityType, "block"),
+              eq(taskComments.entityId, blockId)
+            )
+          );
+        }
+        const c = unreadCount[0]?.count || 0;
+        if (c > 0) blockUnreads[blockId] = c;
+      }
+
+      // Count unread comments for sections
+      const sectionUnreads: Record<number, number> = {};
+      for (const sectionId of sectionIds) {
+        const lastRead = readStatusMap.get(`section-${sectionId}`);
+        let unreadCount: { count: number }[];
+        if (lastRead) {
+          unreadCount = await db.select({ count: count() }).from(taskComments).where(
+            and(
+              eq(taskComments.entityType, "section"),
+              eq(taskComments.entityId, sectionId),
+              gt(taskComments.createdAt, lastRead)
+            )
+          );
+        } else {
+          unreadCount = await db.select({ count: count() }).from(taskComments).where(
+            and(
+              eq(taskComments.entityType, "section"),
+              eq(taskComments.entityId, sectionId)
+            )
+          );
+        }
+        const c = unreadCount[0]?.count || 0;
+        if (c > 0) sectionUnreads[sectionId] = c;
+      }
+
+      return { blockUnreads, sectionUnreads };
+    }),
+
+  // Mark discussions as read for a specific entity
+  markDiscussionRead: protectedProcedure
+    .input(z.object({
+      entityType: z.enum(["project", "block", "section", "task"]),
+      entityId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+      const userId = ctx.user.id;
+
+      // Upsert: check if record exists
+      const existing = await db.select().from(discussionReadStatus).where(
+        and(
+          eq(discussionReadStatus.userId, userId),
+          eq(discussionReadStatus.entityType, input.entityType),
+          eq(discussionReadStatus.entityId, input.entityId)
+        )
+      ).limit(1);
+
+      if (existing.length > 0) {
+        await db.update(discussionReadStatus)
+          .set({ lastReadAt: new Date() })
+          .where(eq(discussionReadStatus.id, existing[0].id));
+      } else {
+        await db.insert(discussionReadStatus).values({
+          userId,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          lastReadAt: new Date(),
+        });
+      }
+
+      return { success: true };
     }),
 });

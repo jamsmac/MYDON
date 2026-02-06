@@ -122,6 +122,7 @@ interface DraggableSidebarProps {
   onUpdateBlockTitle?: (blockId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
   filteredTaskIds?: Set<number>;
+  unreadCounts?: { blockUnreads: Record<number, number>; sectionUnreads: Record<number, number> };
 }
 
 // Sortable Task Item
@@ -247,6 +248,7 @@ function SortableSection({
   onUpdateTitle,
   getContextContent,
   filteredTaskIds,
+  unreadCounts,
 }: {
   section: Section;
   blockId: number;
@@ -264,6 +266,7 @@ function SortableSection({
   onUpdateTitle?: (sectionId: number, newTitle: string) => void;
   getContextContent: (type: string, id: number) => string;
   filteredTaskIds?: Set<number>;
+  unreadCounts?: { blockUnreads: Record<number, number>; sectionUnreads: Record<number, number> };
 }) {
   const {
     attributes,
@@ -331,6 +334,11 @@ function SortableSection({
           <span className="text-slate-600">
             {section.tasks?.length || 0}
           </span>
+          {unreadCounts?.sectionUnreads?.[section.id] && unreadCounts.sectionUnreads[section.id] > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-blue-500 text-white animate-in fade-in">
+              {unreadCounts.sectionUnreads[section.id] > 99 ? '99+' : unreadCounts.sectionUnreads[section.id]}
+            </span>
+          )}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -519,6 +527,7 @@ export function DraggableSidebar({
   onUpdateBlockTitle,
   getContextContent,
   filteredTaskIds,
+  unreadCounts,
 }: DraggableSidebarProps) {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const [activeType, setActiveType] = useState<'task' | 'section' | 'block' | null>(null);
@@ -704,6 +713,11 @@ export function DraggableSidebar({
                   className="text-slate-300 flex-1 truncate"
                   disabled={!onUpdateBlockTitle}
                 />
+                {unreadCounts?.blockUnreads?.[block.id] && unreadCounts.blockUnreads[block.id] > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1 text-[10px] font-bold rounded-full bg-blue-500 text-white animate-in fade-in">
+                    {unreadCounts.blockUnreads[block.id] > 99 ? '99+' : unreadCounts.blockUnreads[block.id]}
+                  </span>
+                )}
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -796,6 +810,7 @@ export function DraggableSidebar({
                         onUpdateTitle={onUpdateSectionTitle}
                         getContextContent={getContextContent}
                         filteredTaskIds={filteredTaskIds}
+                        unreadCounts={unreadCounts}
                       />
                     ))
                   ) : (

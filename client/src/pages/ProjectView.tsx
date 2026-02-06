@@ -872,6 +872,15 @@ export default function ProjectView() {
     { enabled: isAuthenticated && projectId > 0 }
   );
 
+  // Unread discussion counts
+  const { data: unreadCounts, refetch: refetchUnread } = trpc.collaboration.getUnreadCounts.useQuery(
+    { projectId },
+    { enabled: isAuthenticated && projectId > 0, refetchInterval: 30000 }
+  );
+  const markReadMutation = trpc.collaboration.markDiscussionRead.useMutation({
+    onSuccess: () => refetchUnread(),
+  });
+
   // Set project context for AI chat
   const { setCurrentProject, clearProject } = useProjectContext();
   const { setProject: setAIChatProject, setTask: setAIChatTask, clearContext: clearAIChatContext } = useAIChatContext();
@@ -1608,6 +1617,7 @@ export default function ProjectView() {
                 }}
                 getContextContent={getContextContent}
                 filteredTaskIds={filteredTaskIds}
+                unreadCounts={unreadCounts}
               />
             ) : (
               <div className="text-center py-8 text-slate-500">
@@ -1759,6 +1769,8 @@ export default function ProjectView() {
                       setDiscussionEntity(null);
                     } else {
                       setDiscussionEntity({ type: selectedContext.type as any, id: selectedContext.id, title: selectedContext.title });
+                      // Mark as read when opening discussion
+                      markReadMutation.mutate({ entityType: selectedContext.type as any, entityId: selectedContext.id });
                     }
                   }}
                 >
