@@ -2235,3 +2235,4 @@
 - [x] Write vitest tests for Stripe integration (24 tests)
 - [x] Push database migrations
 - [x] Add CreditCard icon with link to /payments in Dashboard header navigation (emerald color, next to Settings)
+- [x] Enhance billing page: add plan features comparison, usage stats, subscription management portal, visual polish
