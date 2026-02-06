@@ -22,7 +22,8 @@ import {
   Sparkles,
   Trophy,
   Bot,
-  Brain
+  Brain,
+  Shield
 } from 'lucide-react';
 import { GanttChart } from '@/components/GanttChart';
 import { ImportDialog } from '@/components/ImportDialog';
@@ -266,6 +267,13 @@ export default function Dashboard() {
                 <Brain className="w-5 h-5" />
               </Button>
             </Link>
+            {user?.role === 'admin' && (
+              <Link href="/admin">
+                <Button variant="ghost" size="icon" className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10" title="Админ-панель">
+                  <Shield className="w-5 h-5" />
+                </Button>
+              </Link>
+            )}
             <Link href="/settings">
               <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
                 <Settings className="w-5 h-5" />

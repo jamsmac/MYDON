@@ -68,13 +68,14 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
-// Menu structure with groups
+// Menu structure with groups - consolidated for cleaner navigation
 const menuGroups = [
   {
     id: "overview",
     label: "Обзор",
     items: [
       { icon: LayoutDashboard, label: "Dashboard", path: "/admin" },
+      { icon: ScrollText, label: "Логи и аналитика", path: "/admin/logs" },
     ],
   },
   {
@@ -115,28 +116,15 @@ const menuGroups = [
     ],
   },
   {
-    id: "ui",
-    label: "Настройки UI",
+    id: "settings",
+    label: "Настройки",
     items: [
       { icon: Palette, label: "Брендинг", path: "/admin/branding" },
       { icon: Navigation, label: "Навбар", path: "/admin/navbar" },
       { icon: Languages, label: "Локализация", path: "/admin/localization" },
-    ],
-  },
-  {
-    id: "integrations",
-    label: "Интеграции",
-    items: [
       { icon: Webhook, label: "Webhooks", path: "/admin/webhooks" },
       { icon: Key, label: "API ключи", path: "/admin/api-keys" },
       { icon: Bell, label: "Уведомления", path: "/admin/notifications" },
-    ],
-  },
-  {
-    id: "logs",
-    label: "Логи",
-    items: [
-      { icon: ScrollText, label: "Логи и аналитика", path: "/admin/logs" },
     ],
   },
 ];
@@ -222,10 +210,14 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
   const isCollapsed = state === "collapsed";
   const isMobile = useIsMobile();
   
-  // Track which groups are expanded
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(
-    menuGroups.map(g => g.id) // All expanded by default
-  );
+  // Track which groups are expanded - only expand the group containing active item
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(() => {
+    // Find which group contains the current path
+    const activeGroup = menuGroups.find(g => 
+      g.items.some(item => location === item.path || location.startsWith(item.path + "/"))
+    );
+    return activeGroup ? [activeGroup.id] : ["overview"];
+  });
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => 
