@@ -2442,3 +2442,11 @@
 - [x] Integrate pull-to-refresh into Home page (refresh roadmap data)
 - [x] Add pull-to-refresh CSS animations (spinner, arrow rotation)
 - [x] Write vitest tests for pull-to-refresh logic
+
+## Swipe Navigation Between Sections
+- [x] Create useSwipeNavigation hook for horizontal swipe detection
+- [x] Integrate swipe navigation into ProjectView blocks list on mobile
+- [x] Integrate swipe navigation into ProjectView sections within a block
+- [x] Add visual swipe indicators (dots, arrows) showing current position
+- [x] Add slide transition animations when switching sections
+- [x] Write vitest tests for swipe navigation logic

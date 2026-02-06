@@ -612,3 +612,63 @@
     padding-top: env(safe-area-inset-top);
   }
 }
+
+/* Swipe navigation between sections/blocks */
+.swipe-container {
+  touch-action: pan-y;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.swipe-indicator-dot {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.swipe-indicator-dot.active {
+  background-color: #f59e0b;
+  width: 1.5rem;
+}
+
+/* Swipe edge glow effect */
+@keyframes swipeEdgeGlow {
+  0% { opacity: 0; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+
+.swipe-edge-left::before,
+.swipe-edge-right::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.swipe-edge-left::before {
+  left: 0;
+  background: linear-gradient(to right, rgba(245, 158, 11, 0.3), transparent);
+  animation: swipeEdgeGlow 0.6s ease-out;
+}
+
+.swipe-edge-right::after {
+  right: 0;
+  background: linear-gradient(to left, rgba(245, 158, 11, 0.3), transparent);
+  animation: swipeEdgeGlow 0.6s ease-out;
+}
+
+/* Swipe hint animation on first load */
+@keyframes swipeHint {
+  0% { transform: translateX(0); }
+  25% { transform: translateX(-20px); }
+  50% { transform: translateX(0); }
+  75% { transform: translateX(20px); }
+  100% { transform: translateX(0); }
+}
+
+.swipe-hint {
+  animation: swipeHint 1.5s ease-in-out 1s 1;
+}

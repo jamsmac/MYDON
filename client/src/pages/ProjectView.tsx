@@ -38,6 +38,8 @@ import {
 import { Link, useParams, useLocation } from 'wouter';
 import { PriorityBadge, PrioritySelector, type Priority } from '@/components/PriorityBadge';
 import { PullToRefresh } from '@/components/PullToRefresh';
+import { useSwipeNavigation } from '@/hooks/useSwipeNavigation';
+import { SwipeIndicator } from '@/components/SwipeIndicator';
 import { TaskDeadlineBadge, getTaskDeadlineStatus } from '@/components/TaskDeadlineBadge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
@@ -1450,6 +1452,74 @@ export default function ProjectView() {
     return '';
   };
 
+  const handleSwipeNavigate = useCallback((item: { id: number; title: string; type: string }, direction: 'left' | 'right') => {
+    const ctx = {
+      type: item.type as 'block' | 'section',
+      id: item.id,
+      title: item.title,
+      content: getContextContent(item.type, item.id),
+    };
+    setSelectedContext(ctx);
+    setSelectedTask(null);
+    setAIChatTask(null);
+    if (isMobile) {
+      setMobileShowDetail(true);
+    }
+  }, [getContextContent, isMobile]);
+
+  // Build flat navigation items for swipe: blocks, then sections within selected block
+  const swipeNavigationItems = useMemo(() => {
+    if (!project?.blocks) return [];
+    
+    // If viewing a section, navigate between sections within the same block
+    if (selectedContext?.type === 'section') {
+      const parentBlock = project.blocks.find(b => b.sections?.some(s => s.id === selectedContext.id));
+      if (parentBlock?.sections) {
+        return parentBlock.sections.map(s => ({
+          id: s.id,
+          title: s.title,
+          type: 'section' as const,
+        }));
+      }
+    }
+    
+    // If viewing a block, navigate between blocks
+    if (selectedContext?.type === 'block') {
+      return project.blocks.map(b => ({
+        id: b.id,
+        title: b.titleRu || b.title,
+        type: 'block' as const,
+      }));
+    }
+    
+    // Default: navigate between blocks
+    return project.blocks.map(b => ({
+      id: b.id,
+      title: b.titleRu || b.title,
+      type: 'block' as const,
+    }));
+  }, [project, selectedContext]);
+
+  const swipeCurrentIndex = useMemo(() => {
+    if (!selectedContext) return 0;
+    const idx = swipeNavigationItems.findIndex(item => item.id === selectedContext.id && item.type === selectedContext.type);
+    return idx >= 0 ? idx : 0;
+  }, [swipeNavigationItems, selectedContext]);
+
+  const {
+    swipeHandlers,
+    swipeOffset,
+    isAnimating,
+    canGoLeft: swipeCanGoNext,
+    canGoRight: swipeCanGoPrev,
+  } = useSwipeNavigation({
+    items: swipeNavigationItems,
+    currentIndex: swipeCurrentIndex,
+    onNavigate: handleSwipeNavigate,
+    enabled: isMobile && mobileShowDetail && !selectedTask,
+    threshold: 60,
+  });
+
   // Handle save AI response as note
   const handleSaveAsNote = (content: string) => {
     if (selectedTask) {
@@ -2114,7 +2184,29 @@ export default function ProjectView() {
       <PullToRefresh onRefresh={handlePullRefresh} className={cn("flex-1 flex flex-col min-w-0", isMobile && "pt-12")}>
       <main className="flex-1 flex min-w-0">
         {/* Task Detail or Welcome */}
-        <div className={cn("flex-1 flex flex-col min-w-0", isMobile && mobileShowDetail && "fixed inset-0 z-40 bg-slate-900 pt-12")}>
+        <div
+          className={cn("flex-1 flex flex-col min-w-0", isMobile && mobileShowDetail && "fixed inset-0 z-40 bg-slate-900 pt-12")}
+          {...(isMobile && mobileShowDetail && !selectedTask ? swipeHandlers : {})}
+        >
+          {/* Swipe indicator for mobile */}
+          {isMobile && mobileShowDetail && !selectedTask && selectedContext && swipeNavigationItems.length > 1 && (
+            <SwipeIndicator
+              currentIndex={swipeCurrentIndex}
+              totalItems={swipeNavigationItems.length}
+              canGoLeft={swipeCanGoNext}
+              canGoRight={swipeCanGoPrev}
+              labels={swipeNavigationItems.map(i => i.title)}
+              className="bg-slate-900/80 backdrop-blur-sm border-b border-slate-800 py-2"
+            />
+          )}
+          {/* Swipe transition wrapper */}
+          <div
+            style={{
+              transform: isMobile && mobileShowDetail && !selectedTask ? `translateX(${swipeOffset}px)` : undefined,
+              transition: isAnimating ? 'transform 0.2s ease-out' : undefined,
+            }}
+            className="flex-1 flex flex-col min-w-0"
+          >
           {selectedTask ? (
             <TaskDetailPanel
               task={selectedTask}
@@ -2387,6 +2479,7 @@ export default function ProjectView() {
               </div>
             </div>
           )}
+          </div>{/* close swipe transition wrapper */}
         </div>
 
         {/* AI Chat Panel removed - now contextual per task via TaskAIPanel */}
