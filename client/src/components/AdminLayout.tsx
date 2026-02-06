@@ -67,6 +67,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { AdminBreadcrumbs } from "@/components/admin/AdminBreadcrumbs";
 
 // Menu structure with groups - consolidated for cleaner navigation
 const menuGroups = [
@@ -380,7 +381,10 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
             </div>
           </div>
         )}
-        <main className="flex-1 p-6 bg-background/50">{children}</main>
+        <main className="flex-1 p-6 bg-background/50">
+          <AdminBreadcrumbs />
+          {children}
+        </main>
       </SidebarInset>
     </>
   );
