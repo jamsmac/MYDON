@@ -1,0 +1,25 @@
+DraggableSidebar Analysis:
+- Sections already have drag & drop within blocks (SortableSection + SortableContext)
+- Sections can be moved between blocks (onMoveSection)
+- Sections can be reordered within blocks (onReorderSections)
+- Tasks already have drag & drop within sections (SortableTask + SortableContext)
+- Tasks can be moved between sections (onMoveTask)
+
+What's MISSING:
+1. Block drag & drop - blocks cannot be reordered
+   - Need SortableBlock wrapper component
+   - Need block IDs in SortableContext
+   - Need onReorderBlocks callback prop
+   - Need reorderBlocks backend procedure
+   - Need drag handle on block headers
+   - Need BlockDragOverlay component
+
+2. Backend: Need reorderBlocks(projectId, blockIds) procedure
+
+Current block rendering (line 592-712):
+- blocks.map((block, index) => <div key={block.id}>...)
+- Block header has no drag handle
+- Need to wrap in SortableBlock component
+
+Props to add:
+- onReorderBlocks?: (projectId: number, blockIds: number[]) => void

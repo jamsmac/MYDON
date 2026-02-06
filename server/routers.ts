@@ -272,6 +272,15 @@ const blockRouter = router({
     .mutation(async ({ input }) => {
       return db.deleteBlock(input.id);
     }),
+
+  reorder: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      blockIds: z.array(z.number()),
+    }))
+    .mutation(async ({ input }) => {
+      return db.reorderBlocks(input.projectId, input.blockIds);
+    }),
 });
 
 // ============ SECTION ROUTER ============

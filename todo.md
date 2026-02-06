@@ -2192,3 +2192,26 @@
 
 ### Tests
 - [x] 22 new tests for Table View drag & drop (686 total)
+
+## Phase 99: Drag & Drop for Sections and Blocks
+
+### Sections within Blocks (already existed in DraggableSidebar)
+- [x] Drag handle on section headers (GripVertical, opacity on hover)
+- [x] DndContext + SortableContext for sections within each block
+- [x] Visual feedback during section drag (opacity 0.5, shadow)
+- [x] reorderSections backend procedure called on drop
+- [x] Toast notification on success/error
+
+### Blocks on Project Page
+- [x] Add SortableBlock component with drag handle (GripVertical)
+- [x] Wrap blocks in SortableContext with verticalListSortingStrategy
+- [x] Visual feedback during block drag (opacity 0.5, z-50)
+- [x] Add reorderBlocks backend procedure (block.reorder)
+- [x] Add reorderBlocks db helper with sequential sortOrder
+- [x] Persist block order to database
+- [x] BlockDragOverlay component for drag preview
+- [x] Wire onReorderBlocks callback in ProjectView
+- [x] Toast notification on success/error
+
+### Tests
+- [x] 54 new tests for block & section drag & drop (718 total)

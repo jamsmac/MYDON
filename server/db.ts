@@ -1704,6 +1704,19 @@ export async function reorderSections(blockId: number, sectionIds: number[]): Pr
   }
 }
 
+// Reorder blocks within a project
+export async function reorderBlocks(projectId: number, blockIds: number[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  for (let i = 0; i < blockIds.length; i++) {
+    await db
+      .update(blocks)
+      .set({ sortOrder: i, updatedAt: new Date() })
+      .where(and(eq(blocks.id, blockIds[i]), eq(blocks.projectId, projectId)));
+  }
+}
+
 
 // ============ PROJECT MEMBERS QUERIES ============
 

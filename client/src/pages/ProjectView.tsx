@@ -1039,6 +1039,13 @@ export default function ProjectView() {
     onError: (error) => toast.error('Ошибка переупорядочивания: ' + error.message)
   });
 
+  const reorderBlocks = trpc.block.reorder.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка переупорядочивания блоков: ' + error.message)
+  });
+
   const updateSection = trpc.section.update.useMutation({
     onSuccess: () => {
       refetch();
@@ -1558,6 +1565,9 @@ export default function ProjectView() {
                 }}
                 onReorderSections={(blockId, sectionIds) => {
                   reorderSections.mutate({ blockId, sectionIds });
+                }}
+                onReorderBlocks={(blockIds) => {
+                  reorderBlocks.mutate({ projectId: project.id, blockIds });
                 }}
                 onUpdateTaskTitle={(taskId, newTitle) => {
                   updateTask.mutate({ id: taskId, title: newTitle });

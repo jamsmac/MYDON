@@ -115,6 +115,7 @@ interface DraggableSidebarProps {
   onMoveSection: (sectionId: number, newBlockId: number, newSortOrder: number) => void;
   onReorderTasks?: (sectionId: number, taskIds: number[]) => void;
   onReorderSections?: (blockId: number, sectionIds: number[]) => void;
+  onReorderBlocks?: (blockIds: number[]) => void;
   onUpdateTaskTitle?: (taskId: number, newTitle: string) => void;
   onUpdateTaskDueDate?: (taskId: number, dueDate: Date | null) => void;
   onUpdateSectionTitle?: (sectionId: number, newTitle: string) => void;
@@ -401,6 +402,64 @@ function SortableSection({
   );
 }
 
+// Sortable Block Item
+function SortableBlock({
+  block,
+  header,
+  expandedContent,
+}: {
+  block: Block;
+  header: React.ReactNode;
+  expandedContent?: React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: `block-${block.id}`,
+    data: { type: 'block', block },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={cn("mb-1", isDragging && "z-50")}>
+      <div className="flex items-center group">
+        <button
+          {...attributes}
+          {...listeners}
+          className="p-1 text-slate-600 hover:text-slate-400 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity touch-none"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+        {header}
+      </div>
+      {expandedContent}
+    </div>
+  );
+}
+
+// Block Drag Overlay
+function BlockDragOverlay({ block, index }: { block: Block; index: number }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded bg-slate-700 text-white text-sm shadow-lg border border-amber-500">
+      <GripVertical className="w-4 h-4 text-amber-500" />
+      <span className="text-amber-500 font-mono text-xs">{String(index + 1).padStart(2, '0')}</span>
+      <span>{block.titleRu || block.title}</span>
+      <span className="text-slate-400 text-xs">({block.sections?.length || 0} разделов)</span>
+    </div>
+  );
+}
+
 // Drag Overlay Components
 function TaskDragOverlay({ task }: { task: Task }) {
   return (
@@ -446,6 +505,7 @@ export function DraggableSidebar({
   onMoveSection,
   onReorderTasks,
   onReorderSections,
+  onReorderBlocks,
   onUpdateTaskTitle,
   onUpdateTaskDueDate,
   onUpdateSectionTitle,
@@ -454,8 +514,8 @@ export function DraggableSidebar({
   filteredTaskIds,
 }: DraggableSidebarProps) {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
-  const [activeType, setActiveType] = useState<'task' | 'section' | null>(null);
-  const [activeItem, setActiveItem] = useState<Task | Section | null>(null);
+  const [activeType, setActiveType] = useState<'task' | 'section' | 'block' | null>(null);
+  const [activeItem, setActiveItem] = useState<Task | Section | Block | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -478,6 +538,9 @@ export function DraggableSidebar({
     } else if (data?.type === 'section') {
       setActiveType('section');
       setActiveItem(data.section);
+    } else if (data?.type === 'block') {
+      setActiveType('block');
+      setActiveItem(data.block);
     }
     setActiveId(active.id);
   };
@@ -542,6 +605,22 @@ export function DraggableSidebar({
       }
     }
 
+    // Handle block reordering
+    if (activeData?.type === 'block' && overData?.type === 'block' && onReorderBlocks) {
+      const activeBlockId = activeData.block.id;
+      const overBlockId = overData.block.id;
+      
+      if (activeBlockId !== overBlockId) {
+        const oldIndex = blocks.findIndex(b => b.id === activeBlockId);
+        const newIndex = blocks.findIndex(b => b.id === overBlockId);
+        
+        if (oldIndex !== -1 && newIndex !== -1) {
+          const newOrder = arrayMove(blocks, oldIndex, newIndex);
+          onReorderBlocks(newOrder.map(b => b.id));
+        }
+      }
+    }
+
     // Handle section movement
     if (activeData?.type === 'section' && overData) {
       const sectionId = activeData.section.id;
@@ -575,6 +654,12 @@ export function DraggableSidebar({
     setActiveItem(null);
   };
 
+  // Get all block IDs for sortable context
+  const allBlockIds = useMemo(() =>
+    blocks.map(b => `block-${b.id}`),
+    [blocks]
+  );
+
   // Get all section IDs for sortable context
   const allSectionIds = useMemo(() => 
     blocks.flatMap(b => b.sections?.map(s => `section-${s.id}`) || []),
@@ -589,13 +674,14 @@ export function DraggableSidebar({
       onDragEnd={handleDragEnd}
     >
       <div className="p-2">
+        <SortableContext items={allBlockIds} strategy={verticalListSortingStrategy}>
         {blocks.map((block, index) => (
-          <div key={block.id} className="mb-1">
-            {/* Block Header */}
-            <div className="flex items-center group">
+          <SortableBlock key={block.id} block={block}
+            header={
+            <div className="flex-1 flex items-center">
               <div
                 onClick={() => onToggleBlock(block.id)}
-                className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left hover:bg-slate-800 transition-colors cursor-pointer"
+                className="flex-1 flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-left hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 {expandedBlocks.has(block.id) ? (
                   <ChevronDown className="w-4 h-4 text-slate-500" />
@@ -641,9 +727,9 @@ export function DraggableSidebar({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            
-            {/* Expanded Block Content */}
-            {expandedBlocks.has(block.id) && (
+            }
+            expandedContent={
+            expandedBlocks.has(block.id) ? (
               <div className="ml-6 pl-4 border-l border-slate-700">
                 {/* Block AI Chat */}
                 <button
@@ -707,9 +793,11 @@ export function DraggableSidebar({
                   Добавить раздел
                 </button>
               </div>
-            )}
-          </div>
+            ) : undefined
+            }
+          />
         ))}
+        </SortableContext>
       </div>
 
       {/* Drag Overlay */}
@@ -719,6 +807,9 @@ export function DraggableSidebar({
         )}
         {activeId && activeType === 'section' && activeItem && (
           <SectionDragOverlay section={activeItem as Section} />
+        )}
+        {activeId && activeType === 'block' && activeItem && (
+          <BlockDragOverlay block={activeItem as Block} index={blocks.findIndex(b => b.id === (activeItem as Block).id)} />
         )}
       </DragOverlay>
     </DndContext>
