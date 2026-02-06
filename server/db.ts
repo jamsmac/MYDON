@@ -22,7 +22,8 @@ import {
   activityLog, InsertActivityLog, ActivityLog,
   taskDependencies, InsertTaskDependency, TaskDependency,
   customFields, InsertCustomField, CustomField,
-  customFieldValues, InsertCustomFieldValue, CustomFieldValue
+  customFieldValues, InsertCustomFieldValue, CustomFieldValue,
+  savedViews, InsertSavedView, SavedView, SavedViewConfig
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -2340,4 +2341,64 @@ export async function getCustomFieldValuesForProject(projectId: number): Promise
   }
   
   return { fields, values };
+}
+
+
+// ============ SAVED VIEWS ============
+
+export async function getSavedViewsByProject(projectId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select()
+    .from(savedViews)
+    .where(and(eq(savedViews.projectId, projectId), eq(savedViews.userId, userId)))
+    .orderBy(asc(savedViews.sortOrder));
+}
+
+export async function getSavedViewById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const results = await db.select()
+    .from(savedViews)
+    .where(eq(savedViews.id, id));
+  return results[0] || null;
+}
+
+export async function createSavedView(view: InsertSavedView) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  const result = await db.insert(savedViews).values(view);
+  return { id: result[0].insertId, ...view };
+}
+
+export async function updateSavedView(id: number, updates: Partial<InsertSavedView>) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  await db.update(savedViews)
+    .set(updates)
+    .where(eq(savedViews.id, id));
+  return getSavedViewById(id);
+}
+
+export async function deleteSavedView(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  await db.delete(savedViews).where(eq(savedViews.id, id));
+  return { deleted: true };
+}
+
+export async function setDefaultSavedView(id: number, projectId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  // Clear existing defaults for this project/user
+  await db.update(savedViews)
+    .set({ isDefault: false })
+    .where(and(eq(savedViews.projectId, projectId), eq(savedViews.userId, userId)));
+  // Set the new default
+  if (id > 0) {
+    await db.update(savedViews)
+      .set({ isDefault: true })
+      .where(eq(savedViews.id, id));
+  }
+  return { success: true };
 }

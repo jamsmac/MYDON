@@ -2500,3 +2500,61 @@ export const customFieldValues = mysqlTable("custom_field_values", {
 export type CustomFieldValue = typeof customFieldValues.$inferSelect;
 export type InsertCustomFieldValue = typeof customFieldValues.$inferInsert;
 
+
+
+/**
+ * Saved Views - stores filter/sort/group presets for project views
+ * Users can save and quickly switch between different view configurations
+ */
+export const savedViews = mysqlTable("saved_views", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  // View type: which view mode this config applies to
+  viewType: mysqlEnum("viewType", ["table", "kanban", "calendar", "gantt", "all"]).notNull().default("all"),
+  // JSON config storing all view state (filters, sort, group, custom field filters, etc.)
+  config: json("config").$type<SavedViewConfig>().notNull(),
+  // Visual customization
+  icon: varchar("icon", { length: 50 }),
+  color: varchar("color", { length: 20 }),
+  // Ordering and defaults
+  isDefault: boolean("isDefault").default(false),
+  sortOrder: int("sortOrder").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  projectIdx: index("sv_project_idx").on(table.projectId),
+  userIdx: index("sv_user_idx").on(table.userId),
+}));
+
+// Type for the JSON config stored in saved_views
+export interface SavedViewConfig {
+  // View mode
+  viewType?: string;
+  // Table View state
+  sortField?: string | null;
+  sortDirection?: 'asc' | 'desc';
+  groupBy?: string;
+  searchQuery?: string;
+  // Kanban filters
+  kanbanFilters?: {
+    priority?: string;
+    assignee?: number;
+    tag?: number;
+  };
+  // Custom field filters (shared across views)
+  customFieldFilters?: Array<{
+    id: string;
+    fieldId: number;
+    operator: string;
+    value: string;
+  }>;
+  // Calendar view state
+  calendarMode?: 'month' | 'week';
+  // Gantt zoom level
+  ganttZoom?: string;
+}
+
+export type SavedView = typeof savedViews.$inferSelect;
+export type InsertSavedView = typeof savedViews.$inferInsert;

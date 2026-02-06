@@ -40,6 +40,7 @@ import { adminIntegrationsRouter } from './adminIntegrationsRouter';
 import { adminLogsRouter } from './adminLogsRouter';
 import { usageRouter } from './usageRouter';
 import { customFieldsRouter } from './customFieldsRouter';
+import { savedViewsRouter } from './savedViewsRouter';
 import { getDefaultTags } from './utils/defaultTags';
 import { checkAndAwardAchievements, type AchievementResult } from "./achievementService";
 import * as schema from '../drizzle/schema';
@@ -1663,6 +1664,7 @@ export const appRouter = router({
   adminLogs: adminLogsRouter,
   usage: usageRouter,
   customFields: customFieldsRouter,
+  savedViews: savedViewsRouter,
 });
 
 export type AppRouter = typeof appRouter;

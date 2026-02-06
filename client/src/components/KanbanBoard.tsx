@@ -3,7 +3,7 @@
  * Displays tasks in columns by status with drag-and-drop support
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -135,6 +135,15 @@ interface KanbanTask {
   tags?: { id: number; name: string; color: string }[];
 }
 
+export interface KanbanViewState {
+  kanbanFilters: {
+    priority?: string;
+    assignee?: number;
+    tag?: number;
+  };
+  customFieldFilters: CustomFieldFilterRule[];
+}
+
 interface KanbanBoardProps {
   projectId: number;
   tasks: KanbanTask[];
@@ -143,6 +152,8 @@ interface KanbanBoardProps {
   onTaskUpdate: (taskId: number, data: { status?: string; sortOrder?: number }) => void;
   onTaskClick?: (task: KanbanTask) => void;
   onAddTask?: (status: string) => void;
+  onViewStateChange?: (state: KanbanViewState) => void;
+  initialViewState?: KanbanViewState;
 }
 
 // Compact custom field display for cards
@@ -732,6 +743,8 @@ export function KanbanBoard({
   onTaskUpdate,
   onTaskClick,
   onAddTask,
+  onViewStateChange,
+  initialViewState,
 }: KanbanBoardProps) {
   const [activeTask, setActiveTask] = useState<KanbanTask | null>(null);
   const [addTaskStatus, setAddTaskStatus] = useState<string | null>(null);
@@ -739,8 +752,18 @@ export function KanbanBoard({
     priority?: string;
     assignee?: number;
     tag?: number;
-  }>({});
-  const [customFieldFilters, setCustomFieldFilters] = useState<CustomFieldFilterRule[]>([]);
+  }>(initialViewState?.kanbanFilters || {});
+  const [customFieldFilters, setCustomFieldFilters] = useState<CustomFieldFilterRule[]>(
+    (initialViewState?.customFieldFilters as CustomFieldFilterRule[]) || []
+  );
+
+  // Notify parent of state changes for saved views
+  useEffect(() => {
+    onViewStateChange?.({
+      kanbanFilters: filters,
+      customFieldFilters,
+    });
+  }, [filters, customFieldFilters]);
 
   // Fetch all custom fields for project
   const { data: customFieldsData } = trpc.customFields.getByProject.useQuery(

@@ -3,7 +3,7 @@
  * This component provides multiple ways to view and manage project tasks
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { getLoginUrl } from '@/const';
 import { trpc } from '@/lib/trpc';
@@ -43,10 +43,12 @@ import { toast } from 'sonner';
 
 // Import view components
 import { KanbanBoard } from '@/components/KanbanBoard';
-import { TableView } from '@/components/TableView';
+import { TableView, type TableViewState } from '@/components/TableView';
 import { CalendarView } from '@/components/CalendarView';
 import { GanttChartAdvanced } from '@/components/GanttChartAdvanced';
 import { ViewSwitcher, useProjectView, type ViewType } from '@/components/ViewSwitcher';
+import { SavedViewsManager, type SavedViewState, type SavedViewConfig } from '@/components/SavedViewsManager';
+import type { KanbanViewState } from '@/components/KanbanBoard';
 
 // Task type for views
 interface ViewTask {
@@ -73,6 +75,69 @@ export default function ProjectViewAlternate() {
   // View state
   const [currentView, setCurrentView] = useProjectView(projectId, 'list');
   const [selectedTask, setSelectedTask] = useState<ViewTask | null>(null);
+
+  // Saved views state tracking
+  const [tableViewState, setTableViewState] = useState<TableViewState>({
+    sortField: null,
+    sortDirection: 'asc',
+    groupBy: 'none',
+    searchQuery: '',
+    customFieldFilters: [],
+  });
+  const [kanbanViewState, setKanbanViewState] = useState<KanbanViewState>({
+    kanbanFilters: {},
+    customFieldFilters: [],
+  });
+  const [initialTableState, setInitialTableState] = useState<TableViewState | undefined>();
+  const [initialKanbanState, setInitialKanbanState] = useState<KanbanViewState | undefined>();
+  const [viewKey, setViewKey] = useState(0); // Force re-mount views when loading saved view
+
+  // Current combined state for SavedViewsManager
+  const currentSavedViewState = useMemo<SavedViewState>(() => {
+    if (currentView === 'table') {
+      return {
+        sortField: tableViewState.sortField,
+        sortDirection: tableViewState.sortDirection,
+        groupBy: tableViewState.groupBy,
+        searchQuery: tableViewState.searchQuery,
+        customFieldFilters: tableViewState.customFieldFilters,
+      };
+    }
+    if (currentView === 'kanban') {
+      return {
+        kanbanFilters: kanbanViewState.kanbanFilters,
+        customFieldFilters: kanbanViewState.customFieldFilters,
+      };
+    }
+    return {};
+  }, [currentView, tableViewState, kanbanViewState]);
+
+  // Handle loading a saved view
+  const handleLoadSavedView = useCallback((config: SavedViewConfig, viewType: string) => {
+    // Switch view type if needed
+    if (viewType !== 'all' && viewType !== currentView) {
+      setCurrentView(viewType as ViewType);
+    }
+
+    // Apply config to the appropriate view
+    if (viewType === 'table' || viewType === 'all') {
+      setInitialTableState({
+        sortField: config.sortField || null,
+        sortDirection: config.sortDirection || 'asc',
+        groupBy: config.groupBy || 'none',
+        searchQuery: config.searchQuery || '',
+        customFieldFilters: (config.customFieldFilters || []) as any,
+      });
+    }
+    if (viewType === 'kanban' || viewType === 'all') {
+      setInitialKanbanState({
+        kanbanFilters: config.kanbanFilters || {},
+        customFieldFilters: (config.customFieldFilters || []) as any,
+      });
+    }
+    // Force re-mount to apply initial state
+    setViewKey(k => k + 1);
+  }, [currentView, setCurrentView]);
 
   // Fetch project data
   const { data: project, isLoading, refetch } = trpc.project.getFull.useQuery(
@@ -252,12 +317,20 @@ export default function ProjectViewAlternate() {
             </div>
           </div>
 
-          {/* Center: View Switcher */}
-          <ViewSwitcher
-            projectId={projectId}
-            currentView={currentView}
-            onViewChange={setCurrentView}
-          />
+          {/* Center: View Switcher + Saved Views */}
+          <div className="flex items-center gap-2">
+            <ViewSwitcher
+              projectId={projectId}
+              currentView={currentView}
+              onViewChange={setCurrentView}
+            />
+            <SavedViewsManager
+              projectId={projectId}
+              currentViewType={currentView}
+              currentState={currentSavedViewState}
+              onLoadView={handleLoadSavedView}
+            />
+          </div>
 
           {/* Right: Actions */}
           <div className="flex items-center gap-2">
@@ -338,23 +411,29 @@ export default function ProjectViewAlternate() {
 
         {currentView === 'kanban' && (
           <KanbanBoard
+            key={`kanban-${viewKey}`}
             projectId={projectId}
             tasks={allTasks}
             members={members}
             tags={projectTags}
             onTaskUpdate={(taskId, data) => handleTaskUpdate(taskId, data as any)}
             onTaskClick={handleTaskClick}
+            onViewStateChange={setKanbanViewState}
+            initialViewState={initialKanbanState}
           />
         )}
 
         {currentView === 'table' && (
           <TableView
+            key={`table-${viewKey}`}
             tasks={allTasks}
             members={members}
             projectId={projectId}
             onTaskUpdate={(taskId, data) => handleTaskUpdate(taskId, data as any)}
             onTaskClick={handleTaskClick}
             onTaskDelete={(taskId) => deleteTask.mutate({ id: taskId })}
+            onViewStateChange={setTableViewState}
+            initialViewState={initialTableState}
           />
         )}
 

@@ -2106,3 +2106,34 @@
 - [x] Toast notifications on success/error
 - [x] Loading state during mutation
 - [x] 21 new tests (593 total)
+
+
+## Phase 96: Saved Views
+
+### Database
+- [x] Create saved_views table (id, projectId, userId, name, viewType, config JSON, isDefault, icon, color, sortOrder)
+
+### Backend
+- [x] getByProject procedure - list saved views for a project
+- [x] create procedure - create new saved view
+- [x] update procedure - update saved view name/config
+- [x] delete procedure - delete saved view
+- [x] setDefault procedure - mark a view as default for the project
+
+### Frontend - SavedViewsManager Component
+- [x] Dropdown/popover showing list of saved views for current project
+- [x] "Save current view" button that captures current filter/sort/group/viewType state
+- [x] Name input dialog for new saved view
+- [x] Click to load/apply a saved view (restores all filter/sort/group settings)
+- [x] Edit saved view name
+- [x] Delete saved view with confirmation
+- [x] Set default view indicator (star icon)
+- [x] Visual indicator of active saved view
+
+### Integration
+- [x] Integrate SavedViewsManager into ProjectViewAlternate header (next to ViewSwitcher)
+- [x] TableView: expose sort/group/filter state via callback (onViewStateChange + initialViewState)
+- [x] KanbanBoard: expose filter state via callback (onViewStateChange + initialViewState)
+- [x] Force re-mount views with key prop when loading saved view
+- [x] Toast notifications for save/load/delete actions
+- [x] 40 new tests (633 total)

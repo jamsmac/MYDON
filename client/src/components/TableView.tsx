@@ -3,7 +3,7 @@
  * Displays tasks in a sortable, filterable table with inline editing
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -135,6 +135,16 @@ interface TableViewProps {
   onTaskClick?: (task: TableTask) => void;
   onTaskDelete?: (taskId: number) => void;
   onExportCSV?: () => void;
+  onViewStateChange?: (state: TableViewState) => void;
+  initialViewState?: TableViewState;
+}
+
+export interface TableViewState {
+  sortField: string | null;
+  sortDirection: 'asc' | 'desc';
+  groupBy: string;
+  searchQuery: string;
+  customFieldFilters: CustomFieldFilterRule[];
 }
 
 type SortField = 'title' | 'status' | 'priority' | 'deadline' | 'assignedTo' | 'blockTitle';
@@ -634,6 +644,8 @@ export function TableView({
   onTaskClick,
   onTaskDelete,
   onExportCSV,
+  onViewStateChange,
+  initialViewState,
 }: TableViewProps) {
   // Fetch custom fields for project
   const { data: customFields = [] } = trpc.customFields.getByProject.useQuery({ projectId });
@@ -657,14 +669,33 @@ export function TableView({
     fieldValuesMap.get(v.taskId)!.set(v.customFieldId, v);
   });
 
-  const [sortField, setSortField] = useState<SortField | null>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [groupBy, setGroupBy] = useState<GroupBy>('none');
+  const [sortField, setSortField] = useState<SortField | null>(
+    (initialViewState?.sortField as SortField) || null
+  );
+  const [sortDirection, setSortDirection] = useState<SortDirection>(
+    initialViewState?.sortDirection || 'asc'
+  );
+  const [groupBy, setGroupBy] = useState<GroupBy>(
+    (initialViewState?.groupBy as GroupBy) || 'none'
+  );
   const [selectedTasks, setSelectedTasks] = useState<Set<number>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState('');
-  const [customFieldFilters, setCustomFieldFilters] = useState<CustomFieldFilterRule[]>([]);
+  const [searchQuery, setSearchQuery] = useState(initialViewState?.searchQuery || '');
+  const [customFieldFilters, setCustomFieldFilters] = useState<CustomFieldFilterRule[]>(
+    (initialViewState?.customFieldFilters as CustomFieldFilterRule[]) || []
+  );
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Notify parent of state changes for saved views
+  useEffect(() => {
+    onViewStateChange?.({
+      sortField,
+      sortDirection,
+      groupBy,
+      searchQuery,
+      customFieldFilters,
+    });
+  }, [sortField, sortDirection, groupBy, searchQuery, customFieldFilters]);
 
   // Bulk mutation hooks
   const utils = trpc.useUtils();

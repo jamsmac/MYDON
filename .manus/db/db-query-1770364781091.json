@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `saved_views` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`projectId` int NOT NULL,\n\t`userId` int NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`viewType` enum('table','kanban','calendar','gantt','all') NOT NULL DEFAULT 'all',\n\t`config` json NOT NULL,\n\t`icon` varchar(50),\n\t`color` varchar(20),\n\t`isDefault` boolean DEFAULT false,\n\t`sortOrder` int DEFAULT 0,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `saved_views_id` PRIMARY KEY(`id`)\n);\nCREATE INDEX `sv_project_idx` ON `saved_views` (`projectId`);\nCREATE INDEX `sv_user_idx` ON `saved_views` (`userId`);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute CREATE TABLE IF NOT EXISTS `saved_views` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`projectId` int NOT NULL,\n\t`userId` int NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`viewType` enum('table','kanban','calendar','gantt','all') NOT NULL DEFAULT 'all',\n\t`config` json NOT NULL,\n\t`icon` varchar(50),\n\t`color` varchar(20),\n\t`isDefault` boolean DEFAULT false,\n\t`sortOrder` int DEFAULT 0,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `saved_views_id` PRIMARY KEY(`id`)\n);\nCREATE INDEX `sv_project_idx` ON `saved_views` (`projectId`);\nCREATE INDEX `sv_user_idx` ON `saved_views` (`userId`);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1227
+}
