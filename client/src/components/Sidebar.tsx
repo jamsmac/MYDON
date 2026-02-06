@@ -26,7 +26,7 @@ const iconMap: Record<string, React.ElementType> = {
   compass: Compass,
 };
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { state, selectBlock, selectSection, getBlockProgress, getOverallProgress, setSearchQuery } = useRoadmap();
   const { getDeadlineStatus, getDaysRemaining } = useDeadlines();
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(new Set());
@@ -47,6 +47,7 @@ export function Sidebar() {
     if (!expandedBlocks.has(blockId)) {
       toggleBlock(blockId);
     }
+    onNavigate?.();
   };
 
   // Count blocks with deadlines
@@ -54,7 +55,7 @@ export function Sidebar() {
   const dueSoonCount = state.blocks.filter(b => getDeadlineStatus(b.id) === 'due_soon').length;
 
   return (
-    <aside className="w-80 h-screen bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border">
+    <aside className="w-full md:w-80 h-full bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border flex-shrink-0">
       {/* Header */}
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3 mb-4">
@@ -229,6 +230,7 @@ export function Sidebar() {
                         onClick={() => {
                           selectBlock(block.id);
                           selectSection(section.id);
+                          onNavigate?.();
                         }}
                         className={cn(
                           "w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm transition-colors",

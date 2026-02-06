@@ -289,12 +289,12 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             <NotificationCenter />
-            <CreditsWidget />
-            <UsageStats />
-            <div className="h-6 w-px bg-slate-700" />
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg">
+            <span className="hidden md:inline"><CreditsWidget /></span>
+            <span className="hidden md:inline"><UsageStats /></span>
+            <div className="h-6 w-px bg-slate-700 hidden md:block" />
+            <div className="flex items-center gap-2 px-2 md:px-3 py-1.5 bg-slate-800 rounded-lg">
               <div className="w-7 h-7 bg-amber-500/20 rounded-full flex items-center justify-center">
                 <span className="text-xs font-semibold text-amber-400">
                   {(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
@@ -355,21 +355,21 @@ export default function Dashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="container py-8">
+      <main className="container py-4 md:py-8">
         {/* Stats Overview */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-4 mb-6 md:mb-8">
           <Card 
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-blue-500/50 ${statusFilter === 'all' ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
             onClick={() => { setProjectsModalFilter('all'); setProjectsModalOpen(true); setStatusFilter('all'); }}
           >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center">
-                  <LayoutDashboard className="w-6 h-6 text-blue-500" />
+            <CardContent className="p-3 md:pt-6">
+              <div className="flex items-center gap-2 md:gap-4">
+                <div className="w-9 h-9 md:w-12 md:h-12 bg-blue-500/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <LayoutDashboard className="w-4 h-4 md:w-6 md:h-6 text-blue-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-white">{projects?.length || 0}</p>
-                  <p className="text-sm text-slate-400">Проектов</p>
+                  <p className="text-lg md:text-2xl font-bold text-white">{projects?.length || 0}</p>
+                  <p className="text-xs md:text-sm text-slate-400">Проектов</p>
                 </div>
               </div>
             </CardContent>
@@ -379,16 +379,16 @@ export default function Dashboard() {
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-amber-500/50 ${statusFilter === 'active' ? 'ring-2 ring-amber-500 border-amber-500' : ''}`}
             onClick={() => { setProjectsModalFilter('active'); setProjectsModalOpen(true); setStatusFilter('active'); }}
           >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center">
-                  <Clock className="w-6 h-6 text-amber-500" />
+            <CardContent className="p-3 md:pt-6">
+              <div className="flex items-center gap-2 md:gap-4">
+                <div className="w-9 h-9 md:w-12 md:h-12 bg-amber-500/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Clock className="w-4 h-4 md:w-6 md:h-6 text-amber-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-white">
+                  <p className="text-lg md:text-2xl font-bold text-white">
                     {projects?.filter(p => p.status === 'active').length || 0}
                   </p>
-                  <p className="text-sm text-slate-400">Активных</p>
+                  <p className="text-xs md:text-sm text-slate-400">Активных</p>
                 </div>
               </div>
             </CardContent>
@@ -398,16 +398,16 @@ export default function Dashboard() {
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-emerald-500/50 ${statusFilter === 'completed' ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}
             onClick={() => { setProjectsModalFilter('completed'); setProjectsModalOpen(true); setStatusFilter('completed'); }}
           >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+            <CardContent className="p-3 md:pt-6">
+              <div className="flex items-center gap-2 md:gap-4">
+                <div className="w-9 h-9 md:w-12 md:h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <CheckCircle2 className="w-4 h-4 md:w-6 md:h-6 text-emerald-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-white">
+                  <p className="text-lg md:text-2xl font-bold text-white">
                     {projects?.filter(p => p.status === 'completed').length || 0}
                   </p>
-                  <p className="text-sm text-slate-400">Завершённых</p>
+                  <p className="text-xs md:text-sm text-slate-400">Завершённых</p>
                 </div>
               </div>
             </CardContent>
@@ -417,19 +417,19 @@ export default function Dashboard() {
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-red-500/50 ${statusFilter === 'overdue' ? 'ring-2 ring-red-500 border-red-500' : ''}`}
             onClick={() => { setProjectsModalFilter('overdue'); setProjectsModalOpen(true); setStatusFilter('overdue'); }}
           >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-red-500/10 rounded-xl flex items-center justify-center">
-                  <AlertCircle className="w-6 h-6 text-red-500" />
+            <CardContent className="p-3 md:pt-6">
+              <div className="flex items-center gap-2 md:gap-4">
+                <div className="w-9 h-9 md:w-12 md:h-12 bg-red-500/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="w-4 h-4 md:w-6 md:h-6 text-red-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-white">
+                  <p className="text-lg md:text-2xl font-bold text-white">
                     {projects?.filter(p => {
                       if (!p.targetDate) return false;
                       return new Date(p.targetDate) < new Date() && p.status !== 'completed';
                     }).length || 0}
                   </p>
-                  <p className="text-sm text-slate-400">Просроченных</p>
+                  <p className="text-xs md:text-sm text-slate-400">Просроченных</p>
                 </div>
               </div>
             </CardContent>
@@ -440,14 +440,14 @@ export default function Dashboard() {
             className="bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-purple-500/50"
             onClick={() => setCreditsModalOpen(true)}
           >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center">
-                  <Coins className="w-6 h-6 text-purple-500" />
+            <CardContent className="p-3 md:pt-6">
+              <div className="flex items-center gap-2 md:gap-4">
+                <div className="w-9 h-9 md:w-12 md:h-12 bg-purple-500/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Coins className="w-4 h-4 md:w-6 md:h-6 text-purple-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-white">—</p>
-                  <p className="text-sm text-slate-400">Кредитов</p>
+                  <p className="text-lg md:text-2xl font-bold text-white">—</p>
+                  <p className="text-xs md:text-sm text-slate-400">Кредитов</p>
                 </div>
               </div>
             </CardContent>
@@ -458,14 +458,14 @@ export default function Dashboard() {
             className="bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-cyan-500/50"
             onClick={() => setAiDecisionsModalOpen(true)}
           >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-cyan-500/10 rounded-xl flex items-center justify-center">
-                  <Lightbulb className="w-6 h-6 text-cyan-500" />
+            <CardContent className="p-3 md:pt-6">
+              <div className="flex items-center gap-2 md:gap-4">
+                <div className="w-9 h-9 md:w-12 md:h-12 bg-cyan-500/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Lightbulb className="w-4 h-4 md:w-6 md:h-6 text-cyan-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-white">—</p>
-                  <p className="text-sm text-slate-400">AI Решений</p>
+                  <p className="text-lg md:text-2xl font-bold text-white">—</p>
+                  <p className="text-xs md:text-sm text-slate-400">AI Решений</p>
                 </div>
               </div>
             </CardContent>
@@ -558,29 +558,33 @@ export default function Dashboard() {
               </button>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button 
               variant="outline" 
+              size="sm"
               className="border-purple-500/50 text-purple-400 hover:bg-purple-500/20 hover:border-purple-500"
               onClick={() => setAiGeneratorOpen(true)}
             >
-              <Sparkles className="w-4 h-4 mr-2" />
-              AI Генератор
+              <Sparkles className="w-4 h-4 mr-1 md:mr-2" />
+              <span className="hidden sm:inline">AI Генератор</span>
+              <span className="sm:hidden">AI</span>
             </Button>
             <Button 
               variant="outline" 
+              size="sm"
               className="border-violet-500/50 text-violet-400 hover:bg-violet-500/20 hover:border-violet-500"
               onClick={() => setTemplateLibraryOpen(true)}
             >
-              <LayoutTemplate className="w-4 h-4 mr-2" />
+              <LayoutTemplate className="w-4 h-4 mr-1 md:mr-2" />
               Шаблоны
             </Button>
             <Button 
               variant="outline" 
+              size="sm"
               className="border-slate-600 text-slate-300 hover:bg-slate-700"
               onClick={() => setImportDialogOpen(true)}
             >
-              <Upload className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4 mr-1 md:mr-2" />
               Импорт
             </Button>
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>

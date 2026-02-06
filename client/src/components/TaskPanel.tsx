@@ -108,7 +108,7 @@ export function TaskPanel({ task, onClose }: TaskPanelProps) {
   const StatusIcon = statusConfig.icon;
 
   return (
-    <div className="h-full flex flex-col bg-card border-l border-border animate-fade-in">
+    <div className="h-full flex flex-col bg-card md:border-l border-border animate-fade-in">
       {/* Header */}
       <div className="p-4 border-b border-border flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
@@ -140,7 +140,7 @@ export function TaskPanel({ task, onClose }: TaskPanelProps) {
                 key={status}
                 onClick={() => handleStatusChange(status)}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200",
+                  "flex items-center gap-2 px-3 py-2.5 md:py-2 rounded-lg border transition-all duration-200 text-sm",
                   isActive 
                     ? config.className + " ring-2 ring-offset-2 ring-current/20"
                     : "bg-muted/50 text-muted-foreground border-transparent hover:bg-muted"
@@ -164,7 +164,7 @@ export function TaskPanel({ task, onClose }: TaskPanelProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6">
         {/* Subtasks */}
         {task.subtasks && task.subtasks.length > 0 && (
           <div>

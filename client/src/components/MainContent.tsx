@@ -15,6 +15,7 @@ import { FilterBar } from './FilterBar';
 import { CalendarExport } from './CalendarExport';
 import { TaskTagBadges } from './TaskTagBadges';
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useMobile } from '@/hooks/useMobile';
 import { 
   Check, Clock, Circle, Download, FileText, 
   ChevronRight, ChevronDown, Sparkles, ArrowRight, AlertTriangle,
@@ -66,6 +67,7 @@ export function MainContent() {
   const { getDeadlineStatus, getDaysRemaining, getBlockDeadline } = useDeadlines();
   const { state: filterState, setFilterCounts } = useFilters();
   const { taskHasAnyTag, taskHasAllTags, getTaskTags, taskTagsMap } = useTaskTagsCache();
+  const { isMobile } = useMobile();
 
   const selectedBlock = getSelectedBlock();
   const selectedSection = getSelectedSection();
@@ -523,19 +525,19 @@ export function MainContent() {
   };
 
   return (
-    <div className="flex-1 flex h-screen overflow-hidden">
+    <div className="flex-1 flex h-screen overflow-hidden relative">
       {/* Main content area */}
       <div className={cn(
         "flex-1 flex flex-col overflow-hidden transition-all duration-300",
-        selectedTask ? "w-1/2" : "w-full"
+        !isMobile && selectedTask ? "w-1/2" : "w-full"
       )}>
         {/* Block Header */}
         <header className={cn(
-          "p-6 border-b border-border bg-card",
+          "p-4 md:p-6 border-b border-border bg-card",
           deadlineStatus === 'overdue' && "bg-red-50 border-red-200",
           deadlineStatus === 'due_soon' && "bg-amber-50 border-amber-200"
         )}>
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <Badge variant="outline" className="font-mono">
@@ -544,7 +546,7 @@ export function MainContent() {
                 <Badge variant="secondary">{selectedBlock.duration}</Badge>
                 <DeadlineBadge blockId={selectedBlock.id} />
               </div>
-              <h1 className="font-mono text-2xl font-bold text-foreground">
+              <h1 className="font-mono text-xl md:text-2xl font-bold text-foreground">
                 {selectedBlock.titleRu}
               </h1>
               <p className="text-muted-foreground mt-1">{selectedBlock.title}</p>
@@ -571,20 +573,22 @@ export function MainContent() {
             <div className="flex items-center gap-3">
               <div className="text-right">
                 <p className="text-sm text-muted-foreground">Прогресс</p>
-                <p className="font-mono text-2xl font-bold text-foreground">
+                <p className="font-mono text-xl md:text-2xl font-bold text-foreground">
                   {blockProgress.percentage}%
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {blockProgress.completed}/{blockProgress.total} задач
                 </p>
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-row md:flex-col gap-2">
                 <DeadlinePicker blockId={selectedBlock.id} blockTitle={selectedBlock.titleRu} />
-                <CalendarExport variant="single" block={selectedBlock} />
-                <Button variant="outline" size="sm" onClick={handleExportBlock}>
-                  <Download className="w-4 h-4 mr-2" />
-                  Экспорт
-                </Button>
+                {!isMobile && <CalendarExport variant="single" block={selectedBlock} />}
+                {!isMobile && (
+                  <Button variant="outline" size="sm" onClick={handleExportBlock}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Экспорт
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -613,7 +617,7 @@ export function MainContent() {
 
         {/* Tasks List */}
         <ScrollArea className="flex-1">
-          <div className="p-6 space-y-6">
+          <div className="p-3 md:p-6 space-y-4 md:space-y-6">
             {!hasFilteredResults ? (
               <div className="text-center py-12">
                 <ListFilter className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -656,9 +660,13 @@ export function MainContent() {
         </ScrollArea>
       </div>
 
-      {/* Task Panel */}
+      {/* Task Panel - full screen overlay on mobile, side panel on desktop */}
       {selectedTask && (
-        <div className="w-1/2 border-l border-border">
+        <div className={cn(
+          isMobile 
+            ? "fixed inset-0 z-50 bg-background animate-in slide-in-from-bottom duration-300" 
+            : "w-1/2 border-l border-border"
+        )}>
           <TaskPanel 
             task={selectedTask} 
             onClose={() => selectTask(null)} 

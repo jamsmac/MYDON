@@ -42,7 +42,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useMobile } from '@/hooks/useMobile';
 import { useProjectContext } from '@/contexts/ProjectContext';
 import { useAIChatContext } from '@/contexts/AIChatContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -88,7 +89,8 @@ import {
   ConvertSectionToTaskDialog,
   BulkActionsDialog 
 } from '@/components/TaskManagementDialogs';
-import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical, BarChart3, Sparkles, AlertTriangle, Brain, Settings } from 'lucide-react';
+import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical, BarChart3, Sparkles, AlertTriangle, Brain, Settings, Menu, ChevronLeft, PanelLeft } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { 
   DragDropProvider, 
   SortableTask, 
@@ -996,6 +998,10 @@ export default function ProjectView() {
     },
   });
   
+  const { isMobile, isTablet } = useMobile();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
+
   const [expandedBlocks, setExpandedBlocks] = useState<Set<number>>(new Set());
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
   const [selectedContext, setSelectedContext] = useState<{
@@ -1038,6 +1044,29 @@ export default function ProjectView() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [discussionEntity, setDiscussionEntity] = useState<{ type: 'project' | 'block' | 'section' | 'task'; id: number; title: string } | null>(null);
+
+  // On mobile, show detail panel when task or context is selected
+  const mobileSelectTask = useCallback((task: any) => {
+    setSelectedTask(task);
+    if (isMobile) {
+      setMobileShowDetail(true);
+      setMobileSidebarOpen(false);
+    }
+  }, [isMobile]);
+
+  const mobileSelectContext = useCallback((ctx: typeof selectedContext) => {
+    setSelectedContext(ctx);
+    if (isMobile && ctx) {
+      setMobileShowDetail(true);
+      setMobileSidebarOpen(false);
+    }
+  }, [isMobile]);
+
+  const mobileBackToList = useCallback(() => {
+    setMobileShowDetail(false);
+    setSelectedTask(null);
+    setSelectedContext(null);
+  }, []);
 
   const { data: project, isLoading, refetch } = trpc.project.getFull.useQuery(
     { id: projectId },
@@ -1473,8 +1502,153 @@ export default function ProjectView() {
 
   return (
     <EntityAIChatStoreProvider>
-    <div className="min-h-screen bg-slate-900 flex">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-slate-900 flex flex-col md:flex-row">
+      {/* Mobile Header */}
+      {isMobile && (
+        <div className="fixed top-0 left-0 right-0 z-50 h-12 bg-slate-900/95 backdrop-blur border-b border-slate-800 flex items-center px-3 gap-2">
+          {mobileShowDetail ? (
+            <button
+              onClick={mobileBackToList}
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          ) : (
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"
+            >
+              <PanelLeft className="w-5 h-5" />
+            </button>
+          )}
+          <div className="flex-1 min-w-0">
+            <h1 className="text-sm font-semibold text-white truncate">
+              {mobileShowDetail && selectedTask ? selectedTask.title : 
+               mobileShowDetail && selectedContext ? selectedContext.title :
+               project.name}
+            </h1>
+            {!mobileShowDetail && (
+              <p className="text-xs text-slate-500">{progress.completed}/{progress.total} задач</p>
+            )}
+          </div>
+          <Link href="/">
+            <Button variant="ghost" size="icon" className="text-slate-400 h-8 w-8">
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {/* Mobile Sidebar Sheet */}
+      {isMobile && (
+        <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+          <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0 bg-slate-900 border-slate-800 [&>[data-slot=sheet-close]]:hidden">
+            <SheetHeader className="sr-only"><SheetTitle>Навигация</SheetTitle></SheetHeader>
+            <div className="flex flex-col h-full overflow-y-auto">
+              {/* Sidebar header */}
+              <div className="p-4 border-b border-slate-800">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-lg font-semibold text-white truncate">{project.name}</h2>
+                    {project.description && (
+                      <p className="text-sm text-slate-400 mt-1 line-clamp-2">{project.description}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-slate-400">Прогресс</span>
+                    <span className="text-white font-medium">{progress.percentage}%</span>
+                  </div>
+                  <Progress value={progress.percentage} className="h-2 bg-slate-700" />
+                  <p className="text-xs text-slate-500 mt-1">{progress.completed} из {progress.total} задач</p>
+                </div>
+              </div>
+              {/* Sidebar blocks list */}
+              <ScrollArea className="flex-1">
+                <div className="p-2">
+                  <DraggableSidebar
+                    blocks={project.blocks.map(b => ({
+                      ...b,
+                      sections: b.sections?.map(s => ({
+                        ...s,
+                        sortOrder: s.sortOrder || 0,
+                        tasks: s.tasks?.map(t => ({
+                          ...t,
+                          sortOrder: t.sortOrder || 0
+                        }))
+                      }))
+                    }))}
+                    expandedBlocks={expandedBlocks}
+                    expandedSections={expandedSections}
+                    selectedContext={selectedContext}
+                    selectedTask={selectedTask}
+                    onToggleBlock={toggleBlock}
+                    onToggleSection={toggleSection}
+                    onSelectContext={(ctx) => {
+                      mobileSelectContext(ctx);
+                      if (ctx.type === 'block' || ctx.type === 'section' || ctx.type === 'project') {
+                        setSelectedTask(null);
+                        setAIChatTask(null);
+                      }
+                      setMobileSidebarOpen(false);
+                    }}
+                    onSelectTask={(task) => {
+                      mobileSelectTask(task);
+                      setSelectedContext({
+                        type: 'task',
+                        id: task.id,
+                        title: task.title,
+                        content: getContextContent('task', task.id)
+                      });
+                      setAIChatTask({
+                        id: `task-${task.id}`,
+                        numericId: task.id,
+                        title: task.title,
+                        status: task.status || 'not_started',
+                        priority: task.priority || 'medium',
+                        deadline: task.deadline ? (typeof task.deadline === 'number' ? task.deadline : new Date(task.deadline).getTime()) : null,
+                        notes: task.notes || undefined,
+                        sectionId: String(task.sectionId)
+                      });
+                      setMobileSidebarOpen(false);
+                    }}
+                    onCreateSection={(blockId) => {
+                      setTargetBlockId(blockId);
+                      setCreateSectionOpen(true);
+                    }}
+                    onCreateTask={(sectionId) => {
+                      setTargetSectionId(sectionId);
+                      setCreateTaskOpen(true);
+                    }}
+                    onDeleteBlock={(id) => { if (confirm('Удалить блок?')) deleteBlock.mutate({ id }); }}
+                    onDeleteSection={(id) => { if (confirm('Удалить раздел?')) deleteSection.mutate({ id }); }}
+                    onMoveTask={(taskId, newSectionId, newSortOrder) => moveTask.mutate({ id: taskId, sectionId: newSectionId, sortOrder: newSortOrder })}
+                    onMoveSection={(sectionId, newBlockId, newSortOrder) => moveSection.mutate({ id: sectionId, blockId: newBlockId, sortOrder: newSortOrder })}
+                    onReorderTasks={(sectionId, taskIds) => reorderTasks.mutate({ sectionId, taskIds })}
+                    onReorderSections={(blockId, sectionIds) => reorderSections.mutate({ blockId, sectionIds })}
+                    onReorderBlocks={(blockIds) => reorderBlocks.mutate({ projectId: project.id, blockIds })}
+                    onUpdateTaskTitle={(taskId, newTitle) => updateTask.mutate({ id: taskId, title: newTitle })}
+                    onUpdateTaskDueDate={(taskId, dueDate) => updateTask.mutate({ id: taskId, dueDate: dueDate?.getTime() || null })}
+                    onUpdateSectionTitle={(sectionId, newTitle) => updateSection.mutate({ id: sectionId, title: newTitle })}
+                    onUpdateBlockTitle={(blockId, newTitle) => updateBlock.mutate({ id: blockId, titleRu: newTitle })}
+                    getContextContent={getContextContent}
+                    filteredTaskIds={filteredTaskIds}
+                    unreadCounts={unreadCounts}
+                    onDeleteTask={(taskId) => { if (confirm('Удалить задачу?')) deleteTask.mutate({ id: taskId }); }}
+                    onUpdateTaskStatus={(taskId, status) => updateTask.mutate({ id: taskId, status })}
+                    onUpdateTaskPriority={(taskId, priority) => updateTask.mutate({ id: taskId, priority })}
+                    onContextMenuAction={() => {}}
+                  />
+                </div>
+              </ScrollArea>
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
+
+      {/* Desktop Sidebar */}
+      {!isMobile && (
       <aside className="w-80 border-r border-slate-800 flex flex-col bg-slate-900/95">
         {/* Header */}
         <div className="p-4 border-b border-slate-800">
@@ -1926,11 +2100,12 @@ export default function ProjectView() {
           </Dialog>
         </div>
       </aside>
+      )}
 
       {/* Main Content */}
-      <main className="flex-1 flex min-w-0">
+      <main className={cn("flex-1 flex min-w-0", isMobile && "pt-12")}>
         {/* Task Detail or Welcome */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className={cn("flex-1 flex flex-col min-w-0", isMobile && mobileShowDetail && "fixed inset-0 z-40 bg-slate-900 pt-12")}>
           {selectedTask ? (
             <TaskDetailPanel
               task={selectedTask}
@@ -2157,6 +2332,42 @@ export default function ProjectView() {
 
             </div>
             )}
+            </ScrollArea>
+          ) : isMobile ? (
+            /* On mobile, show a compact blocks list when nothing is selected */
+            <ScrollArea className="flex-1">
+              <div className="p-4">
+                <h2 className="text-lg font-semibold text-white mb-4">{project.name}</h2>
+                <p className="text-sm text-slate-400 mb-4">{progress.completed} из {progress.total} задач выполнено</p>
+                <Progress value={progress.percentage} className="h-2 bg-slate-700 mb-6" />
+                <div className="space-y-2">
+                  {project.blocks?.map((block) => (
+                    <button
+                      key={block.id}
+                      onClick={() => {
+                        setSelectedContext({
+                          type: 'block',
+                          id: block.id,
+                          title: block.titleRu || block.title,
+                          content: getContextContent('block', block.id)
+                        });
+                        setSelectedTask(null);
+                        setMobileShowDetail(true);
+                      }}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-mono text-amber-400">{String(block.number).padStart(2, '0')}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{block.titleRu || block.title}</p>
+                        <p className="text-xs text-slate-500">{block.sections?.reduce((acc, s) => acc + (s.tasks?.length || 0), 0) || 0} задач</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              </div>
             </ScrollArea>
           ) : (
             <div className="flex-1 flex items-center justify-center text-slate-500">

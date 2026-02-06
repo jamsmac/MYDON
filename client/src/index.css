@@ -495,3 +495,92 @@
     right: 2rem;
   }
 }
+
+
+/* Mobile-specific improvements */
+@media (max-width: 768px) {
+  /* Ensure dialogs are full-width on mobile */
+  [data-slot="dialog-content"] {
+    max-width: calc(100vw - 2rem) !important;
+    max-height: 90vh !important;
+    overflow-y: auto;
+  }
+  
+  /* Sheet content should be full height */
+  [data-slot="sheet-content"][data-side="left"],
+  [data-slot="sheet-content"][data-side="right"] {
+    max-width: 85vw !important;
+  }
+  
+  /* Improve touch targets */
+  button, a, [role="button"] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  
+  /* Prevent body scroll when overlay is open */
+  body.overlay-open {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+  }
+  
+  /* Mobile scroll momentum */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  
+  /* Compact spacing for mobile detail panels */
+  .mobile-detail-panel {
+    padding: 0.75rem;
+  }
+  
+  /* Mobile-friendly progress bars */
+  .progress-bar-mobile {
+    height: 6px;
+    border-radius: 3px;
+  }
+}
+
+/* Touch-friendly scrollbar hide */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mobile transition animations */
+.mobile-slide-in {
+  animation: slideInFromRight 0.3s ease-out;
+}
+.mobile-slide-out {
+  animation: slideOutToRight 0.3s ease-in;
+}
+@keyframes slideInFromRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideOutToRight {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+.mobile-slide-up {
+  animation: slideInFromBottom 0.3s ease-out;
+}
+@keyframes slideInFromBottom {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Mobile safe area padding */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}

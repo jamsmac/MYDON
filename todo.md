@@ -2406,3 +2406,30 @@
 - [x] Pass conversation history to AI streaming requests for context continuity
 - [x] Write vitest tests for history persistence logic
 - [x] Verify visually that history is preserved when switching entities
+
+
+## Full Mobile Responsiveness
+- [x] Create useMobile hook for responsive detection
+- [x] Home page - hamburger menu for sidebar, full-width main content on mobile
+- [x] Home page - sidebar as slide-over overlay on mobile
+- [x] ProjectView - swipeable card screens for blocks/sections/tasks
+- [x] ProjectView - bottom navigation bar on mobile
+- [x] ProjectView detail panels - full-screen overlay on mobile
+- [x] Dashboard header - compact mobile layout with hamburger nav
+- [x] Dashboard stats - 2-column grid on mobile, scrollable
+- [x] Dashboard project cards - full-width stacked on mobile
+- [x] Dashboard navigation - bottom tab bar or collapsible menu
+- [x] EntityAIChat - mobile-friendly chat with full-width input
+- [x] Modals and dialogs - full-screen on mobile
+- [x] Test all pages at 375px, 414px, 768px viewports
+
+
+## Phase Mobile: Full Mobile Responsiveness
+- [x] ProjectView - sidebar as Sheet overlay on mobile with hamburger toggle
+- [x] ProjectView - full-screen detail panels on mobile (task, block, section)
+- [x] ProjectView - mobile header with back button and project name
+- [x] ProjectView - close detail panel returns to blocks list on mobile
+- [x] Dashboard - compact mobile header with scrollable nav
+- [x] Dashboard - full-width project cards on mobile
+- [x] All dialogs - full-screen on mobile (max-w-full, max-h-full)
+- [x] Touch-friendly sizing for all interactive elements
