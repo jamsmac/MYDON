@@ -1919,10 +1919,12 @@ export async function getDashboardActivity(
       avatar: users.avatar
     }).from(users).where(eq(users.id, activity.userId));
     
-    const [project] = await db.select({
-      id: projects.id,
-      name: projects.name
-    }).from(projects).where(eq(projects.id, activity.projectId));
+    const [project] = activity.projectId 
+      ? await db.select({
+          id: projects.id,
+          name: projects.name
+        }).from(projects).where(eq(projects.id, activity.projectId))
+      : [null];
     
     return { ...activity, user: user || null, project: project || null };
   }));

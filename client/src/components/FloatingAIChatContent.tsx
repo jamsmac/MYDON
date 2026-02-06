@@ -40,6 +40,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { AIResponseActions } from "./AIResponseActions";
 import { SuggestedActions, parseActionsFromResponse, type SuggestedAction } from "./SuggestedActions";
+import { ModelSelectorCompact } from "./ModelSelector";
 import { useAIContext } from "@/hooks/useAIContext";
 import {
   DropdownMenu,
@@ -109,6 +110,7 @@ export function FloatingAIChatContent({
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -785,16 +787,28 @@ export function FloatingAIChatContent({
           </div>
         )}
         
-        <div className="flex gap-2">
-          <Textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Спросите что-нибудь..."
-            className="min-h-[44px] max-h-[120px] resize-none"
-            disabled={isLoading || !currentSessionId}
-          />
+        <div className="flex items-end gap-2">
+          <div className="flex-1 space-y-2">
+            <Textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Спросите что-нибудь..."
+              className="min-h-[44px] max-h-[120px] resize-none"
+              disabled={isLoading || !currentSessionId}
+            />
+            <div className="flex items-center justify-between">
+              <ModelSelectorCompact
+                value={selectedModel}
+                onChange={setSelectedModel}
+                disabled={isLoading}
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter • Shift+Enter
+              </p>
+            </div>
+          </div>
           <Button
             onClick={handleSend}
             disabled={!input.trim() || isLoading || !currentSessionId}
@@ -808,10 +822,6 @@ export function FloatingAIChatContent({
             )}
           </Button>
         </div>
-        
-        <p className="text-xs text-muted-foreground mt-2 text-center">
-          Enter для отправки • Shift+Enter для новой строки
-        </p>
       </div>
     </div>
   );

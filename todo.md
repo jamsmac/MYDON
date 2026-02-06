@@ -1750,3 +1750,40 @@
 - [x] Save reordered favorites to localStorage
 - [x] Visual feedback during drag (opacity, shadow)
 - [x] Keyboard accessibility for reordering
+
+
+## Phase 80: Model Selector + Cost Tracking + Activity Feed
+
+### 1. Model Selector (AI Chat)
+- [x] Add model dropdown before send button in AI Chat
+- [x] Show provider icon, name, cost per request for each model
+- [x] Remember last selection in localStorage
+- [x] Filter models based on BYOK vs Platform mode
+- [x] Log selected model in AI request logs
+
+### 2. Cost Tracking (/usage)
+- [x] Create /usage page with current credit balance
+- [x] Add spending chart for last 30 days
+- [x] Table of recent requests with model, tokens, cost
+- [x] Overall statistics (total requests, avg cost, most used model)
+- [x] Show remaining daily limit if set
+- [x] Add "Top up credits" placeholder link
+
+### 3. Activity Feed (Dashboard)
+- [x] Create activity_log table in database
+- [x] Record events: project created, task completed, AI request, decision finalized, block added
+- [x] Display last 20 events on Dashboard
+- [x] Show icon, text, relative time for each event
+- [x] Add filter by type (all/projects/tasks/AI/decisions)
+
+### 4. Overdue Tasks Indicator
+- [x] Add "Overdue Tasks" card on Dashboard with red icon
+- [x] Click card to show list of overdue tasks
+- [x] Badge on notifications icon in navbar if overdue tasks exist
+- [x] Highlight overdue tasks in red within projects
+- [x] Logic: deadline < today AND status != completed
+
+### 5. Dashboard Improvements
+- [x] Make stat cards clickable with navigation
+- [x] Add "Credits" card linking to /usage
+- [x] Add "AI Decisions" card linking to /decisions

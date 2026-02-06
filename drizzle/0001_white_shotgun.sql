@@ -1,0 +1,4 @@
+ALTER TABLE `activity_log` MODIFY COLUMN `projectId` int;--> statement-breakpoint
+ALTER TABLE `activity_log` MODIFY COLUMN `action` enum('task_created','task_updated','task_completed','task_deleted','subtask_created','subtask_completed','comment_added','comment_edited','member_invited','member_joined','member_removed','block_created','block_updated','section_created','section_updated','project_created','project_updated','deadline_set','priority_changed','assignment_changed','ai_request','ai_analysis','ai_code_generation','decision_created','decision_finalized') NOT NULL;--> statement-breakpoint
+ALTER TABLE `activity_log` MODIFY COLUMN `entityType` enum('project','block','section','task','subtask','comment','member','ai','decision') NOT NULL;--> statement-breakpoint
+ALTER TABLE `activity_log` MODIFY COLUMN `entityId` int;

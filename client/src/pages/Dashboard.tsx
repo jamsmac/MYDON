@@ -35,8 +35,10 @@ import { TemplateLibrary } from '@/components/TemplateLibrary';
 import { DailyBriefing } from '@/components/DailyBriefing';
 import { NotificationCenter } from '@/components/NotificationCenter';
 import { OverdueTasksWidget } from '@/components/OverdueTasksWidget';
+import { ActivityFeed } from '@/components/ActivityFeed';
 import { FloatingAIButton } from '@/components/AIAssistantButton';
 import { Link, useLocation } from 'wouter';
+import { Coins, Lightbulb } from 'lucide-react';
 import { useState, useMemo, useRef } from 'react';
 import { useKeyboardShortcuts, getShortcutDisplay } from '@/hooks/useKeyboardShortcuts';
 import { LayoutTemplate } from 'lucide-react';
@@ -297,7 +299,7 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="container py-8">
         {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           <Card 
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-blue-500/50 ${statusFilter === 'all' ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
             onClick={() => setStatusFilter('all')}
@@ -374,6 +376,42 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Credits Card */}
+          <Card 
+            className="bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-purple-500/50"
+            onClick={() => navigate('/usage')}
+          >
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center">
+                  <Coins className="w-6 h-6 text-purple-500" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-white">—</p>
+                  <p className="text-sm text-slate-400">Кредитов</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* AI Decisions Card */}
+          <Card 
+            className="bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-cyan-500/50"
+            onClick={() => navigate('/decisions')}
+          >
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-cyan-500/10 rounded-xl flex items-center justify-center">
+                  <Lightbulb className="w-6 h-6 text-cyan-500" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-white">—</p>
+                  <p className="text-sm text-slate-400">AI Решений</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Overdue Tasks Widget */}
@@ -403,6 +441,11 @@ export default function Dashboard() {
             />
           </div>
         )}
+
+        {/* Activity Feed Section */}
+        <div className="mb-8">
+          <ActivityFeed limit={15} showProjectName={true} />
+        </div>
 
         {/* Timeline Section */}
         {projects && projects.length > 0 && (

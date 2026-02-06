@@ -181,7 +181,7 @@ export type InsertProjectInvitation = typeof projectInvitations.$inferInsert;
  */
 export const activityLog = mysqlTable("activity_log", {
   id: int("id").autoincrement().primaryKey(),
-  projectId: int("projectId").notNull(),
+  projectId: int("projectId"), // Nullable for non-project activities
   userId: int("userId").notNull(),
   action: mysqlEnum("action", [
     "task_created", "task_updated", "task_completed", "task_deleted",
@@ -190,11 +190,15 @@ export const activityLog = mysqlTable("activity_log", {
     "member_invited", "member_joined", "member_removed",
     "block_created", "block_updated",
     "section_created", "section_updated",
-    "project_updated", "deadline_set", "priority_changed",
-    "assignment_changed"
+    "project_created", "project_updated", "deadline_set", "priority_changed",
+    "assignment_changed",
+    // AI-related actions
+    "ai_request", "ai_analysis", "ai_code_generation",
+    // Decision actions
+    "decision_created", "decision_finalized"
   ]).notNull(),
-  entityType: mysqlEnum("entityType", ["project", "block", "section", "task", "subtask", "comment", "member"]).notNull(),
-  entityId: int("entityId").notNull(),
+  entityType: mysqlEnum("entityType", ["project", "block", "section", "task", "subtask", "comment", "member", "ai", "decision"]).notNull(),
+  entityId: int("entityId"),
   entityTitle: varchar("entityTitle", { length: 500 }),
   metadata: json("metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

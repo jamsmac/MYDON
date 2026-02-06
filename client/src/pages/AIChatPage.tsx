@@ -46,6 +46,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
+import { ModelSelector } from '@/components/ModelSelector';
 
 type TaskType = 'chat' | 'reasoning' | 'coding' | 'vision' | 'translation' | 'summarization' | 'creative';
 
@@ -80,6 +81,7 @@ export default function AIChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [selectedModel, setSelectedModel] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -658,37 +660,47 @@ export default function AIChatPage() {
 
         {/* Input Area */}
         <div className="p-4 border-t border-border bg-card">
-          <div className="max-w-4xl mx-auto flex gap-2">
-            <Input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Введите сообщение..."
-              disabled={isStreaming}
-              className="flex-1"
-            />
-            {isStreaming ? (
-              <Button
-                onClick={handleCancelStream}
-                variant="destructive"
-                size="icon"
-                title="Отменить генерацию"
-              >
-                <span className="w-3 h-3 bg-white rounded-sm" />
-              </Button>
-            ) : (
-              <Button
-                onClick={handleSend}
-                disabled={!input.trim()}
-                size="icon"
-              >
-                <Send className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
-          <div className="max-w-4xl mx-auto mt-2 text-xs text-muted-foreground text-center">
-            Нажмите Enter для отправки • Shift+Enter для новой строки
+          <div className="max-w-4xl mx-auto space-y-2">
+            <div className="flex gap-2">
+              <Input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Введите сообщение..."
+                disabled={isStreaming}
+                className="flex-1"
+              />
+              {isStreaming ? (
+                <Button
+                  onClick={handleCancelStream}
+                  variant="destructive"
+                  size="icon"
+                  title="Отменить генерацию"
+                >
+                  <span className="w-3 h-3 bg-white rounded-sm" />
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleSend}
+                  disabled={!input.trim()}
+                  size="icon"
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center justify-between">
+              <ModelSelector
+                value={selectedModel}
+                onChange={setSelectedModel}
+                disabled={isStreaming}
+                compact
+              />
+              <span className="text-xs text-muted-foreground">
+                Enter для отправки • Shift+Enter для новой строки
+              </span>
+            </div>
           </div>
         </div>
       </div>
