@@ -694,6 +694,93 @@ const subtaskRouter = router({
     .mutation(async ({ ctx, input }) => {
       return db.deleteSubtaskTemplate(input.templateId, ctx.user.id);
     }),
+
+  applyBuiltinTemplate: protectedProcedure
+    .input(z.object({
+      taskId: z.number(),
+      templateKey: z.enum(["research", "analysis", "documentation", "review", "testing"]),
+    }))
+    .mutation(async ({ input }) => {
+      const BUILTIN_TEMPLATES: Record<string, { title: string; items: string[] }> = {
+        research: {
+          title: "Исследование",
+          items: [
+            "Определить цели и вопросы исследования",
+            "Собрать данные из открытых источников",
+            "Провести интервью / опросы",
+            "Проанализировать конкурентов",
+            "Составить отчёт с выводами",
+            "Подготовить презентацию результатов",
+          ],
+        },
+        analysis: {
+          title: "Анализ",
+          items: [
+            "Определить метрики и KPI для анализа",
+            "Собрать и подготовить данные",
+            "Провести количественный анализ",
+            "Провести качественный анализ",
+            "Выявить тренды и паттерны",
+            "Сформулировать рекомендации",
+            "Оформить аналитический отчёт",
+          ],
+        },
+        documentation: {
+          title: "Документация",
+          items: [
+            "Определить структуру документа",
+            "Написать введение и обзор",
+            "Описать основные разделы",
+            "Добавить примеры и иллюстрации",
+            "Провести вычитку и редактуру",
+            "Согласовать с заинтересованными сторонами",
+            "Опубликовать финальную версию",
+          ],
+        },
+        review: {
+          title: "Ревью",
+          items: [
+            "Ознакомиться с материалом / кодом",
+            "Проверить соответствие требованиям",
+            "Оценить качество и полноту",
+            "Составить список замечаний",
+            "Обсудить замечания с автором",
+            "Проверить исправления",
+            "Утвердить результат",
+          ],
+        },
+        testing: {
+          title: "Тестирование",
+          items: [
+            "Составить тест-план",
+            "Подготовить тестовые данные",
+            "Провести функциональное тестирование",
+            "Провести регрессионное тестирование",
+            "Проверить граничные случаи",
+            "Зафиксировать найденные баги",
+            "Провести повторное тестирование после исправлений",
+            "Подготовить отчёт о тестировании",
+          ],
+        },
+      };
+
+      const template = BUILTIN_TEMPLATES[input.templateKey];
+      if (!template) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown template key" });
+      }
+
+      // Create subtasks from template items
+      const results = [];
+      for (let i = 0; i < template.items.length; i++) {
+        const subtask = await db.createSubtask({
+          taskId: input.taskId,
+          title: template.items[i],
+          sortOrder: i,
+        });
+        results.push(subtask);
+      }
+      return { count: results.length, templateTitle: template.title };
+    }),
 });
 
 // ============ AI SETTINGS ROUTER ============

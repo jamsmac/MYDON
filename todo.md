@@ -2276,10 +2276,16 @@
 - [x] AI priority suggestion when creating tasks (auto-detect with confidence %)
 - [x] Quick deadline buttons (today, tomorrow, 3 days, week, 2 weeks, month)
 - [x] AI task suggestions from section context
-- [ ] Quick subtask templates (Research, Analysis, Document, Review, Testing)
+- [x] Quick subtask templates (Research, Analysis, Document, Review, Testing)
 - [ ] Auto-suggest dependencies
 - [x] Simplified task creation: SmartTaskCreator with AI suggestions, priority, deadline
 
 ### UX Overhaul - Additional
 - [x] Breadcrumb navigation in right panel (project > block > section > task)
 - [ ] Unread discussion badge on blocks/sections
+
+### Subtask Templates
+- [x] Add quick subtask template buttons (Исследование, Анализ, Документация, Ревью, Тестирование)
+- [x] Each template creates a subtask with pre-filled title and optional description
+- [x] Integrate templates into SubtasksSection component
+- [x] Write tests for subtask templates

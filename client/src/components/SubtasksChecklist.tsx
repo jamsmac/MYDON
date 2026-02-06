@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { SubtaskTemplateSelector } from './SubtaskTemplateSelector';
+import { BuiltinSubtaskTemplates } from './BuiltinSubtaskTemplates';
 import { 
   Plus, 
   GripVertical, 
@@ -115,6 +116,11 @@ export function SubtasksChecklist({
           )}
         </div>
         <div className="flex items-center gap-1">
+          <BuiltinSubtaskTemplates
+            taskId={taskId}
+            onApplied={() => onRefresh?.()}
+            compact
+          />
           <SubtaskTemplateSelector
             taskId={taskId}
             currentSubtasks={subtasks.map(s => ({ title: s.title }))}
@@ -300,15 +306,21 @@ export function SubtasksChecklist({
         )}
       </AnimatePresence>
 
-      {/* Empty state */}
+      {/* Empty state with builtin templates */}
       {subtasks.length === 0 && !isAddingNew && (
-        <button
-          onClick={() => setIsAddingNew(true)}
-          className="w-full py-4 rounded-lg border border-dashed border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400 transition-colors text-sm"
-        >
-          <Plus className="w-4 h-4 mx-auto mb-1" />
-          Добавить подзадачу
-        </button>
+        <div className="space-y-3">
+          <button
+            onClick={() => setIsAddingNew(true)}
+            className="w-full py-3 rounded-lg border border-dashed border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400 transition-colors text-sm"
+          >
+            <Plus className="w-4 h-4 mx-auto mb-1" />
+            Добавить подзадачу вручную
+          </button>
+          <BuiltinSubtaskTemplates
+            taskId={taskId}
+            onApplied={() => onRefresh?.()}
+          />
+        </div>
       )}
     </div>
   );
