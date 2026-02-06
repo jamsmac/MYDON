@@ -69,6 +69,7 @@ import { PitchDeckGenerator } from '@/components/PitchDeckGenerator';
 import { FloatingAIButton } from '@/components/AIAssistantButton';
 import CustomFieldsManager from '@/components/CustomFieldsManager';
 import CustomFieldsForm from '@/components/CustomFieldsForm';
+import { TaskAIPanel } from '@/components/TaskAIPanel';
 import { 
   SplitTaskDialog, 
   MergeTasksDialog, 
@@ -450,13 +451,26 @@ function TaskDetailPanel({
 
   const currentStatus = statusOptions.find(s => s.value === task.status) || statusOptions[0];
 
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-slate-700 flex items-center justify-between">
         <h3 className="text-lg font-medium text-white truncate flex-1">{task.title}</h3>
-        <Button variant="ghost" size="icon" onClick={onClose} className="text-slate-400">
-          <X className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setAiPanelOpen(true)} 
+            className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+            title="AI Ассистент"
+          >
+            <Sparkles className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onClose} className="text-slate-400">
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
       
       <ScrollArea className="flex-1 p-4">
@@ -715,6 +729,34 @@ function TaskDetailPanel({
           </div>
         </div>
       </ScrollArea>
+
+      {/* Task AI Panel */}
+      <TaskAIPanel
+        open={aiPanelOpen}
+        onClose={() => setAiPanelOpen(false)}
+        taskId={task.id}
+        taskTitle={task.title}
+        taskDescription={task.description}
+        taskStatus={task.status}
+        taskPriority={task.priority}
+        projectId={projectId}
+        projectName=""
+        onAddToDescription={(content) => {
+          const newNotes = notes ? notes + '\n\n' + content : content;
+          setNotes(newNotes);
+          onUpdate({ notes: newNotes });
+          toast.success('Добавлено в заметки');
+        }}
+        onCreateSubtask={(title) => {
+          toast.info(`Подзадача: ${title}`);
+        }}
+        onFinalize={(content) => {
+          const newSummary = content.slice(0, 500);
+          setSummary(newSummary);
+          onUpdate({ summary: newSummary });
+          toast.success('Финализировано');
+        }}
+      />
     </div>
   );
 }
@@ -1862,19 +1904,7 @@ export default function ProjectView() {
           )}
         </div>
 
-        {/* AI Chat Panel */}
-        {selectedContext && (
-          <div className="w-96 border-l border-slate-800 flex-shrink-0">
-            <StreamingAIChat
-              contextType={selectedContext.type}
-              contextId={selectedContext.id}
-              contextTitle={selectedContext.title}
-              contextContent={selectedContext.content}
-              onSaveAsNote={selectedTask ? handleSaveAsNote : undefined}
-              onSaveAsDocument={selectedTask ? handleSaveAsDocument : undefined}
-            />
-          </div>
-        )}
+        {/* AI Chat Panel removed - now contextual per task via TaskAIPanel */}
       </main>
 
       {/* Create Section Dialog */}

@@ -37,6 +37,7 @@ import { NotificationCenter } from '@/components/NotificationCenter';
 import { OverdueTasksWidget } from '@/components/OverdueTasksWidget';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { FloatingAIButton } from '@/components/AIAssistantButton';
+import { ProjectsFilterModal, CreditsModal, AIDecisionsModal } from '@/components/DashboardModals';
 import { Link, useLocation } from 'wouter';
 import { Coins, Lightbulb } from 'lucide-react';
 import { useState, useMemo, useRef } from 'react';
@@ -64,6 +65,10 @@ export default function Dashboard() {
   const [upgradePromptOpen, setUpgradePromptOpen] = useState(false);
   const [upgradePromptType, setUpgradePromptType] = useState<'project' | 'ai'>('project');
   const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
+  const [projectsModalOpen, setProjectsModalOpen] = useState(false);
+  const [projectsModalFilter, setProjectsModalFilter] = useState<'all' | 'active' | 'completed' | 'overdue'>('all');
+  const [creditsModalOpen, setCreditsModalOpen] = useState(false);
+  const [aiDecisionsModalOpen, setAiDecisionsModalOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Keyboard shortcuts
@@ -302,7 +307,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           <Card 
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-blue-500/50 ${statusFilter === 'all' ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
-            onClick={() => setStatusFilter('all')}
+            onClick={() => { setProjectsModalFilter('all'); setProjectsModalOpen(true); setStatusFilter('all'); }}
           >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -319,7 +324,7 @@ export default function Dashboard() {
 
           <Card 
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-amber-500/50 ${statusFilter === 'active' ? 'ring-2 ring-amber-500 border-amber-500' : ''}`}
-            onClick={() => setStatusFilter('active')}
+            onClick={() => { setProjectsModalFilter('active'); setProjectsModalOpen(true); setStatusFilter('active'); }}
           >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -338,7 +343,7 @@ export default function Dashboard() {
 
           <Card 
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-emerald-500/50 ${statusFilter === 'completed' ? 'ring-2 ring-emerald-500 border-emerald-500' : ''}`}
-            onClick={() => setStatusFilter('completed')}
+            onClick={() => { setProjectsModalFilter('completed'); setProjectsModalOpen(true); setStatusFilter('completed'); }}
           >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -357,7 +362,7 @@ export default function Dashboard() {
 
           <Card 
             className={`bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-red-500/50 ${statusFilter === 'overdue' ? 'ring-2 ring-red-500 border-red-500' : ''}`}
-            onClick={() => setStatusFilter('overdue')}
+            onClick={() => { setProjectsModalFilter('overdue'); setProjectsModalOpen(true); setStatusFilter('overdue'); }}
           >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -380,7 +385,7 @@ export default function Dashboard() {
           {/* Credits Card */}
           <Card 
             className="bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-purple-500/50"
-            onClick={() => navigate('/usage')}
+            onClick={() => setCreditsModalOpen(true)}
           >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -398,7 +403,7 @@ export default function Dashboard() {
           {/* AI Decisions Card */}
           <Card 
             className="bg-slate-800/50 border-slate-700 cursor-pointer transition-all hover:border-cyan-500/50"
-            onClick={() => navigate('/decisions')}
+            onClick={() => setAiDecisionsModalOpen(true)}
           >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -698,6 +703,16 @@ export default function Dashboard() {
         open={dailyBriefingOpen} 
         onOpenChange={setDailyBriefingOpen} 
       />
+
+      {/* Dashboard Modals */}
+      <ProjectsFilterModal
+        open={projectsModalOpen}
+        onOpenChange={setProjectsModalOpen}
+        projects={projects || []}
+        filterType={projectsModalFilter}
+      />
+      <CreditsModal open={creditsModalOpen} onOpenChange={setCreditsModalOpen} />
+      <AIDecisionsModal open={aiDecisionsModalOpen} onOpenChange={setAiDecisionsModalOpen} />
 
       {/* Floating AI Assistant Button */}
       <FloatingAIButton open={aiAssistantOpen} onOpenChange={setAiAssistantOpen} />

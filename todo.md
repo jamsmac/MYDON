@@ -2010,3 +2010,27 @@
 - [x] Support all 13 field types with compact rendering
 - [x] Pass customFields and fieldValuesMap through KanbanColumn to SortableTaskCard
 - [x] Display custom fields section on cards after tags
+
+
+## Phase 91: Critical UX Fixes - Dashboard Modals & AI Chat Redesign
+
+### Dashboard Card Modals
+- [x] Click "Проектов" → ProjectsFilterModal with all projects list
+- [x] Click "Активных" → ProjectsFilterModal with active projects filtered
+- [x] Click "Завершённых" → ProjectsFilterModal with completed projects filtered
+- [x] Click "Просроченных" → ProjectsFilterModal with overdue projects filtered
+- [x] Click "Кредитов" → CreditsModal with credit balance details
+- [x] Click "AI Решений" → AIDecisionsModal with AI decisions summary
+- [x] Each modal: title, search, project list (icon, name, description, progress bar, date, status badge)
+- [x] Click project in modal → navigate to /project/:id
+
+### AI Chat Redesign
+- [x] Remove permanent AI sidebar panel from ProjectView
+- [x] Add AI sparkle icon (✨) to TaskDetailPanel header
+- [x] Create TaskAIPanel slide-over component (420px right panel)
+- [x] Panel header: "AI • {task_name}" with project name subtitle
+- [x] Panel tabs: Чат | Решения | Файлы | История
+- [x] Quick action buttons under AI responses: Финализировать, Подзадачу, В описание, Копировать
+- [x] Quick prompts for empty chat: Разбить на подзадачи, Оценить сложность, Найти риски, Написать ТЗ
+- [x] Task context badges (status, priority) in panel header
+- [x] Keep FloatingAIButton for general chat without context
