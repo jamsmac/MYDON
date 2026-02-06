@@ -2052,3 +2052,17 @@
 - [x] Show visual feedback during save (opacity change)
 - [x] Invalidate cache after successful save
 - [x] Hover highlight on editable cells
+
+
+## Phase 93: Custom Field Filtering in Table and Kanban Views
+
+- [x] Create reusable CustomFieldFilter component (CustomFieldFilterPanel)
+- [x] Support filter operators per field type (text: contains/equals, number: >/</>=/<=/=, date: before/after, boolean: is_true/is_false, select: equals/not_equals, rating: star comparison, etc.)
+- [x] Filter UI: popover with field selector, operator selector, and type-specific value input
+- [x] Add/remove multiple filters with AND logic
+- [x] Integrate filters into TableView toolbar (button with active count badge)
+- [x] Integrate filters into KanbanBoard toolbar (next to existing priority/assignee/tag filters)
+- [x] Apply filters to task list before rendering using taskPassesAllFilters()
+- [x] Show active filter count badge (amber color)
+- [x] Clear all filters button
+- [x] 529 tests passing

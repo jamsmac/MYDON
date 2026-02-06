@@ -50,6 +50,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { CustomFieldFilterPanel, CustomFieldFilterRule, taskPassesAllFilters, type CustomFieldForFilter, type CustomFieldValueForFilter } from '@/components/CustomFieldFilter';
 import {
   DndContext,
   DragOverlay,
@@ -739,12 +740,26 @@ export function KanbanBoard({
     assignee?: number;
     tag?: number;
   }>({});
+  const [customFieldFilters, setCustomFieldFilters] = useState<CustomFieldFilterRule[]>([]);
 
-  // Fetch custom fields with showOnCard=true
+  // Fetch all custom fields for project
   const { data: customFieldsData } = trpc.customFields.getByProject.useQuery(
     { projectId },
     { enabled: !!projectId }
   );
+
+  // All fields for filtering
+  const allFields = useMemo(() => {
+    if (!customFieldsData) return [];
+    return customFieldsData;
+  }, [customFieldsData]);
+
+  // Build fields map for filtering
+  const fieldsMap = useMemo(() => {
+    const map = new Map<number, CustomFieldForFilter>();
+    allFields.forEach(f => map.set(f.id, f as CustomFieldForFilter));
+    return map;
+  }, [allFields]);
 
   // Filter fields with showOnCard=true
   const cardFields = useMemo(() => {
@@ -758,7 +773,7 @@ export function KanbanBoard({
   // Fetch custom field values for all tasks
   const { data: fieldValuesData } = trpc.customFields.getValuesByTasks.useQuery(
     { taskIds },
-    { enabled: taskIds.length > 0 && cardFields.length > 0 }
+    { enabled: taskIds.length > 0 && (cardFields.length > 0 || customFieldFilters.length > 0) }
   );
 
   // Build a map of taskId -> fieldId -> value for quick lookup
@@ -787,15 +802,30 @@ export function KanbanBoard({
     })
   );
 
+  // Build filter values map for custom field filtering
+  const filterValuesMap = useMemo(() => {
+    const map = new Map<number, Map<number, CustomFieldValueForFilter>>();
+    if (!fieldValuesData) return map;
+    fieldValuesData.forEach(v => {
+      if (!map.has(v.taskId)) map.set(v.taskId, new Map());
+      map.get(v.taskId)!.set(v.customFieldId, v as CustomFieldValueForFilter);
+    });
+    return map;
+  }, [fieldValuesData]);
+
   // Filter tasks
   const filteredTasks = useMemo(() => {
     return tasks.filter(task => {
       if (filters.priority && task.priority !== filters.priority) return false;
       if (filters.assignee && task.assignedTo !== filters.assignee) return false;
       if (filters.tag && (!task.tags || !task.tags.some(t => t.id === filters.tag))) return false;
+      // Custom field filters
+      if (customFieldFilters.length > 0) {
+        if (!taskPassesAllFilters(customFieldFilters, task.id, filterValuesMap, fieldsMap)) return false;
+      }
       return true;
     });
-  }, [tasks, filters]);
+  }, [tasks, filters, customFieldFilters, filterValuesMap, fieldsMap]);
 
   // Group tasks by status
   const tasksByStatus = useMemo(() => {
@@ -882,13 +912,20 @@ export function KanbanBoard({
   return (
     <div className="h-full flex flex-col">
       {/* Filters */}
-      <div className="p-4 border-b border-slate-700">
+      <div className="p-4 border-b border-slate-700 flex items-center gap-4 flex-wrap">
         <KanbanFilters
           filters={filters}
           onFiltersChange={setFilters}
           members={members}
           tags={tags}
         />
+        {allFields.length > 0 && (
+          <CustomFieldFilterPanel
+            fields={allFields as CustomFieldForFilter[]}
+            filters={customFieldFilters}
+            onFiltersChange={setCustomFieldFilters}
+          />
+        )}
       </div>
 
       {/* Kanban Columns */}

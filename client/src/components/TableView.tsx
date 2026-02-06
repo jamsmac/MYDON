@@ -57,6 +57,7 @@ import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Star, Link as LinkIcon, Mail, DollarSign, Percent, Hash, Type, CalendarDays, CheckSquare, List, ListChecks, Calculator, Sigma } from 'lucide-react';
+import { CustomFieldFilterPanel, CustomFieldFilterRule, taskPassesAllFilters, type CustomFieldForFilter, type CustomFieldValueForFilter } from '@/components/CustomFieldFilter';
 
 // Status configuration
 const STATUS_CONFIG = {
@@ -647,6 +648,25 @@ export function TableView({
   const [selectedTasks, setSelectedTasks] = useState<Set<number>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [customFieldFilters, setCustomFieldFilters] = useState<CustomFieldFilterRule[]>([]);
+
+  // Build fields map for filtering
+  const fieldsMap = useMemo(() => {
+    const map = new Map<number, CustomFieldForFilter>();
+    customFields.forEach(f => map.set(f.id, f as CustomFieldForFilter));
+    return map;
+  }, [customFields]);
+
+  // Build values map for filtering (reuse existing allFieldValues)
+  const filterValuesMap = useMemo(() => {
+    const map = new Map<number, Map<number, CustomFieldValueForFilter>>();
+    if (!allFieldValues || allFieldValues.length === 0) return map;
+    (allFieldValues as any[]).forEach((v: any) => {
+      if (!map.has(v.taskId)) map.set(v.taskId, new Map());
+      map.get(v.taskId)!.set(v.customFieldId, v as CustomFieldValueForFilter);
+    });
+    return map;
+  }, [allFieldValues]);
 
   // Handle sort
   const handleSort = (field: SortField) => {
@@ -668,6 +688,13 @@ export function TableView({
       result = result.filter(task => 
         task.title.toLowerCase().includes(query) ||
         task.description?.toLowerCase().includes(query)
+      );
+    }
+
+    // Filter by custom fields
+    if (customFieldFilters.length > 0) {
+      result = result.filter(task =>
+        taskPassesAllFilters(customFieldFilters, task.id, filterValuesMap, fieldsMap)
       );
     }
 
@@ -708,7 +735,7 @@ export function TableView({
     }
 
     return result;
-  }, [tasks, sortField, sortDirection, searchQuery]);
+  }, [tasks, sortField, sortDirection, searchQuery, customFieldFilters, filterValuesMap, fieldsMap]);
 
   // Group tasks
   const groupedTasks = useMemo(() => {
@@ -848,6 +875,15 @@ export function TableView({
               <SelectItem value="assignee">По исполнителю</SelectItem>
             </SelectContent>
           </Select>
+
+          {/* Custom field filters */}
+          {customFields.length > 0 && (
+            <CustomFieldFilterPanel
+              fields={customFields as CustomFieldForFilter[]}
+              filters={customFieldFilters}
+              onFiltersChange={setCustomFieldFilters}
+            />
+          )}
         </div>
 
         <div className="flex items-center gap-2">
