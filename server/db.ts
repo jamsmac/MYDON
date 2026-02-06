@@ -19,7 +19,8 @@ import {
   pitchDecks, InsertPitchDeck, PitchDeck, PitchDeckSlide,
   projectMembers, InsertProjectMember, ProjectMember,
   projectInvitations, InsertProjectInvitation, ProjectInvitation,
-  activityLog, InsertActivityLog, ActivityLog
+  activityLog, InsertActivityLog, ActivityLog,
+  taskDependencies, InsertTaskDependency, TaskDependency
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -2011,4 +2012,108 @@ export async function searchProjectMembers(projectId: number, query: string): Pr
     ))
     .map(m => m.user!)
     .filter(Boolean);
+}
+
+
+// ============ TASK DEPENDENCIES (for Gantt Chart) ============
+
+export async function createTaskDependency(data: InsertTaskDependency): Promise<TaskDependency> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const [result] = await db.insert(taskDependencies).values(data).$returningId();
+  const [dependency] = await db.select().from(taskDependencies).where(eq(taskDependencies.id, result.id));
+  return dependency;
+}
+
+export async function getTaskDependencies(taskId: number): Promise<TaskDependency[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(taskDependencies).where(eq(taskDependencies.taskId, taskId));
+}
+
+export async function getDependentTasks(taskId: number): Promise<TaskDependency[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(taskDependencies).where(eq(taskDependencies.dependsOnTaskId, taskId));
+}
+
+export async function deleteTaskDependency(id: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  await db.delete(taskDependencies).where(eq(taskDependencies.id, id));
+  return true;
+}
+
+export async function deleteTaskDependenciesByTask(taskId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  await db.delete(taskDependencies).where(eq(taskDependencies.taskId, taskId));
+  return true;
+}
+
+export async function getProjectDependencies(projectId: number): Promise<TaskDependency[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // Get all task IDs for the project
+  const projectBlocks = await db.select().from(blocks).where(eq(blocks.projectId, projectId));
+  const blockIds = projectBlocks.map(b => b.id);
+  
+  if (blockIds.length === 0) return [];
+  
+  const projectSections = await db.select().from(sections).where(inArray(sections.blockId, blockIds));
+  const sectionIds = projectSections.map(s => s.id);
+  
+  if (sectionIds.length === 0) return [];
+  
+  const projectTasks = await db.select().from(tasks).where(inArray(tasks.sectionId, sectionIds));
+  const taskIds = projectTasks.map(t => t.id);
+  
+  if (taskIds.length === 0) return [];
+  
+  // Get all dependencies for these tasks
+  return db.select().from(taskDependencies).where(inArray(taskDependencies.taskId, taskIds));
+}
+
+export async function getGanttChartData(projectId: number): Promise<{
+  tasks: Array<Task & { blockTitle: string; sectionTitle: string }>;
+  dependencies: TaskDependency[];
+}> {
+  const db = await getDb();
+  if (!db) return { tasks: [], dependencies: [] };
+  
+  // Get all blocks for the project
+  const projectBlocks = await db.select().from(blocks).where(eq(blocks.projectId, projectId)).orderBy(asc(blocks.sortOrder));
+  
+  const allTasks: Array<Task & { blockTitle: string; sectionTitle: string }> = [];
+  const taskIds: number[] = [];
+  
+  for (const block of projectBlocks) {
+    const blockSections = await db.select().from(sections).where(eq(sections.blockId, block.id)).orderBy(asc(sections.sortOrder));
+    
+    for (const section of blockSections) {
+      const sectionTasks = await db.select().from(tasks).where(eq(tasks.sectionId, section.id)).orderBy(asc(tasks.sortOrder));
+      
+      for (const task of sectionTasks) {
+        allTasks.push({
+          ...task,
+          blockTitle: block.titleRu || block.title,
+          sectionTitle: section.title
+        });
+        taskIds.push(task.id);
+      }
+    }
+  }
+  
+  // Get dependencies
+  const dependencies = taskIds.length > 0 
+    ? await db.select().from(taskDependencies).where(inArray(taskDependencies.taskId, taskIds))
+    : [];
+  
+  return { tasks: allTasks, dependencies };
 }

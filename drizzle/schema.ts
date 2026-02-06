@@ -2386,3 +2386,28 @@ export const modelComparisons = mysqlTable("model_comparisons", {
 }));
 export type ModelComparison = typeof modelComparisons.$inferSelect;
 export type InsertModelComparison = typeof modelComparisons.$inferInsert;
+
+
+/**
+ * Task Dependencies - for Gantt chart and project planning
+ * Defines relationships between tasks (e.g., Task B depends on Task A)
+ */
+export const taskDependencies = mysqlTable("task_dependencies", {
+  id: int("id").autoincrement().primaryKey(),
+  taskId: int("taskId").notNull(), // The task that has the dependency
+  dependsOnTaskId: int("dependsOnTaskId").notNull(), // The task that must be completed first
+  dependencyType: mysqlEnum("dependencyType", [
+    "finish_to_start", // Default: Task B starts after Task A finishes
+    "start_to_start",  // Task B starts when Task A starts
+    "finish_to_finish", // Task B finishes when Task A finishes
+    "start_to_finish"  // Task B finishes when Task A starts
+  ]).default("finish_to_start"),
+  lagDays: int("lagDays").default(0), // Delay in days between tasks (can be negative for lead time)
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  taskIdx: index("td_task_idx").on(table.taskId),
+  dependsOnIdx: index("td_depends_on_idx").on(table.dependsOnTaskId),
+}));
+
+export type TaskDependency = typeof taskDependencies.$inferSelect;
+export type InsertTaskDependency = typeof taskDependencies.$inferInsert;

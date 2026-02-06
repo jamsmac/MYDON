@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `task_dependencies` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `taskId` int NOT NULL,\n  `dependsOnTaskId` int NOT NULL,\n  `dependencyType` enum('finish_to_start','start_to_start','finish_to_finish','start_to_finish') DEFAULT 'finish_to_start',\n  `lagDays` int DEFAULT 0,\n  `createdAt` timestamp NOT NULL DEFAULT (now()),\n  CONSTRAINT `task_dependencies_id` PRIMARY KEY(`id`),\n  INDEX `td_task_idx` (`taskId`),\n  INDEX `td_depends_on_idx` (`dependsOnTaskId`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute CREATE TABLE IF NOT EXISTS `task_dependencies` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `taskId` int NOT NULL,\n  `dependsOnTaskId` int NOT NULL,\n  `dependencyType` enum('finish_to_start','start_to_start','finish_to_finish','start_to_finish') DEFAULT 'finish_to_start',\n  `lagDays` int DEFAULT 0,\n  `createdAt` timestamp NOT NULL DEFAULT (now()),\n  CONSTRAINT `task_dependencies_id` PRIMARY KEY(`id`),\n  INDEX `td_task_idx` (`taskId`),\n  INDEX `td_depends_on_idx` (`dependsOnTaskId`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 286
+}

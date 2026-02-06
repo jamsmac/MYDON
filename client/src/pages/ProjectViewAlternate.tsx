@@ -45,6 +45,7 @@ import { toast } from 'sonner';
 import { KanbanBoard } from '@/components/KanbanBoard';
 import { TableView } from '@/components/TableView';
 import { CalendarView } from '@/components/CalendarView';
+import { GanttChartAdvanced } from '@/components/GanttChartAdvanced';
 import { ViewSwitcher, useProjectView, type ViewType } from '@/components/ViewSwitcher';
 
 // Task type for views
@@ -111,6 +112,21 @@ export default function ProjectViewAlternate() {
     onSuccess: () => {
       toast.success('Задача удалена');
       refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  // Gantt chart data
+  const { data: ganttData, refetch: refetchGantt } = trpc.task.getGanttData.useQuery(
+    { projectId },
+    { enabled: isAuthenticated && projectId > 0 && currentView === 'gantt' }
+  );
+
+  // Add dependency mutation
+  const addDependency = trpc.task.addDependency.useMutation({
+    onSuccess: () => {
+      toast.success('Зависимость добавлена');
+      refetchGantt();
     },
     onError: (error) => toast.error('Ошибка: ' + error.message)
   });
@@ -354,16 +370,17 @@ export default function ProjectViewAlternate() {
         )}
 
         {currentView === 'gantt' && (
-          <div className="h-full flex items-center justify-center text-slate-400">
-            <div className="text-center">
-              <GanttChart className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p className="text-lg font-medium">Диаграмма Ганта</p>
-              <p className="text-sm mt-1">Скоро будет доступна</p>
-              <Badge variant="outline" className="mt-4 border-slate-600">
-                В разработке
-              </Badge>
-            </div>
-          </div>
+          <GanttChartAdvanced
+            tasks={allTasks.map(t => ({
+              ...t,
+              deadline: t.deadline ? new Date(t.deadline) : null,
+            }))}
+            dependencies={ganttData?.dependencies || []}
+            onTaskClick={handleTaskClick}
+            onAddDependency={(fromId, toId) => {
+              addDependency.mutate({ taskId: toId, dependsOnTaskId: fromId });
+            }}
+          />
         )}
       </main>
     </div>

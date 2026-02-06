@@ -1875,3 +1875,29 @@
 - [x] Import: JSON, Markdown parsing (existing)
 - [x] Preview before import (existing)
 
+
+
+## Phase 84: Gantt Chart View with Dependencies
+
+### Database & Backend
+- [x] Create task_dependencies table (taskId, dependsOnTaskId, type, lagDays)
+- [x] Add dependency CRUD procedures to task router (getDependencies, addDependency, removeDependency)
+- [x] Add endpoint to get project timeline data (getGanttData)
+
+### Gantt Chart Component
+- [x] Create GanttChartAdvanced component with timeline visualization
+- [x] Display tasks as horizontal bars on timeline
+- [x] Show task dependencies as arrows/lines between bars
+- [x] Color-code by status (not started, in progress, completed)
+- [x] Zoom controls (day, week, month, quarter)
+- [x] Today marker line (red vertical line)
+- [x] Hover tooltips with task details
+- [x] Click task to open details
+- [x] Shift+click to create dependencies between tasks
+
+### Integration
+- [x] Replace placeholder in ViewSwitcher with actual Gantt view
+- [x] Integrated into ProjectViewAlternate page
+- [ ] Add dependency management UI in task details panel (future)
+- [ ] Support drag to adjust task dates (future)
+

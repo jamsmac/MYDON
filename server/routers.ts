@@ -497,6 +497,60 @@ const taskRouter = router({
     .query(async ({ ctx }) => {
       return db.getOverdueTasks(ctx.user.id);
     }),
+
+  // ============ TASK DEPENDENCIES (for Gantt Chart) ============
+  
+  // Get dependencies for a task
+  getDependencies: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .query(async ({ input }) => {
+      return db.getTaskDependencies(input.taskId);
+    }),
+
+  // Get tasks that depend on this task
+  getDependentTasks: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .query(async ({ input }) => {
+      return db.getDependentTasks(input.taskId);
+    }),
+
+  // Create a dependency between tasks
+  addDependency: protectedProcedure
+    .input(z.object({
+      taskId: z.number(),
+      dependsOnTaskId: z.number(),
+      dependencyType: z.enum(["finish_to_start", "start_to_start", "finish_to_finish", "start_to_finish"]).optional(),
+      lagDays: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      // Prevent self-dependency
+      if (input.taskId === input.dependsOnTaskId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Task cannot depend on itself',
+        });
+      }
+      return db.createTaskDependency({
+        taskId: input.taskId,
+        dependsOnTaskId: input.dependsOnTaskId,
+        dependencyType: input.dependencyType || "finish_to_start",
+        lagDays: input.lagDays || 0,
+      });
+    }),
+
+  // Remove a dependency
+  removeDependency: protectedProcedure
+    .input(z.object({ dependencyId: z.number() }))
+    .mutation(async ({ input }) => {
+      return db.deleteTaskDependency(input.dependencyId);
+    }),
+
+  // Get Gantt chart data for a project
+  getGanttData: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ input }) => {
+      return db.getGanttChartData(input.projectId);
+    }),
 });
 
 // ============ SUBTASK ROUTER ============
