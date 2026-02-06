@@ -2216,3 +2216,21 @@
 ### Tests
 - [x] 54 new tests for block & section drag & drop (718 total)
 - [x] Fix infinite render loop bug in CustomFieldsForm.tsx (Maximum update depth exceeded) - added useRef guard + useCallback + 23 tests
+
+### Stripe Payment Integration
+- [x] Configure Stripe env vars (STRIPE_SECRET_KEY, VITE_STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET)
+- [x] Install stripe npm package
+- [x] Add stripe_customer_id to users table in schema
+- [x] Create payments table in schema (stripe IDs only)
+- [x] Create products.ts with plan definitions
+- [x] Create server/stripe.ts with Stripe client initialization
+- [x] Create checkout session endpoint (server/stripeRouter.ts)
+- [x] Create webhook handler at /api/stripe/webhook
+- [x] Create payment history endpoint (getPaymentHistory + getUpcomingInvoice)
+- [x] Create billing/subscription management endpoints (createPortalSession, cancelSubscription)
+- [x] Build Billing/Pricing page UI
+- [x] Build Payment History page UI (/payments)
+- [x] Build Payment Success/Cancel pages (SubscriptionSuccess.tsx)
+- [x] Wire Stripe routes in App.tsx
+- [x] Write vitest tests for Stripe integration (24 tests)
+- [x] Push database migrations

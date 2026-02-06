@@ -3,9 +3,10 @@ import { stripe, constructWebhookEvent } from './stripe';
 import { getDb } from '../db';
 import { users } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
+import { ENV } from '../_core/env';
 import Stripe from 'stripe';
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const webhookSecret = ENV.stripeWebhookSecret;
 
 export async function handleStripeWebhook(req: Request, res: Response) {
   if (!stripe) {

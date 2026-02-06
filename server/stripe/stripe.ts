@@ -1,15 +1,17 @@
 import Stripe from 'stripe';
+import { ENV } from '../_core/env';
 
-// Initialize Stripe with secret key
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+// Initialize Stripe with secret key (supports both STRIPE_SECRET_KEY and SecretKey env vars)
+const stripeSecretKey = ENV.stripeSecretKey;
 
 if (!stripeSecretKey) {
-  console.warn('[Stripe] STRIPE_SECRET_KEY not configured. Stripe features will be disabled.');
+  console.warn('[Stripe] Stripe secret key not configured. Stripe features will be disabled.');
+  console.warn('[Stripe] Set STRIPE_SECRET_KEY or SecretKey in your environment.');
 }
 
 export const stripe = stripeSecretKey 
   ? new Stripe(stripeSecretKey, {
-      apiVersion: '2026-01-28.clover',
+      apiVersion: '2025-12-18.acacia' as any,
     })
   : null;
 

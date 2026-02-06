@@ -35,6 +35,7 @@ const TagManagement = lazy(() => import("./pages/TagManagement"));
 const DecisionLogDashboard = lazy(() => import("./pages/DecisionLogDashboard"));
 const UsagePage = lazy(() => import("./pages/UsagePage"));
 const ProjectViewAlternate = lazy(() => import("./pages/ProjectViewAlternate"));
+const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 
 // Loading fallback component
 function PageLoader() {
@@ -74,6 +75,7 @@ function Router() {
         <Route path="/project/:id/tags" component={TagManagement} />
         <Route path="/decisions" component={DecisionLogDashboard} />
         <Route path="/usage" component={UsagePage} />
+        <Route path="/payments" component={PaymentHistory} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

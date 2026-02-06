@@ -46,7 +46,6 @@ export const stripeRouter = router({
       }
 
       // Get or create price ID
-      // In production, these should be created in Stripe Dashboard
       const priceId = input.billingPeriod === 'yearly' 
         ? plan.stripePriceIdYearly 
         : plan.stripePriceIdMonthly;
@@ -181,5 +180,96 @@ export const stripeRouter = router({
       .where(eq(users.id, ctx.user.id));
 
     return { success: true };
+  }),
+
+  // Get payment history (invoices from Stripe)
+  getPaymentHistory: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(20),
+      startingAfter: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      if (!stripe) {
+        return { invoices: [], hasMore: false };
+      }
+
+      const db = await getDb();
+      if (!db) {
+        return { invoices: [], hasMore: false };
+      }
+
+      const user = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
+      
+      if (!user[0]?.stripeCustomerId) {
+        return { invoices: [], hasMore: false };
+      }
+
+      try {
+        const params: any = {
+          customer: user[0].stripeCustomerId,
+          limit: input?.limit ?? 20,
+        };
+
+        if (input?.startingAfter) {
+          params.starting_after = input.startingAfter;
+        }
+
+        const invoices = await stripe.invoices.list(params);
+
+        return {
+          invoices: invoices.data.map((inv) => ({
+            id: inv.id,
+            number: inv.number,
+            status: inv.status,
+            amount: inv.amount_paid,
+            currency: inv.currency,
+            description: inv.description || inv.lines?.data?.[0]?.description || 'Subscription payment',
+            created: new Date(inv.created * 1000),
+            periodStart: inv.period_start ? new Date(inv.period_start * 1000) : null,
+            periodEnd: inv.period_end ? new Date(inv.period_end * 1000) : null,
+            pdfUrl: inv.invoice_pdf,
+            hostedUrl: inv.hosted_invoice_url,
+          })),
+          hasMore: invoices.has_more,
+        };
+      } catch (error) {
+        console.error('[Stripe] Error fetching payment history:', error);
+        return { invoices: [], hasMore: false };
+      }
+    }),
+
+  // Get upcoming invoice (next payment)
+  getUpcomingInvoice: protectedProcedure.query(async ({ ctx }) => {
+    if (!stripe) {
+      return null;
+    }
+
+    const db = await getDb();
+    if (!db) return null;
+
+    const user = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
+    
+    if (!user[0]?.stripeCustomerId || !user[0]?.stripeSubscriptionId) {
+      return null;
+    }
+
+    try {
+      const invoice = await stripe.invoices.createPreview({
+        customer: user[0].stripeCustomerId,
+        subscription: user[0].stripeSubscriptionId,
+      });
+
+      return {
+        amount: invoice.amount_due,
+        currency: invoice.currency,
+        dueDate: invoice.next_payment_attempt 
+          ? new Date(invoice.next_payment_attempt * 1000) 
+          : null,
+        description: invoice.lines?.data?.[0]?.description || 'Upcoming payment',
+      };
+    } catch (error) {
+      console.error('[Stripe] Error fetching upcoming invoice:', error);
+      return null;
+    }
   }),
 });
