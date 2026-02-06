@@ -68,6 +68,7 @@ import { SaveAsTemplateDialog } from '@/components/SaveAsTemplateDialog';
 import { PitchDeckGenerator } from '@/components/PitchDeckGenerator';
 import { FloatingAIButton } from '@/components/AIAssistantButton';
 import CustomFieldsManager from '@/components/CustomFieldsManager';
+import CustomFieldsForm from '@/components/CustomFieldsForm';
 import { 
   SplitTaskDialog, 
   MergeTasksDialog, 
@@ -617,6 +618,15 @@ function TaskDetailPanel({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+          </div>
+
+          {/* Custom Fields */}
+          <div>
+            <Label className="text-slate-400 text-xs mb-2 block flex items-center gap-2">
+              <Settings className="w-4 h-4" />
+              Кастомные поля
+            </Label>
+            <CustomFieldsForm projectId={projectId} taskId={task.id} />
           </div>
 
           {/* Description */}

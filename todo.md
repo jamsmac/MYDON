@@ -1980,3 +1980,10 @@
 - [x] Add Custom Fields menu item to project dropdown menu
 - [x] Create Custom Fields dialog with CustomFieldsManager component
 - [x] Connect CustomFieldsManager component with projectId
+
+
+## Phase 88: CustomFieldsForm in Task Details
+
+- [x] Add CustomFieldsForm to task details panel
+- [x] Pass projectId and taskId to component
+- [x] Show custom fields section with Settings icon header
