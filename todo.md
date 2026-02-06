@@ -2137,3 +2137,9 @@
 - [x] Force re-mount views with key prop when loading saved view
 - [x] Toast notifications for save/load/delete actions
 - [x] 40 new tests (633 total)
+
+## Bug Fix: Popup overflow
+
+- [x] Fix project list popup/modal overflowing beyond viewport (max-w-[calc(100vw-2rem)])
+- [x] Truncate long project description text in popup cards (overflow-hidden on info container)
+- [x] Ensure all modals/dialogs are constrained within the screen

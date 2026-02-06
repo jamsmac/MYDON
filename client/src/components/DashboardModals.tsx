@@ -113,7 +113,7 @@ export function ProjectsFilterModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-slate-900 border-slate-700 max-w-lg sm:max-w-xl">
+      <DialogContent className="bg-slate-900 border-slate-700 max-w-[calc(100vw-2rem)] sm:max-w-xl overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white">
             {iconMap[filterType]}
@@ -161,7 +161,7 @@ export function ProjectsFilterModal({
                     onOpenChange(false);
                     navigate(`/project/${project.id}`);
                   }}
-                  className={`flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border ${colorMap[filterType]} hover:bg-slate-800 cursor-pointer transition-all group`}
+                  className={`flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border ${colorMap[filterType]} hover:bg-slate-800 cursor-pointer transition-all group overflow-hidden`}
                 >
                   {/* Icon */}
                   <div 
@@ -175,13 +175,13 @@ export function ProjectsFilterModal({
                   </div>
 
                   {/* Info */}
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 overflow-hidden">
                     <div className="flex items-center gap-2 mb-1">
-                      <h4 className="text-sm font-medium text-white truncate">{project.name}</h4>
-                      {getStatusBadge(project.status)}
+                      <h4 className="text-sm font-medium text-white truncate flex-1 min-w-0">{project.name}</h4>
+                      <span className="shrink-0">{getStatusBadge(project.status)}</span>
                     </div>
                     {project.description && (
-                      <p className="text-xs text-slate-400 truncate">{project.description}</p>
+                      <p className="text-xs text-slate-400 truncate max-w-full">{project.description}</p>
                     )}
                     <div className="flex items-center gap-3 mt-1.5">
                       <Progress value={0} className="h-1.5 bg-slate-700 flex-1 max-w-[120px]" />
