@@ -3,7 +3,7 @@
  * Displays tasks in a sortable, filterable table with inline editing
  */
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -72,7 +72,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Settings2 } from 'lucide-react';
+import { Settings2, Keyboard } from 'lucide-react';
 
 // Status configuration
 const STATUS_CONFIG = {
@@ -685,6 +685,8 @@ export function TableView({
     (initialViewState?.customFieldFilters as CustomFieldFilterRule[]) || []
   );
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [focusedTaskIndex, setFocusedTaskIndex] = useState<number>(-1);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // Notify parent of state changes for saved views
   useEffect(() => {
@@ -977,6 +979,123 @@ export function TableView({
     }
   };
 
+  // Scroll focused row into view
+  useEffect(() => {
+    if (focusedTaskIndex >= 0 && tableContainerRef.current) {
+      const rows = tableContainerRef.current.querySelectorAll('tbody tr[data-task-id]');
+      const row = rows[focusedTaskIndex] as HTMLElement | undefined;
+      if (row) {
+        row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [focusedTaskIndex]);
+
+  // Keyboard shortcuts handler
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Don't fire when user is typing in an input, textarea, or select
+    const target = e.target as HTMLElement;
+    const tagName = target.tagName.toLowerCase();
+    if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable) {
+      return;
+    }
+
+    // Don't fire when a dialog/alert is open
+    if (document.querySelector('[role="alertdialog"]') || document.querySelector('[role="dialog"]')) {
+      return;
+    }
+
+    const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+
+    // Ctrl+A / Cmd+A — Select all
+    if (isCtrlOrMeta && e.key === 'a') {
+      e.preventDefault();
+      setSelectedTasks(new Set(processedTasks.map(t => t.id)));
+      return;
+    }
+
+    // Delete / Backspace — Bulk delete selected
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTasks.size > 0) {
+      e.preventDefault();
+      setShowDeleteConfirm(true);
+      return;
+    }
+
+    // Escape — Deselect all and clear focus
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setSelectedTasks(new Set());
+      setFocusedTaskIndex(-1);
+      return;
+    }
+
+    // Arrow Down — Move focus down
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedTaskIndex(prev => {
+        const next = Math.min(prev + 1, processedTasks.length - 1);
+        // Shift+ArrowDown extends selection
+        if (e.shiftKey && processedTasks[next]) {
+          setSelectedTasks(sel => {
+            const newSel = new Set(sel);
+            newSel.add(processedTasks[next].id);
+            return newSel;
+          });
+        }
+        return next;
+      });
+      return;
+    }
+
+    // Arrow Up — Move focus up
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedTaskIndex(prev => {
+        const next = Math.max(prev - 1, 0);
+        // Shift+ArrowUp extends selection
+        if (e.shiftKey && processedTasks[next]) {
+          setSelectedTasks(sel => {
+            const newSel = new Set(sel);
+            newSel.add(processedTasks[next].id);
+            return newSel;
+          });
+        }
+        return next;
+      });
+      return;
+    }
+
+    // Enter — Open focused task
+    if (e.key === 'Enter' && focusedTaskIndex >= 0 && processedTasks[focusedTaskIndex]) {
+      e.preventDefault();
+      onTaskClick?.(processedTasks[focusedTaskIndex]);
+      return;
+    }
+
+    // Space — Toggle selection of focused task
+    if (e.key === ' ' && focusedTaskIndex >= 0 && processedTasks[focusedTaskIndex]) {
+      e.preventDefault();
+      const taskId = processedTasks[focusedTaskIndex].id;
+      setSelectedTasks(sel => {
+        const newSel = new Set(sel);
+        if (newSel.has(taskId)) {
+          newSel.delete(taskId);
+        } else {
+          newSel.add(taskId);
+        }
+        return newSel;
+      });
+      return;
+    }
+  }, [processedTasks, selectedTasks.size, focusedTaskIndex, onTaskClick]);
+
+  // Attach keyboard listener to the table container
+  useEffect(() => {
+    const container = tableContainerRef.current;
+    if (!container) return;
+    container.addEventListener('keydown', handleKeyDown);
+    return () => container.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
   // Export to CSV
   const handleExportCSV = () => {
     const headers = ['Название', 'Статус', 'Приоритет', 'Дедлайн', 'Исполнитель', 'Блок', 'Секция'];
@@ -1005,7 +1124,11 @@ export function TableView({
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div
+      ref={tableContainerRef}
+      className="h-full flex flex-col outline-none"
+      tabIndex={0}
+    >
       {/* Toolbar */}
       <div className="p-4 border-b border-slate-700 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -1053,6 +1176,30 @@ export function TableView({
             <Download className="w-4 h-4 mr-1" />
             CSV
           </Button>
+
+          {/* Keyboard shortcuts help */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-slate-500 hover:text-slate-300"
+              >
+                <Keyboard className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="bg-slate-800 border-slate-700 text-xs max-w-[280px]">
+              <div className="space-y-1 py-1">
+                <div className="flex justify-between gap-4"><span className="text-slate-400">Выделить все</span><kbd className="bg-slate-700 px-1.5 rounded text-slate-300">Ctrl+A</kbd></div>
+                <div className="flex justify-between gap-4"><span className="text-slate-400">Удалить выбранные</span><kbd className="bg-slate-700 px-1.5 rounded text-slate-300">Delete</kbd></div>
+                <div className="flex justify-between gap-4"><span className="text-slate-400">Навигация</span><kbd className="bg-slate-700 px-1.5 rounded text-slate-300">↑ ↓</kbd></div>
+                <div className="flex justify-between gap-4"><span className="text-slate-400">Расширить выделение</span><kbd className="bg-slate-700 px-1.5 rounded text-slate-300">Shift+↑↓</kbd></div>
+                <div className="flex justify-between gap-4"><span className="text-slate-400">Открыть задачу</span><kbd className="bg-slate-700 px-1.5 rounded text-slate-300">Enter</kbd></div>
+                <div className="flex justify-between gap-4"><span className="text-slate-400">Выбрать/снять</span><kbd className="bg-slate-700 px-1.5 rounded text-slate-300">Space</kbd></div>
+                <div className="flex justify-between gap-4"><span className="text-slate-400">Снять выделение</span><kbd className="bg-slate-700 px-1.5 rounded text-slate-300">Esc</kbd></div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -1468,10 +1615,19 @@ export function TableView({
                     const assignee = members?.find(m => m.id === task.assignedTo);
                     const isOverdue = task.deadline && new Date(task.deadline) < new Date() && task.status !== 'completed';
 
+                    const taskIndex = processedTasks.findIndex(t => t.id === task.id);
+                    const isFocused = taskIndex === focusedTaskIndex;
+
                     return (
                       <TableRow
                         key={task.id}
-                        className="border-slate-700 hover:bg-slate-800/50"
+                        data-task-id={task.id}
+                        className={cn(
+                          "border-slate-700 hover:bg-slate-800/50 transition-colors",
+                          isFocused && "bg-purple-500/10 ring-1 ring-inset ring-purple-500/40",
+                          selectedTasks.has(task.id) && "bg-slate-800/60"
+                        )}
+                        onClick={() => setFocusedTaskIndex(taskIndex)}
                       >
                         <TableCell>
                           <Checkbox

@@ -2152,3 +2152,23 @@
 
 - [x] Fix Maximum update depth exceeded in CustomFieldsForm.tsx:77 (stabilized useEffect with useMemo dataFingerprint)
 - [x] Fix failed SQL query on custom_fields table (added missing minValue/maxValue columns)
+
+## Phase 97: Keyboard Shortcuts for Table View
+
+### Keyboard Shortcuts
+- [x] Ctrl+A / Cmd+A — Select all visible tasks
+- [x] Delete / Backspace — Bulk delete selected tasks (with confirmation dialog)
+- [x] Arrow Up/Down — Navigate between rows (move focus/highlight)
+- [x] Shift+Arrow Up/Down — Extend selection while navigating
+- [x] Enter — Open focused task detail panel
+- [x] Escape — Deselect all / clear focus
+- [x] Space — Toggle selection of focused task
+- [x] Ctrl+Click / Cmd+Click — Toggle individual task selection (already exists via checkbox)
+
+### UI Enhancements
+- [x] Visual focus indicator on the currently focused row (purple ring)
+- [x] Keyboard shortcuts help tooltip (Keyboard icon in toolbar)
+- [x] Prevent shortcuts from firing when user is typing in input fields
+- [x] Prevent shortcuts when dialog/alert is open
+- [x] Auto-scroll focused row into view
+- [x] 31 new tests (664 total)
