@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `custom_fields` ADD COLUMN `minValue` DECIMAL(15,2) DEFAULT NULL, ADD COLUMN `maxValue` DECIMAL(15,2) DEFAULT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3FfdjCLoumdFxBM.40c1cc0bca66 --database U4oWTJpkwb9eRxq5w7WA9g --execute ALTER TABLE `custom_fields` ADD COLUMN `minValue` DECIMAL(15,2) DEFAULT NULL, ADD COLUMN `maxValue` DECIMAL(15,2) DEFAULT NULL;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 741
+}

@@ -2,7 +2,7 @@
  * Custom Fields Form - Renders and manages custom field values for a task
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -65,8 +65,19 @@ export function CustomFieldsForm({ projectId, taskId, compact = false }: CustomF
     },
   });
   
+  // Create a stable fingerprint of the server data to avoid infinite re-renders
+  const dataFingerprint = useMemo(() => {
+    if (fields.length === 0) return '';
+    const parts = fields.map(f => {
+      const val = values.find(v => v.customFieldId === f.id);
+      return `${f.id}:${val?.value ?? ''}:${val?.numericValue ?? ''}:${val?.booleanValue ?? ''}:${val?.dateValue ?? ''}:${JSON.stringify(val?.jsonValue ?? null)}`;
+    });
+    return parts.join('|');
+  }, [fields, values]);
+
   // Initialize local values from server
   useEffect(() => {
+    if (fields.length === 0) return;
     const initial: Record<number, any> = {};
     for (const field of fields) {
       const value = values.find(v => v.customFieldId === field.id);
@@ -96,7 +107,8 @@ export function CustomFieldsForm({ projectId, taskId, compact = false }: CustomF
       }
     }
     setLocalValues(initial);
-  }, [fields, values]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataFingerprint]);
   
   const handleChange = (fieldId: number, value: any, fieldType: string) => {
     setLocalValues(prev => ({ ...prev, [fieldId]: value }));

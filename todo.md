@@ -2147,3 +2147,8 @@
 ## Bug Fix: Popup overflow (continued)
 
 - [x] Investigate and fix persistent popup overflow issue on project list modal (added w-0 to flex info container, overflow-hidden to ScrollArea content, [&>*]:min-w-0 to DialogContent)
+
+## Bug Fix: Infinite loop + SQL query error
+
+- [x] Fix Maximum update depth exceeded in CustomFieldsForm.tsx:77 (stabilized useEffect with useMemo dataFingerprint)
+- [x] Fix failed SQL query on custom_fields table (added missing minValue/maxValue columns)
