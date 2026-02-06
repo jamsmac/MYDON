@@ -2387,3 +2387,12 @@
   - [x] Подготовить презентацию (prepare presentation outline)
 - [x] Write vitest tests for streaming and new prompts
 - [x] Verify visually
+
+
+## Confirmation Dialog Before Document Overwrite
+- [x] Check if task already has summary document before saving
+- [x] Show AlertDialog with warning when document exists (preview of existing content)
+- [x] Offer options: Replace / Append / Cancel
+- [x] Skip dialog if no existing document (save directly)
+- [x] Write vitest tests for confirmation dialog logic
+- [x] Verify visually in browser

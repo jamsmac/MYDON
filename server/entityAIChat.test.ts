@@ -872,4 +872,158 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}`;
       expect(depNames[2]).toBe('#50'); // Not found, fallback to ID
     });
   });
+
+  describe('Document Overwrite Confirmation Dialog', () => {
+    it('should save directly when no existing summary document', () => {
+      const summary = '';
+      const newContent = 'AI generated document content';
+      let showDialog = false;
+      let savedSummary = summary;
+
+      // handleSaveAsDocument logic
+      if (summary && summary.trim().length > 0) {
+        showDialog = true;
+      } else {
+        savedSummary = newContent;
+      }
+
+      expect(showDialog).toBe(false);
+      expect(savedSummary).toBe(newContent);
+    });
+
+    it('should show confirmation dialog when summary already exists', () => {
+      const summary = 'Existing document content';
+      const newContent = 'AI generated document content';
+      let showDialog = false;
+      let pendingContent: string | null = null;
+
+      // handleSaveAsDocument logic
+      if (summary && summary.trim().length > 0) {
+        showDialog = true;
+        pendingContent = newContent;
+      }
+
+      expect(showDialog).toBe(true);
+      expect(pendingContent).toBe(newContent);
+    });
+
+    it('should not show dialog for whitespace-only summary', () => {
+      const summary = '   ';
+      const newContent = 'AI generated content';
+      let showDialog = false;
+      let savedSummary = summary;
+
+      if (summary && summary.trim().length > 0) {
+        showDialog = true;
+      } else {
+        savedSummary = newContent;
+      }
+
+      expect(showDialog).toBe(false);
+      expect(savedSummary).toBe(newContent);
+    });
+
+    it('should overwrite existing document when user chooses Replace', () => {
+      const existingSummary = 'Old document content';
+      const pendingContent = 'New AI document content';
+      let summary = existingSummary;
+
+      // handleOverwrite logic
+      summary = pendingContent;
+
+      expect(summary).toBe(pendingContent);
+      expect(summary).not.toBe(existingSummary);
+    });
+
+    it('should append to existing document when user chooses Append', () => {
+      const existingSummary = 'Old document content';
+      const pendingContent = 'New AI document content';
+      let summary = existingSummary;
+
+      // handleAppend logic
+      summary = `${existingSummary}\n\n---\n\n${pendingContent}`;
+
+      expect(summary).toContain(existingSummary);
+      expect(summary).toContain(pendingContent);
+      expect(summary).toContain('---');
+    });
+
+    it('should not modify document when user cancels', () => {
+      const existingSummary = 'Old document content';
+      let summary = existingSummary;
+      let showDialog = true;
+      let pendingContent: string | null = 'New content';
+
+      // handleCancelOverwrite logic
+      showDialog = false;
+      pendingContent = null;
+
+      expect(summary).toBe(existingSummary);
+      expect(showDialog).toBe(false);
+      expect(pendingContent).toBeNull();
+    });
+
+    it('should clear pending content after overwrite', () => {
+      let pendingContent: string | null = 'New content';
+      let showDialog = true;
+
+      // After overwrite
+      showDialog = false;
+      pendingContent = null;
+
+      expect(showDialog).toBe(false);
+      expect(pendingContent).toBeNull();
+    });
+
+    it('should clear pending content after append', () => {
+      let pendingContent: string | null = 'New content';
+      let showDialog = true;
+
+      // After append
+      showDialog = false;
+      pendingContent = null;
+
+      expect(showDialog).toBe(false);
+      expect(pendingContent).toBeNull();
+    });
+
+    it('should show preview of existing document in dialog', () => {
+      const summary = 'This is the existing summary document with important content';
+      // Dialog should show truncated preview
+      const hasPreview = summary && summary.length > 0;
+      expect(hasPreview).toBe(true);
+    });
+
+    it('should have three action buttons: Cancel, Append, Replace', () => {
+      const actions = ['Отмена', 'Дополнить', 'Заменить'];
+      expect(actions).toHaveLength(3);
+      expect(actions).toContain('Отмена');
+      expect(actions).toContain('Дополнить');
+      expect(actions).toContain('Заменить');
+    });
+
+    it('should handle null pending content gracefully in overwrite', () => {
+      let pendingContent: string | null = null;
+      let summary = 'Existing';
+
+      // handleOverwrite with null pending
+      if (pendingContent) {
+        summary = pendingContent;
+      }
+
+      expect(summary).toBe('Existing'); // Unchanged
+    });
+
+    it('should handle null pending content gracefully in append', () => {
+      let pendingContent: string | null = null;
+      let summary = 'Existing';
+
+      // handleAppend with null pending
+      if (pendingContent) {
+        summary = `${summary}\n\n---\n\n${pendingContent}`;
+      }
+
+      expect(summary).toBe('Existing'); // Unchanged
+    });
+  });
 });

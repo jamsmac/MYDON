@@ -45,6 +45,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useProjectContext } from '@/contexts/ProjectContext';
 import { useAIChatContext } from '@/contexts/AIChatContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -446,6 +447,49 @@ function TaskDetailPanel({
   const [summary, setSummary] = useState(task.summary || '');
   const [isEditing, setIsEditing] = useState(false);
 
+  // Confirmation dialog state for save-as-document
+  const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
+  const [pendingDocContent, setPendingDocContent] = useState<string | null>(null);
+
+  const handleSaveAsDocument = (content: string) => {
+    // If summary already exists, show confirmation dialog
+    if (summary && summary.trim().length > 0) {
+      setPendingDocContent(content);
+      setShowOverwriteDialog(true);
+    } else {
+      // No existing document — save directly
+      setSummary(content);
+      onUpdate({ summary: content });
+      toast.success('Сохранено как итоговый документ');
+    }
+  };
+
+  const handleOverwrite = () => {
+    if (pendingDocContent) {
+      setSummary(pendingDocContent);
+      onUpdate({ summary: pendingDocContent });
+      toast.success('Итоговый документ заменён');
+    }
+    setShowOverwriteDialog(false);
+    setPendingDocContent(null);
+  };
+
+  const handleAppend = () => {
+    if (pendingDocContent) {
+      const appended = `${summary}\n\n---\n\n${pendingDocContent}`;
+      setSummary(appended);
+      onUpdate({ summary: appended });
+      toast.success('Добавлено к итоговому документу');
+    }
+    setShowOverwriteDialog(false);
+    setPendingDocContent(null);
+  };
+
+  const handleCancelOverwrite = () => {
+    setShowOverwriteDialog(false);
+    setPendingDocContent(null);
+  };
+
   // Build rich context string for AI chat
   const taskContext = useMemo(() => {
     const statusMap: Record<string, string> = {
@@ -741,11 +785,7 @@ function TaskDetailPanel({
               onUpdate({ notes: newNotes });
               toast.success('Результат добавлен в заметки');
             }}
-            onSaveAsDocument={(content) => {
-              setSummary(content);
-              onUpdate({ summary: content });
-              toast.success('Сохранено как итоговый документ');
-            }}
+            onSaveAsDocument={handleSaveAsDocument}
           />
 
           {/* Custom Fields */}
@@ -871,6 +911,47 @@ function TaskDetailPanel({
           toast.success('Финализировано');
         }}
       />
+
+      {/* Confirmation dialog for overwriting existing summary document */}
+      <AlertDialog open={showOverwriteDialog} onOpenChange={setShowOverwriteDialog}>
+        <AlertDialogContent className="bg-slate-900 border-slate-700 max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-100 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-amber-400" />
+              Итоговый документ уже существует
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              У этой задачи уже есть итоговый документ. Что вы хотите сделать?
+            </AlertDialogDescription>
+            {summary && (
+              <div className="mt-3 p-3 rounded-lg bg-slate-800/60 border border-slate-700 max-h-[120px] overflow-y-auto">
+                <p className="text-xs text-slate-500 mb-1">Текущий документ:</p>
+                <p className="text-xs text-slate-300 line-clamp-4">{summary}</p>
+              </div>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex gap-2 sm:gap-2">
+            <AlertDialogCancel
+              onClick={handleCancelOverwrite}
+              className="bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-slate-200"
+            >
+              Отмена
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleAppend}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              Дополнить
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={handleOverwrite}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              Заменить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
