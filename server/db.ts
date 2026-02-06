@@ -1503,6 +1503,36 @@ export async function bulkUpdateTaskStatus(
   return result[0].affectedRows;
 }
 
+// Bulk update task priority
+export async function bulkUpdateTaskPriority(
+  taskIds: number[], 
+  priority: "low" | "medium" | "high" | "critical"
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  const result = await db.update(tasks)
+    .set({ priority, updatedAt: new Date() })
+    .where(inArray(tasks.id, taskIds));
+  
+  return result[0].affectedRows;
+}
+
+// Bulk update task assignee
+export async function bulkUpdateTaskAssignee(
+  taskIds: number[], 
+  assignedTo: number | null
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  const result = await db.update(tasks)
+    .set({ assignedTo, updatedAt: new Date() })
+    .where(inArray(tasks.id, taskIds));
+  
+  return result[0].affectedRows;
+}
+
 // Bulk delete tasks
 export async function bulkDeleteTasks(taskIds: number[]): Promise<number> {
   const db = await getDb();

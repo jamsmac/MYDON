@@ -2066,3 +2066,26 @@
 - [x] Show active filter count badge (amber color)
 - [x] Clear all filters button
 - [x] 529 tests passing
+
+
+## Phase 94: Bulk Editing in Table View
+
+### Backend
+- [x] bulkUpdateStatus procedure (taskIds[], newStatus) - already existed
+- [x] Add bulkUpdatePriority procedure (taskIds[], newPriority)
+- [x] Add bulkUpdateAssignee procedure (taskIds[], assigneeId)
+- [x] bulkDelete procedure (taskIds[]) - already existed
+- [ ] Add bulkUpdateCustomField procedure (taskIds[], fieldId, value) - future
+
+### Frontend
+- [x] Checkbox column for selecting tasks (select all / individual) - already existed
+- [x] Sticky bulk action toolbar with purple accent when tasks selected
+- [x] Bulk status change dropdown (Не начато / В работе / Готово)
+- [x] Bulk priority change dropdown (Критический / Высокий / Средний / Низкий)
+- [x] Bulk assignee change dropdown with member avatars + unassign option
+- [x] Bulk delete with AlertDialog confirmation
+- [x] Show selected count badge
+- [x] Clear selection button
+- [x] Success/error toast notifications
+- [x] Loading state disables buttons during mutation
+- [x] 15 new tests (572 total)

@@ -466,6 +466,28 @@ const taskRouter = router({
       return { updated: count };
     }),
 
+  // Bulk update priority
+  bulkUpdatePriority: protectedProcedure
+    .input(z.object({
+      taskIds: z.array(z.number()).min(1),
+      priority: z.enum(["low", "medium", "high", "critical"]),
+    }))
+    .mutation(async ({ input }) => {
+      const count = await db.bulkUpdateTaskPriority(input.taskIds, input.priority);
+      return { updated: count };
+    }),
+
+  // Bulk update assignee
+  bulkUpdateAssignee: protectedProcedure
+    .input(z.object({
+      taskIds: z.array(z.number()).min(1),
+      assigneeId: z.number().nullable(),
+    }))
+    .mutation(async ({ input }) => {
+      const count = await db.bulkUpdateTaskAssignee(input.taskIds, input.assigneeId);
+      return { updated: count };
+    }),
+
   // Bulk delete
   bulkDelete: protectedProcedure
     .input(z.object({

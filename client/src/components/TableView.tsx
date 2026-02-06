@@ -48,7 +48,10 @@ import {
   Group,
   X,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  AlertTriangle,
+  Users,
+  UserX
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -58,6 +61,16 @@ import { trpc } from '@/lib/trpc';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Star, Link as LinkIcon, Mail, DollarSign, Percent, Hash, Type, CalendarDays, CheckSquare, List, ListChecks, Calculator, Sigma } from 'lucide-react';
 import { CustomFieldFilterPanel, CustomFieldFilterRule, taskPassesAllFilters, type CustomFieldForFilter, type CustomFieldValueForFilter } from '@/components/CustomFieldFilter';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 // Status configuration
 const STATUS_CONFIG = {
@@ -649,6 +662,46 @@ export function TableView({
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [customFieldFilters, setCustomFieldFilters] = useState<CustomFieldFilterRule[]>([]);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Bulk mutation hooks
+  const utils = trpc.useUtils();
+  const bulkUpdateStatus = trpc.task.bulkUpdateStatus.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Статус обновлён для ${data.updated} задач`);
+      utils.task.invalidate();
+      setSelectedTasks(new Set());
+    },
+    onError: () => toast.error('Ошибка при обновлении статуса'),
+  });
+  const bulkUpdatePriority = trpc.task.bulkUpdatePriority.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Приоритет обновлён для ${data.updated} задач`);
+      utils.task.invalidate();
+      setSelectedTasks(new Set());
+    },
+    onError: () => toast.error('Ошибка при обновлении приоритета'),
+  });
+  const bulkUpdateAssignee = trpc.task.bulkUpdateAssignee.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Исполнитель обновлён для ${data.updated} задач`);
+      utils.task.invalidate();
+      setSelectedTasks(new Set());
+    },
+    onError: () => toast.error('Ошибка при обновлении исполнителя'),
+  });
+  const bulkDelete = trpc.task.bulkDelete.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Удалено ${data.deleted} задач`);
+      utils.task.invalidate();
+      setSelectedTasks(new Set());
+      setShowDeleteConfirm(false);
+    },
+    onError: () => toast.error('Ошибка при удалении задач'),
+  });
+
+  const isBulkLoading = bulkUpdateStatus.isPending || bulkUpdatePriority.isPending || bulkUpdateAssignee.isPending || bulkDelete.isPending;
+  const selectedTaskIds = Array.from(selectedTasks);
 
   // Build fields map for filtering
   const fieldsMap = useMemo(() => {
@@ -887,13 +940,6 @@ export function TableView({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Bulk actions */}
-          {selectedTasks.size > 0 && (
-            <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">
-              Выбрано: {selectedTasks.size}
-            </Badge>
-          )}
-
           {/* Export */}
           <Button
             variant="outline"
@@ -906,6 +952,151 @@ export function TableView({
           </Button>
         </div>
       </div>
+
+      {/* Bulk Action Toolbar */}
+      {selectedTasks.size > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 border-y border-purple-500/20 animate-in slide-in-from-top-2">
+          <Badge variant="secondary" className="bg-purple-500/20 text-purple-300 font-mono">
+            {selectedTasks.size}
+          </Badge>
+          <span className="text-sm text-purple-300 mr-2">выбрано</span>
+
+          <div className="h-4 w-px bg-slate-700" />
+
+          {/* Bulk Status */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 text-xs border-slate-700 hover:bg-slate-800" disabled={isBulkLoading}>
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                Статус
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="bg-slate-800 border-slate-700">
+              <DropdownMenuItem
+                className="text-slate-300 hover:bg-slate-700 cursor-pointer"
+                onClick={() => bulkUpdateStatus.mutate({ taskIds: selectedTaskIds, status: 'not_started' })}
+              >
+                <Circle className="w-3.5 h-3.5 mr-2 text-slate-400" />
+                Не начато
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-slate-300 hover:bg-slate-700 cursor-pointer"
+                onClick={() => bulkUpdateStatus.mutate({ taskIds: selectedTaskIds, status: 'in_progress' })}
+              >
+                <Clock className="w-3.5 h-3.5 mr-2 text-amber-400" />
+                В работе
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-slate-300 hover:bg-slate-700 cursor-pointer"
+                onClick={() => bulkUpdateStatus.mutate({ taskIds: selectedTaskIds, status: 'completed' })}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 mr-2 text-emerald-400" />
+                Готово
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Bulk Priority */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 text-xs border-slate-700 hover:bg-slate-800" disabled={isBulkLoading}>
+                <AlertTriangle className="w-3.5 h-3.5 mr-1" />
+                Приоритет
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="bg-slate-800 border-slate-700">
+              <DropdownMenuItem
+                className="text-red-400 hover:bg-slate-700 cursor-pointer"
+                onClick={() => bulkUpdatePriority.mutate({ taskIds: selectedTaskIds, priority: 'critical' })}
+              >
+                Критический
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-orange-400 hover:bg-slate-700 cursor-pointer"
+                onClick={() => bulkUpdatePriority.mutate({ taskIds: selectedTaskIds, priority: 'high' })}
+              >
+                Высокий
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-amber-400 hover:bg-slate-700 cursor-pointer"
+                onClick={() => bulkUpdatePriority.mutate({ taskIds: selectedTaskIds, priority: 'medium' })}
+              >
+                Средний
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-blue-400 hover:bg-slate-700 cursor-pointer"
+                onClick={() => bulkUpdatePriority.mutate({ taskIds: selectedTaskIds, priority: 'low' })}
+              >
+                Низкий
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Bulk Assignee */}
+          {members && members.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 text-xs border-slate-700 hover:bg-slate-800" disabled={isBulkLoading}>
+                  <Users className="w-3.5 h-3.5 mr-1" />
+                  Исполнитель
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="bg-slate-800 border-slate-700">
+                <DropdownMenuItem
+                  className="text-slate-400 hover:bg-slate-700 cursor-pointer"
+                  onClick={() => bulkUpdateAssignee.mutate({ taskIds: selectedTaskIds, assigneeId: null })}
+                >
+                  <UserX className="w-3.5 h-3.5 mr-2" />
+                  Снять исполнителя
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-slate-700" />
+                {members.map(member => (
+                  <DropdownMenuItem
+                    key={member.id}
+                    className="text-slate-300 hover:bg-slate-700 cursor-pointer"
+                    onClick={() => bulkUpdateAssignee.mutate({ taskIds: selectedTaskIds, assigneeId: member.id })}
+                  >
+                    <Avatar className="w-5 h-5 mr-2">
+                      <AvatarImage src={member.avatar} />
+                      <AvatarFallback className="bg-slate-600 text-[10px]">
+                        {member.name?.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    {member.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          <div className="h-4 w-px bg-slate-700" />
+
+          {/* Bulk Delete */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+            disabled={isBulkLoading}
+            onClick={() => setShowDeleteConfirm(true)}
+          >
+            <Trash2 className="w-3.5 h-3.5 mr-1" />
+            Удалить
+          </Button>
+
+          <div className="flex-1" />
+
+          {/* Clear selection */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-slate-400 hover:text-slate-200"
+            onClick={() => setSelectedTasks(new Set())}
+          >
+            <X className="w-3.5 h-3.5 mr-1" />
+            Снять выбор
+          </Button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
@@ -1139,6 +1330,32 @@ export function TableView({
           </div>
         )}
       </div>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent className="bg-slate-800 border-slate-700">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-100">
+              Удалить {selectedTasks.size} задач?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              Это действие нельзя отменить. Все выбранные задачи и их подзадачи будут удалены безвозвратно.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+              Отмена
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => bulkDelete.mutate({ taskIds: selectedTaskIds })}
+              disabled={bulkDelete.isPending}
+            >
+              {bulkDelete.isPending ? 'Удаление...' : `Удалить ${selectedTasks.size} задач`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
