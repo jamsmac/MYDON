@@ -71,6 +71,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Settings2 } from 'lucide-react';
 
 // Status configuration
 const STATUS_CONFIG = {
@@ -700,8 +702,78 @@ export function TableView({
     onError: () => toast.error('Ошибка при удалении задач'),
   });
 
-  const isBulkLoading = bulkUpdateStatus.isPending || bulkUpdatePriority.isPending || bulkUpdateAssignee.isPending || bulkDelete.isPending;
+  const bulkSetCustomField = trpc.customFields.bulkSetValue.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Кастомное поле обновлено для ${data.updated} задач`);
+      utils.customFields.invalidate();
+      utils.task.invalidate();
+      setSelectedTasks(new Set());
+      setBulkCustomFieldOpen(false);
+    },
+    onError: () => toast.error('Ошибка при обновлении кастомного поля'),
+  });
+
+  const [bulkCustomFieldOpen, setBulkCustomFieldOpen] = useState(false);
+  const [bulkFieldId, setBulkFieldId] = useState<number | null>(null);
+  const [bulkFieldValue, setBulkFieldValue] = useState<string>('');
+  const [bulkFieldNumericValue, setBulkFieldNumericValue] = useState<number | null>(null);
+  const [bulkFieldBooleanValue, setBulkFieldBooleanValue] = useState<boolean>(false);
+  const [bulkFieldDateValue, setBulkFieldDateValue] = useState<string>('');
+  const [bulkFieldJsonValue, setBulkFieldJsonValue] = useState<string[]>([]);
+
+  const isBulkLoading = bulkUpdateStatus.isPending || bulkUpdatePriority.isPending || bulkUpdateAssignee.isPending || bulkDelete.isPending || bulkSetCustomField.isPending;
   const selectedTaskIds = Array.from(selectedTasks);
+
+  // Get the selected custom field for bulk editing
+  const selectedBulkField = customFields.find(f => f.id === bulkFieldId);
+
+  // Reset bulk field value when field changes
+  const handleBulkFieldChange = (fieldId: string) => {
+    const id = parseInt(fieldId);
+    setBulkFieldId(id);
+    setBulkFieldValue('');
+    setBulkFieldNumericValue(null);
+    setBulkFieldBooleanValue(false);
+    setBulkFieldDateValue('');
+    setBulkFieldJsonValue([]);
+  };
+
+  // Apply bulk custom field value
+  const handleBulkCustomFieldApply = () => {
+    if (!bulkFieldId || selectedTaskIds.length === 0) return;
+    const field = customFields.find(f => f.id === bulkFieldId);
+    if (!field) return;
+
+    const payload: any = { customFieldId: bulkFieldId, taskIds: selectedTaskIds };
+
+    switch (field.type) {
+      case 'text':
+      case 'url':
+      case 'email':
+      case 'select':
+        payload.value = bulkFieldValue || null;
+        break;
+      case 'number':
+      case 'currency':
+      case 'percent':
+      case 'rating':
+        payload.numericValue = bulkFieldNumericValue;
+        break;
+      case 'date':
+        payload.dateValue = bulkFieldDateValue ? new Date(bulkFieldDateValue).getTime() : null;
+        break;
+      case 'checkbox':
+        payload.booleanValue = bulkFieldBooleanValue;
+        break;
+      case 'multiselect':
+        payload.jsonValue = bulkFieldJsonValue.length > 0 ? bulkFieldJsonValue : null;
+        break;
+      default:
+        payload.value = bulkFieldValue || null;
+    }
+
+    bulkSetCustomField.mutate(payload);
+  };
 
   // Build fields map for filtering
   const fieldsMap = useMemo(() => {
@@ -1067,6 +1139,182 @@ export function TableView({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+          )}
+
+          {/* Bulk Custom Fields */}
+          {customFields.length > 0 && (
+            <Popover open={bulkCustomFieldOpen} onOpenChange={setBulkCustomFieldOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 text-xs border-slate-700 hover:bg-slate-800" disabled={isBulkLoading}>
+                  <Settings2 className="w-3.5 h-3.5 mr-1" />
+                  Поля
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 bg-slate-800 border-slate-700 p-4" align="start">
+                <div className="space-y-3">
+                  <div className="text-sm font-medium text-slate-200">
+                    Массовое редактирование поля
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Выберите поле и значение для {selectedTasks.size} задач
+                  </p>
+
+                  {/* Field selector */}
+                  <Select value={bulkFieldId?.toString() || ''} onValueChange={handleBulkFieldChange}>
+                    <SelectTrigger className="bg-slate-900 border-slate-700 text-slate-300 h-8 text-xs">
+                      <SelectValue placeholder="Выберите поле" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-slate-700">
+                      {customFields
+                        .filter(f => !['formula', 'rollup'].includes(f.type))
+                        .map(field => (
+                          <SelectItem key={field.id} value={field.id.toString()} className="text-slate-300">
+                            {field.name}
+                            <span className="text-slate-500 ml-1 text-[10px]">({field.type})</span>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Value input based on field type */}
+                  {selectedBulkField && (
+                    <div className="space-y-2">
+                      {/* Text / URL / Email */}
+                      {['text', 'url', 'email'].includes(selectedBulkField.type) && (
+                        <Input
+                          className="bg-slate-900 border-slate-700 text-slate-300 h-8 text-xs"
+                          placeholder={`Введите ${selectedBulkField.name}`}
+                          value={bulkFieldValue}
+                          onChange={(e) => setBulkFieldValue(e.target.value)}
+                          type={selectedBulkField.type === 'email' ? 'email' : selectedBulkField.type === 'url' ? 'url' : 'text'}
+                        />
+                      )}
+
+                      {/* Number / Currency / Percent */}
+                      {['number', 'currency', 'percent'].includes(selectedBulkField.type) && (
+                        <div className="flex items-center gap-2">
+                          {selectedBulkField.type === 'currency' && <span className="text-slate-400 text-xs">$</span>}
+                          <Input
+                            className="bg-slate-900 border-slate-700 text-slate-300 h-8 text-xs"
+                            placeholder="0"
+                            type="number"
+                            value={bulkFieldNumericValue ?? ''}
+                            onChange={(e) => setBulkFieldNumericValue(e.target.value ? parseFloat(e.target.value) : null)}
+                          />
+                          {selectedBulkField.type === 'percent' && <span className="text-slate-400 text-xs">%</span>}
+                        </div>
+                      )}
+
+                      {/* Rating */}
+                      {selectedBulkField.type === 'rating' && (
+                        <div className="flex gap-1">
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <button
+                              key={star}
+                              onClick={() => setBulkFieldNumericValue(bulkFieldNumericValue === star ? null : star)}
+                              className="p-0.5"
+                            >
+                              <Star
+                                className={cn(
+                                  'w-5 h-5 transition-colors',
+                                  star <= (bulkFieldNumericValue || 0)
+                                    ? 'fill-amber-400 text-amber-400'
+                                    : 'text-slate-600 hover:text-slate-400'
+                                )}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Date */}
+                      {selectedBulkField.type === 'date' && (
+                        <Input
+                          className="bg-slate-900 border-slate-700 text-slate-300 h-8 text-xs"
+                          type="date"
+                          value={bulkFieldDateValue}
+                          onChange={(e) => setBulkFieldDateValue(e.target.value)}
+                        />
+                      )}
+
+                      {/* Checkbox */}
+                      {selectedBulkField.type === 'checkbox' && (
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={bulkFieldBooleanValue}
+                            onCheckedChange={(checked) => setBulkFieldBooleanValue(!!checked)}
+                            className="border-slate-600"
+                          />
+                          <span className="text-xs text-slate-300">
+                            {bulkFieldBooleanValue ? 'Включено' : 'Выключено'}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Select */}
+                      {selectedBulkField.type === 'select' && (
+                        <Select value={bulkFieldValue} onValueChange={setBulkFieldValue}>
+                          <SelectTrigger className="bg-slate-900 border-slate-700 text-slate-300 h-8 text-xs">
+                            <SelectValue placeholder="Выберите значение" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-800 border-slate-700">
+                            {(selectedBulkField.options as any[])?.map((opt: any) => (
+                              <SelectItem key={opt.value} value={opt.value} className="text-slate-300">
+                                {opt.color && (
+                                  <span
+                                    className="inline-block w-2 h-2 rounded-full mr-1.5"
+                                    style={{ backgroundColor: opt.color }}
+                                  />
+                                )}
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+
+                      {/* Multiselect */}
+                      {selectedBulkField.type === 'multiselect' && (
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {(selectedBulkField.options as any[])?.map((opt: any) => (
+                            <label key={opt.value} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer hover:bg-slate-700/50 px-2 py-1 rounded">
+                              <Checkbox
+                                checked={bulkFieldJsonValue.includes(opt.value)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setBulkFieldJsonValue([...bulkFieldJsonValue, opt.value]);
+                                  } else {
+                                    setBulkFieldJsonValue(bulkFieldJsonValue.filter(v => v !== opt.value));
+                                  }
+                                }}
+                                className="border-slate-600 w-3.5 h-3.5"
+                              />
+                              {opt.color && (
+                                <span
+                                  className="inline-block w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: opt.color }}
+                                />
+                              )}
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Apply button */}
+                      <Button
+                        size="sm"
+                        className="w-full h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+                        onClick={handleBulkCustomFieldApply}
+                        disabled={bulkSetCustomField.isPending}
+                      >
+                        {bulkSetCustomField.isPending ? 'Применение...' : `Применить к ${selectedTasks.size} задачам`}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
 
           <div className="h-4 w-px bg-slate-700" />

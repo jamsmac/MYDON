@@ -163,6 +163,32 @@ export const customFieldsRouter = router({
       return db.setCustomFieldValue(customFieldId, taskId, processedValue);
     }),
   
+  // Bulk set value for a field on multiple tasks
+  bulkSetValue: protectedProcedure
+    .input(z.object({
+      customFieldId: z.number(),
+      taskIds: z.array(z.number()).min(1),
+      value: z.string().nullable().optional(),
+      numericValue: z.number().nullable().optional(),
+      dateValue: z.number().nullable().optional(),
+      booleanValue: z.boolean().nullable().optional(),
+      jsonValue: z.array(z.string()).nullable().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { customFieldId, taskIds, ...valueData } = input;
+      
+      const processedValue: any = { ...valueData };
+      if (valueData.dateValue !== undefined && valueData.dateValue !== null) {
+        processedValue.dateValue = new Date(valueData.dateValue);
+      }
+      
+      const results = await Promise.all(
+        taskIds.map(taskId => db.setCustomFieldValue(customFieldId, taskId, processedValue))
+      );
+      
+      return { updated: results.length };
+    }),
+  
   // Delete value
   deleteValue: protectedProcedure
     .input(z.object({

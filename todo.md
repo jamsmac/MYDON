@@ -2075,7 +2075,7 @@
 - [x] Add bulkUpdatePriority procedure (taskIds[], newPriority)
 - [x] Add bulkUpdateAssignee procedure (taskIds[], assigneeId)
 - [x] bulkDelete procedure (taskIds[]) - already existed
-- [ ] Add bulkUpdateCustomField procedure (taskIds[], fieldId, value) - future
+- [x] Add bulkSetValue procedure to customFieldsRouter (taskIds[], fieldId, value)
 
 ### Frontend
 - [x] Checkbox column for selecting tasks (select all / individual) - already existed
@@ -2089,3 +2089,20 @@
 - [x] Success/error toast notifications
 - [x] Loading state disables buttons during mutation
 - [x] 15 new tests (572 total)
+
+
+## Phase 95: Bulk Custom Field Editing
+
+### Backend
+- [x] Add bulkSetValue procedure to customFieldsRouter (taskIds[], fieldId, value)
+
+### Frontend
+- [x] Add "Поля" button to bulk action toolbar with Settings2 icon
+- [x] Create Popover for selecting field and entering value
+- [x] Field selector dropdown (excludes formula/rollup read-only fields)
+- [x] Support all editable field types: text, url, email, number, currency, percent, rating (star picker), date, checkbox, select, multiselect
+- [x] Reset value state when switching fields
+- [x] Apply value to all selected tasks via bulkSetValue mutation
+- [x] Toast notifications on success/error
+- [x] Loading state during mutation
+- [x] 21 new tests (593 total)
