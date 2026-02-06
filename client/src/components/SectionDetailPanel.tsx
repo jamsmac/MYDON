@@ -36,6 +36,7 @@ import {
 import { QuickActionsBar } from "./QuickActionsBar";
 import { DiscussionPanel } from "./DiscussionPanel";
 import { BreadcrumbNav } from "./BreadcrumbNav";
+import { EntityAIChat } from "./EntityAIChat";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -326,6 +327,18 @@ export function SectionDetailPanel({
           compact
         />
       </div>
+
+      {/* Embedded AI Chat */}
+      <EntityAIChat
+        entityType="section"
+        entityId={section.id}
+        entityTitle={section.title}
+        projectId={projectId}
+        onInsertResult={(content) => {
+          navigator.clipboard.writeText(content);
+          toast.success("Результат AI скопирован в буфер обмена");
+        }}
+      />
 
       {/* Discussion Panel */}
       {showDiscussion && (

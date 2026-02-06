@@ -2320,3 +2320,17 @@
 - [x] Replace empty "welcome" screen with actual detail panels when block/section selected
 - [x] Add quick actions and navigation between child entities
 - [x] Write tests for detail panels (27 tests)
+
+### Fix: Embed AI Chat into Detail Panels + Section Selection
+- [ ] Embed AI chat directly into BlockDetailPanel (not separate button)
+- [ ] Embed AI chat directly into SectionDetailPanel (not separate button)
+- [ ] Fix section click in sidebar not showing SectionDetailPanel
+- [ ] Ensure all sections (Маркетинговые исследования, Customer Development, etc.) show their detail card
+
+
+## Phase Navigation Fixes & Embedded AI Chat
+- [x] Embed AI chat (EntityAIChat) directly in BlockDetailPanel with quick prompts and input field
+- [x] Embed AI chat (EntityAIChat) directly in SectionDetailPanel with quick prompts and input field
+- [x] Fix section click in sidebar to show SectionDetailPanel (clear selectedTask when selecting block/section)
+- [x] Fix context menu actions to clear selectedTask when navigating to block/section
+- [x] Add 25 vitest tests for EntityAIChat logic, navigation fixes, and context menu fixes

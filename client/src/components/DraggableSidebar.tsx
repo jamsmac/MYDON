@@ -323,7 +323,7 @@ function SortableSection({
           <GripVertical className="w-3 h-3" />
         </button>
         <div
-          onClick={onToggle}
+          onClick={() => { onToggle(); onSelectContext(); }}
           onContextMenu={onSectionContextMenu}
           className={cn(
             "flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors cursor-pointer",
@@ -780,7 +780,7 @@ export function DraggableSidebar({
             header={
             <div className="flex-1 flex items-center">
               <div
-                onClick={() => onToggleBlock(block.id)}
+                onClick={() => { onToggleBlock(block.id); onSelectContext({ type: 'block', id: block.id, title: block.titleRu || block.title, content: getContextContent('block', block.id) }); }}
                 onContextMenu={(e) => openContextMenu(e, 'block', {
                   id: block.id,
                   title: block.titleRu || block.title,
@@ -853,25 +853,6 @@ export function DraggableSidebar({
             expandedContent={
             expandedBlocks.has(block.id) ? (
               <div className="ml-6 pl-4 border-l border-slate-700">
-                {/* Block AI Chat */}
-                <button
-                  onClick={() => onSelectContext({ 
-                    type: 'block', 
-                    id: block.id, 
-                    title: block.titleRu || block.title,
-                    content: getContextContent('block', block.id)
-                  })}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors",
-                    selectedContext?.type === 'block' && selectedContext?.id === block.id
-                      ? "bg-amber-500/20 text-amber-400"
-                      : "text-slate-500 hover:bg-slate-800 hover:text-slate-300"
-                  )}
-                >
-                  <MessageSquare className="w-3 h-3" />
-                  AI чат блока
-                </button>
-                
                 {/* Sections with Drag and Drop */}
                 <SortableContext items={allSectionIds} strategy={verticalListSortingStrategy}>
                   {block.sections && block.sections.length > 0 ? (

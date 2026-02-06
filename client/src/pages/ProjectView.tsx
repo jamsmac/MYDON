@@ -1566,7 +1566,13 @@ export default function ProjectView() {
                 selectedTask={selectedTask}
                 onToggleBlock={toggleBlock}
                 onToggleSection={toggleSection}
-                onSelectContext={setSelectedContext}
+                onSelectContext={(ctx) => {
+                  setSelectedContext(ctx);
+                  if (ctx.type === 'block' || ctx.type === 'section' || ctx.type === 'project') {
+                    setSelectedTask(null);
+                    setAIChatTask(null);
+                  }
+                }}
                 onSelectTask={(task) => {
                   setSelectedTask(task);
                   setSelectedContext({
@@ -1654,10 +1660,14 @@ export default function ProjectView() {
                       const block = entityData as BlockInfo;
                       setSelectedContext({ type: 'block', id: block.id, title: block.title, content: getContextContent('block', block.id) });
                       setDiscussionEntity({ type: 'block', id: block.id, title: block.title });
+                      setSelectedTask(null);
+                      setAIChatTask(null);
                     } else if (entityType === 'section') {
                       const section = entityData as SectionInfo;
                       setSelectedContext({ type: 'section', id: section.id, title: section.title, content: getContextContent('section', section.id) });
                       setDiscussionEntity({ type: 'section', id: section.id, title: section.title });
+                      setSelectedTask(null);
+                      setAIChatTask(null);
                     } else if (entityType === 'task') {
                       const task = entityData as TaskInfo;
                       setSelectedContext({ type: 'task', id: task.id, title: task.title, content: getContextContent('task', task.id) });
@@ -1674,9 +1684,13 @@ export default function ProjectView() {
                     if (entityType === 'block') {
                       const block = entityData as BlockInfo;
                       setSelectedContext({ type: 'block', id: block.id, title: block.title, content: getContextContent('block', block.id) });
+                      setSelectedTask(null);
+                      setAIChatTask(null);
                     } else if (entityType === 'section') {
                       const section = entityData as SectionInfo;
                       setSelectedContext({ type: 'section', id: section.id, title: section.title, content: getContextContent('section', section.id) });
+                      setSelectedTask(null);
+                      setAIChatTask(null);
                     } else if (entityType === 'task') {
                       const task = entityData as TaskInfo;
                       setSelectedTask({ id: task.id, title: task.title, status: task.status, priority: task.priority, sectionId: task.sectionId } as any);
