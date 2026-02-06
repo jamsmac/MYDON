@@ -366,9 +366,33 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     });
   });
 
+  setIO(io);
   console.log("[Socket] Real-time server initialized");
   return io;
 }
 
+// Global io reference for emitting events from outside socket handlers
+let ioInstance: Server | null = null;
+
+export function getIO(): Server | null {
+  return ioInstance;
+}
+
+export function setIO(io: Server) {
+  ioInstance = io;
+}
+
+// Emit event to a specific user by userId (across all their connected sockets)
+export function emitToUser(userId: number, event: string, data: any) {
+  const io = getIO();
+  if (!io) return;
+  
+  socketToUser.forEach((user, socketId) => {
+    if (user.userId === userId) {
+      io.to(socketId).emit(event, data);
+    }
+  });
+}
+
 // Export for use in other parts of the app
-export { projectPresence, taskEditingState };
+export { projectPresence, taskEditingState, socketToUser };

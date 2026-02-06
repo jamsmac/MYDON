@@ -2236,3 +2236,11 @@
 - [x] Push database migrations
 - [x] Add CreditCard icon with link to /payments in Dashboard header navigation (emerald color, next to Settings)
 - [x] Enhance billing page: add plan features comparison, usage stats, subscription management portal, visual polish
+
+### Real-time Subs- [x] Socket.io: export io instance and create emitToUser helper for targeted events
+- [x] Webhook handler: emit subscription:updated and payment:completed events via socket
+- [x] Webhook handler: update user subscription fields in DB on checkout.session.completed
+- [x] Webhook handler: handle customer.subscription.updated and customer.subscription.deleted events
+- [x] SubscriptionSuccess page: poll subscription status until confirmed active (3-phase UI: verifying → confirmed → timeout)
+- [x] PaymentHistory page: auto-refresh subscription status after returning from checkout (useSubscriptionStatus hook)
+- [x] Write vitest tests for real-time subscription status flow (15 tests)

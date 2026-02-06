@@ -4,6 +4,7 @@ import { getDb } from '../db';
 import { users } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
 import { ENV } from '../_core/env';
+import { emitToUser } from '../realtime/socketServer';
 import Stripe from 'stripe';
 
 const webhookSecret = ENV.stripeWebhookSecret;
@@ -95,6 +96,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
+  const userIdNum = parseInt(userId);
+
   // Update user with Stripe customer and subscription IDs
   await db.update(users)
     .set({
@@ -103,9 +106,20 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       subscriptionPlan: planId as 'free' | 'pro' | 'enterprise',
       subscriptionStatus: 'active',
     })
-    .where(eq(users.id, parseInt(userId)));
+    .where(eq(users.id, userIdNum));
 
   console.log(`[Webhook] User ${userId} subscribed to ${planId} plan`);
+
+  // Emit real-time event to the user so their UI updates immediately
+  emitToUser(userIdNum, 'subscription:updated', {
+    plan: planId,
+    status: 'active',
+    stripeCustomerId: customerId,
+    stripeSubscriptionId: subscriptionId,
+    timestamp: Date.now(),
+  });
+
+  console.log(`[Webhook] Emitted subscription:updated to user ${userId}`);
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
@@ -126,15 +140,39 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     return;
   }
 
+  // Map Stripe status to our plan status
+  const planStatus = subscription.status;
+  
+  // Determine plan from subscription items
+  let plan = userResult[0].subscriptionPlan || 'free';
+  
+  // If subscription is canceled or unpaid, revert to free
+  if (['canceled', 'unpaid', 'incomplete_expired'].includes(planStatus)) {
+    plan = 'free';
+  }
+
   // Update subscription status
   await db.update(users)
     .set({
-      subscriptionStatus: subscription.status,
+      subscriptionStatus: planStatus,
       stripeSubscriptionId: subscription.id,
+      subscriptionPlan: plan as 'free' | 'pro' | 'enterprise',
     })
     .where(eq(users.id, userResult[0].id));
 
-  console.log(`[Webhook] Updated subscription status for user ${userResult[0].id}: ${subscription.status}`);
+  console.log(`[Webhook] Updated subscription status for user ${userResult[0].id}: ${planStatus}`);
+
+  // Emit real-time event
+  emitToUser(userResult[0].id, 'subscription:updated', {
+    plan,
+    status: planStatus,
+    stripeSubscriptionId: subscription.id,
+    cancelAtPeriodEnd: (subscription as any).cancel_at_period_end || false,
+    currentPeriodEnd: (subscription as any).current_period_end 
+      ? new Date((subscription as any).current_period_end * 1000).toISOString()
+      : null,
+    timestamp: Date.now(),
+  });
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
@@ -161,14 +199,64 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     .where(eq(users.id, userResult[0].id));
 
   console.log(`[Webhook] User ${userResult[0].id} subscription canceled, reverted to free plan`);
+
+  // Emit real-time event
+  emitToUser(userResult[0].id, 'subscription:updated', {
+    plan: 'free',
+    status: 'canceled',
+    stripeSubscriptionId: null,
+    timestamp: Date.now(),
+  });
 }
 
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
   console.log('[Webhook] Invoice paid:', invoice.id);
-  // Additional logic for invoice tracking if needed
+  
+  // Find user and emit payment event for real-time UI update
+  if (invoice.customer) {
+    const db = await getDb();
+    if (!db) return;
+
+    const customerId = typeof invoice.customer === 'string' 
+      ? invoice.customer 
+      : invoice.customer.toString();
+
+    const userResult = await db.select().from(users)
+      .where(eq(users.stripeCustomerId, customerId))
+      .limit(1);
+
+    if (userResult[0]) {
+      emitToUser(userResult[0].id, 'payment:completed', {
+        invoiceId: invoice.id,
+        amount: invoice.amount_paid,
+        currency: invoice.currency,
+        timestamp: Date.now(),
+      });
+    }
+  }
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {
   console.log('[Webhook] Payment failed for invoice:', invoice.id);
-  // Could send notification to user about failed payment
+  
+  // Find user and emit payment failure event
+  if (invoice.customer) {
+    const db = await getDb();
+    if (!db) return;
+
+    const customerId = typeof invoice.customer === 'string' 
+      ? invoice.customer 
+      : invoice.customer.toString();
+
+    const userResult = await db.select().from(users)
+      .where(eq(users.stripeCustomerId, customerId))
+      .limit(1);
+
+    if (userResult[0]) {
+      emitToUser(userResult[0].id, 'payment:failed', {
+        invoiceId: invoice.id,
+        timestamp: Date.now(),
+      });
+    }
+  }
 }

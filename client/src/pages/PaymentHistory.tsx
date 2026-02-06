@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { trpc } from '@/lib/trpc';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -131,9 +132,25 @@ export default function PaymentHistory() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // Real-time subscription status via socket + polling fallback
+  const { refresh: refreshSubscription } = useSubscriptionStatus({
+    onSubscriptionActive: () => {
+      toast.success('Подписка обновлена!');
+    },
+    onPaymentCompleted: () => {
+      toast.success('Платёж подтверждён!');
+    },
+    onPaymentFailed: () => {
+      toast.error('Ошибка при обработке платежа');
+    },
+  });
+
   const { data: subscriptionStatus, isLoading: subLoading } = trpc.stripe.getSubscriptionStatus.useQuery(
     undefined,
-    { enabled: isAuthenticated }
+    {
+      enabled: isAuthenticated,
+      refetchOnWindowFocus: true,
+    }
   );
 
   const { data: paymentData, isLoading: paymentsLoading } = trpc.stripe.getPaymentHistory.useQuery(
