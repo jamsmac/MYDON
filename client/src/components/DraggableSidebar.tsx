@@ -41,7 +41,8 @@ import {
   DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { SidebarContextMenu, useContextMenu, type TaskInfo, type SectionInfo, type BlockInfo, type EntityType } from '@/components/SidebarContextMenu';
 import { InlineEditableText } from '@/components/InlineEditableText';
 import { InlineDatePicker } from '@/components/InlineDatePicker';
 import { PriorityBadge } from '@/components/PriorityBadge';
@@ -123,6 +124,10 @@ interface DraggableSidebarProps {
   getContextContent: (type: string, id: number) => string;
   filteredTaskIds?: Set<number>;
   unreadCounts?: { blockUnreads: Record<number, number>; sectionUnreads: Record<number, number> };
+  onContextMenuAction?: (actionId: string, entityType: EntityType, entityData: TaskInfo | SectionInfo | BlockInfo) => void;
+  onDeleteTask?: (taskId: number) => void;
+  onUpdateTaskStatus?: (taskId: number, status: 'not_started' | 'in_progress' | 'completed') => void;
+  onUpdateTaskPriority?: (taskId: number, priority: 'critical' | 'high' | 'medium' | 'low') => void;
 }
 
 // Sortable Task Item
@@ -132,7 +137,8 @@ function SortableTask({
   isSelected,
   onSelect,
   onUpdateTitle,
-  onUpdateDueDate
+  onUpdateDueDate,
+  onContextMenu
 }: { 
   task: Task; 
   sectionId: number;
@@ -140,6 +146,7 @@ function SortableTask({
   onSelect: () => void;
   onUpdateTitle?: (taskId: number, newTitle: string) => void;
   onUpdateDueDate?: (taskId: number, dueDate: Date | null) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const {
     attributes,
@@ -177,6 +184,7 @@ function SortableTask({
       </button>
       <div
         onClick={onSelect}
+        onContextMenu={onContextMenu}
         className={cn(
           "flex-1 flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors cursor-pointer",
           isSelected
@@ -249,6 +257,8 @@ function SortableSection({
   getContextContent,
   filteredTaskIds,
   unreadCounts,
+  onSectionContextMenu,
+  onTaskContextMenu,
 }: {
   section: Section;
   blockId: number;
@@ -267,6 +277,8 @@ function SortableSection({
   getContextContent: (type: string, id: number) => string;
   filteredTaskIds?: Set<number>;
   unreadCounts?: { blockUnreads: Record<number, number>; sectionUnreads: Record<number, number> };
+  onSectionContextMenu?: (e: React.MouseEvent) => void;
+  onTaskContextMenu?: (e: React.MouseEvent, task: Task, sectionId: number) => void;
 }) {
   const {
     attributes,
@@ -312,6 +324,7 @@ function SortableSection({
         </button>
         <div
           onClick={onToggle}
+          onContextMenu={onSectionContextMenu}
           className={cn(
             "flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors cursor-pointer",
             isSelected
@@ -399,6 +412,7 @@ function SortableSection({
                 onSelect={() => onSelectTask({ ...task, sectionId: section.id })}
                 onUpdateTitle={onUpdateTaskTitle}
                 onUpdateDueDate={onUpdateTaskDueDate}
+                onContextMenu={(e) => onTaskContextMenu?.(e, task, section.id)}
               />
             ))}
           </SortableContext>
@@ -528,10 +542,80 @@ export function DraggableSidebar({
   getContextContent,
   filteredTaskIds,
   unreadCounts,
+  onContextMenuAction,
+  onDeleteTask,
+  onUpdateTaskStatus,
+  onUpdateTaskPriority,
 }: DraggableSidebarProps) {
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const [activeType, setActiveType] = useState<'task' | 'section' | 'block' | null>(null);
   const [activeItem, setActiveItem] = useState<Task | Section | Block | null>(null);
+  const { contextMenu, openContextMenu, closeContextMenu } = useContextMenu();
+
+  const handleContextMenuAction = useCallback((actionId: string, entityType: EntityType, entityData: TaskInfo | SectionInfo | BlockInfo) => {
+    // Handle built-in actions
+    if (entityType === 'block') {
+      const block = entityData as BlockInfo;
+      if (actionId === 'add-section') {
+        onCreateSection(block.id);
+        return;
+      }
+      if (actionId === 'delete') {
+        onDeleteBlock(block.id);
+        return;
+      }
+      if (actionId === 'discuss' || actionId === 'ai-chat') {
+        onSelectContext({
+          type: 'block',
+          id: block.id,
+          title: block.title,
+          content: getContextContent('block', block.id)
+        });
+        return;
+      }
+    } else if (entityType === 'section') {
+      const section = entityData as SectionInfo;
+      if (actionId === 'add-task') {
+        onCreateTask(section.id);
+        return;
+      }
+      if (actionId === 'delete') {
+        onDeleteSection(section.id);
+        return;
+      }
+      if (actionId === 'discuss' || actionId === 'ai-chat') {
+        onSelectContext({
+          type: 'section',
+          id: section.id,
+          title: section.title,
+          content: getContextContent('section', section.id)
+        });
+        return;
+      }
+    } else if (entityType === 'task') {
+      const task = entityData as TaskInfo;
+      if (actionId === 'open') {
+        onSelectTask({ id: task.id, title: task.title, status: task.status, priority: task.priority, sectionId: task.sectionId } as Task & { sectionId: number });
+        return;
+      }
+      if (actionId === 'delete') {
+        onDeleteTask?.(task.id);
+        return;
+      }
+      if (actionId.startsWith('status-')) {
+        const status = actionId.replace('status-', '') as 'not_started' | 'in_progress' | 'completed';
+        onUpdateTaskStatus?.(task.id, status);
+        return;
+      }
+      if (actionId.startsWith('priority-')) {
+        const priority = actionId.replace('priority-', '') as 'critical' | 'high' | 'medium' | 'low';
+        onUpdateTaskPriority?.(task.id, priority);
+        return;
+      }
+    }
+    // Forward to parent for AI actions and other complex actions
+    onContextMenuAction?.(actionId, entityType, entityData);
+  }, [onCreateSection, onDeleteBlock, onSelectContext, getContextContent, onCreateTask, onDeleteSection, onSelectTask, onDeleteTask, onUpdateTaskStatus, onUpdateTaskPriority, onContextMenuAction]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -697,6 +781,11 @@ export function DraggableSidebar({
             <div className="flex-1 flex items-center">
               <div
                 onClick={() => onToggleBlock(block.id)}
+                onContextMenu={(e) => openContextMenu(e, 'block', {
+                  id: block.id,
+                  title: block.titleRu || block.title,
+                  sectionCount: block.sections?.length || 0,
+                } as BlockInfo)}
                 className="flex-1 flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-left hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 {expandedBlocks.has(block.id) ? (
@@ -811,6 +900,19 @@ export function DraggableSidebar({
                         getContextContent={getContextContent}
                         filteredTaskIds={filteredTaskIds}
                         unreadCounts={unreadCounts}
+                        onSectionContextMenu={(e) => openContextMenu(e, 'section', {
+                          id: section.id,
+                          title: section.title,
+                          blockId: block.id,
+                          taskCount: section.tasks?.length || 0,
+                        } as SectionInfo)}
+                        onTaskContextMenu={(e, task, sectionId) => openContextMenu(e, 'task', {
+                          id: task.id,
+                          title: task.title,
+                          status: task.status,
+                          priority: task.priority,
+                          sectionId,
+                        } as TaskInfo)}
                       />
                     ))
                   ) : (
@@ -846,6 +948,17 @@ export function DraggableSidebar({
           <BlockDragOverlay block={activeItem as Block} index={blocks.findIndex(b => b.id === (activeItem as Block).id)} />
         )}
       </DragOverlay>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <SidebarContextMenu
+          position={contextMenu.position}
+          entityType={contextMenu.entityType}
+          entityData={contextMenu.entityData}
+          onClose={closeContextMenu}
+          onAction={handleContextMenuAction}
+        />
+      )}
     </DndContext>
   );
 }

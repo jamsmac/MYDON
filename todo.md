@@ -2270,7 +2270,7 @@
 - [x] AI result dialog with copy and insert-to-notes actions
 - [ ] AI floating button: Create task from AI response
 - [ ] AI floating button: Create plan/roadmap from idea
-- [ ] Context menu on every element (discuss, add subtask, plan, evaluate)
+- [x] Context menu on every element (discuss, add subtask, plan, evaluate)
 
 ### UX Overhaul - Block 4: Smart Selectors
 - [x] AI priority suggestion when creating tasks (auto-detect with confidence %)
@@ -2305,3 +2305,11 @@
 - [x] Show AI reasoning for each suggested dependency with confidence %
 - [x] Allow one-click accept/reject of suggested dependencies (accept all, dismiss individual)
 - [x] Write tests for AI dependency suggestions
+
+### Sidebar Context Menu
+- [x] Create SidebarContextMenu component with right-click support
+- [x] Block-level actions: discuss, AI analyze, create section, rename, delete
+- [x] Section-level actions: discuss, AI analyze, create task, rename, delete
+- [x] Task-level actions: discuss, AI quick actions, add subtask, change status, change priority, delete
+- [x] Integrate context menu into DraggableSidebar for all entity types
+- [x] Write tests for sidebar context menu

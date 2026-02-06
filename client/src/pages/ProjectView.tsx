@@ -72,6 +72,7 @@ import CustomFieldsForm from '@/components/CustomFieldsForm';
 import { TaskAIPanel } from '@/components/TaskAIPanel';
 import { DiscussionPanel } from '@/components/DiscussionPanel';
 import { QuickActionsBar } from '@/components/QuickActionsBar';
+import { type TaskInfo, type SectionInfo, type BlockInfo, type EntityType } from '@/components/SidebarContextMenu';
 import { SmartTaskCreator } from '@/components/SmartTaskCreator';
 import { BreadcrumbNav } from '@/components/BreadcrumbNav';
 import { AIDependencySuggestions } from '@/components/AIDependencySuggestions';
@@ -1632,6 +1633,56 @@ export default function ProjectView() {
                 getContextContent={getContextContent}
                 filteredTaskIds={filteredTaskIds}
                 unreadCounts={unreadCounts}
+                onDeleteTask={(taskId) => {
+                  if (confirm('Удалить задачу?')) {
+                    deleteTask.mutate({ id: taskId });
+                  }
+                }}
+                onUpdateTaskStatus={(taskId, status) => {
+                  updateTask.mutate({ id: taskId, status });
+                }}
+                onUpdateTaskPriority={(taskId, priority) => {
+                  updateTask.mutate({ id: taskId, priority });
+                }}
+                onContextMenuAction={(actionId, entityType, entityData) => {
+                  // Handle AI actions and complex operations from context menu
+                  if (actionId === 'discuss') {
+                    // Open discussion panel
+                    if (entityType === 'block') {
+                      const block = entityData as BlockInfo;
+                      setSelectedContext({ type: 'block', id: block.id, title: block.title, content: getContextContent('block', block.id) });
+                      setDiscussionEntity({ type: 'block', id: block.id, title: block.title });
+                    } else if (entityType === 'section') {
+                      const section = entityData as SectionInfo;
+                      setSelectedContext({ type: 'section', id: section.id, title: section.title, content: getContextContent('section', section.id) });
+                      setDiscussionEntity({ type: 'section', id: section.id, title: section.title });
+                    } else if (entityType === 'task') {
+                      const task = entityData as TaskInfo;
+                      setSelectedContext({ type: 'task', id: task.id, title: task.title, content: getContextContent('task', task.id) });
+                      setDiscussionEntity({ type: 'task', id: task.id, title: task.title });
+                    }
+                  } else if (actionId === 'add-subtask' && entityType === 'task') {
+                    const task = entityData as TaskInfo;
+                    setSelectedTask({ id: task.id, title: task.title, status: task.status, priority: task.priority, sectionId: task.sectionId } as any);
+                    setSelectedContext({ type: 'task', id: task.id, title: task.title, content: getContextContent('task', task.id) });
+                  } else if (actionId === 'rename') {
+                    toast.info('Дважды кликните по названию для редактирования');
+                  } else if (actionId.startsWith('ai-')) {
+                    // AI actions - open the context and trigger QuickActionsBar action
+                    if (entityType === 'block') {
+                      const block = entityData as BlockInfo;
+                      setSelectedContext({ type: 'block', id: block.id, title: block.title, content: getContextContent('block', block.id) });
+                    } else if (entityType === 'section') {
+                      const section = entityData as SectionInfo;
+                      setSelectedContext({ type: 'section', id: section.id, title: section.title, content: getContextContent('section', section.id) });
+                    } else if (entityType === 'task') {
+                      const task = entityData as TaskInfo;
+                      setSelectedTask({ id: task.id, title: task.title, status: task.status, priority: task.priority, sectionId: task.sectionId } as any);
+                      setSelectedContext({ type: 'task', id: task.id, title: task.title, content: getContextContent('task', task.id) });
+                    }
+                    toast.info('Выберите AI действие в правой панели');
+                  }
+                }}
               />
             ) : (
               <div className="text-center py-8 text-slate-500">
