@@ -1998,3 +1998,15 @@
 - [x] Add column headers for custom fields with tooltip
 - [x] Add cells for custom field values with type-specific rendering
 - [x] Support all 13 field types: text, number, date, checkbox, select, multiselect, url, email, currency, percent, rating, formula, rollup
+
+
+## Phase 90: Custom Fields on Kanban Cards
+
+- [x] KanbanBoard already has projectId prop
+- [x] Fetch custom fields with showOnCard=true from customFields.getByProject
+- [x] Fetch custom field values for all tasks using customFields.getValuesByTasks
+- [x] Build fieldValuesMap for quick lookup (taskId -> fieldId -> value)
+- [x] Create CompactCustomField component for card display
+- [x] Support all 13 field types with compact rendering
+- [x] Pass customFields and fieldValuesMap through KanbanColumn to SortableTaskCard
+- [x] Display custom fields section on cards after tags

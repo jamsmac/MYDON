@@ -74,6 +74,30 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { toast } from 'sonner';
+import { Star, Link as LinkIcon, Mail, DollarSign, Percent, Hash } from 'lucide-react';
+
+// Custom field types for Kanban cards
+type CustomFieldData = {
+  id: number;
+  name: string;
+  type: string;
+  options?: any;
+  formula?: string | null;
+  rollupConfig?: any;
+  showInTable?: boolean | null;
+  showOnCard?: boolean | null;
+};
+
+type CustomFieldValueData = {
+  id: number;
+  customFieldId: number;
+  taskId: number;
+  value?: string | null;
+  numericValue?: string | null;
+  dateValue?: Date | string | null;
+  booleanValue?: boolean | null;
+  jsonValue?: any;
+};
 
 // Status column configuration
 const STATUS_COLUMNS = [
@@ -120,16 +144,132 @@ interface KanbanBoardProps {
   onAddTask?: (status: string) => void;
 }
 
+// Compact custom field display for cards
+function CompactCustomField({ field, value }: { field: CustomFieldData; value?: CustomFieldValueData }) {
+  if (!value) return null;
+
+  const renderValue = () => {
+    switch (field.type) {
+      case 'text':
+        return value.value ? (
+          <span className="truncate max-w-[100px]">{value.value}</span>
+        ) : null;
+
+      case 'number':
+        return value.numericValue ? (
+          <span className="flex items-center gap-0.5">
+            <Hash className="w-3 h-3 text-slate-500" />
+            {parseFloat(value.numericValue).toLocaleString()}
+          </span>
+        ) : null;
+
+      case 'currency':
+        return value.numericValue ? (
+          <span className="flex items-center gap-0.5 text-emerald-400">
+            <DollarSign className="w-3 h-3" />
+            {parseFloat(value.numericValue).toLocaleString()}
+          </span>
+        ) : null;
+
+      case 'percent':
+        return value.numericValue ? (
+          <span className="flex items-center gap-0.5">
+            <Percent className="w-3 h-3 text-slate-500" />
+            {parseFloat(value.numericValue)}
+          </span>
+        ) : null;
+
+      case 'date':
+        return value.dateValue ? (
+          <span className="text-slate-400">
+            {format(new Date(value.dateValue), 'd MMM', { locale: ru })}
+          </span>
+        ) : null;
+
+      case 'checkbox':
+        return (
+          <div className={cn(
+            "w-4 h-4 rounded border flex items-center justify-center",
+            value.booleanValue ? "bg-emerald-500/20 border-emerald-500" : "border-slate-600"
+          )}>
+            {value.booleanValue && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+          </div>
+        );
+
+      case 'select':
+        if (!value.value) return null;
+        try {
+          const options = field.options ? (typeof field.options === 'string' ? JSON.parse(field.options) : field.options) : [];
+          const option = options.find((o: any) => o.value === value.value);
+          return option ? (
+            <Badge variant="outline" className="text-xs px-1 py-0" style={{ borderColor: option.color + '50', color: option.color }}>
+              {option.label}
+            </Badge>
+          ) : <span className="text-xs">{value.value}</span>;
+        } catch {
+          return <span className="text-xs">{value.value}</span>;
+        }
+
+      case 'rating':
+        const rating = value.numericValue ? parseInt(value.numericValue) : 0;
+        return (
+          <div className="flex gap-0.5">
+            {[1, 2, 3, 4, 5].map(i => (
+              <Star key={i} className={cn("w-3 h-3", i <= rating ? "text-amber-400 fill-amber-400" : "text-slate-600")} />
+            ))}
+          </div>
+        );
+
+      case 'url':
+        return value.value ? (
+          <a href={value.value} target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+            <LinkIcon className="w-3 h-3" />
+            <span className="truncate max-w-[60px]">Link</span>
+          </a>
+        ) : null;
+
+      case 'email':
+        return value.value ? (
+          <a href={`mailto:${value.value}`} className="text-purple-400 hover:underline flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+            <Mail className="w-3 h-3" />
+          </a>
+        ) : null;
+
+      case 'formula':
+      case 'rollup':
+        return value.value ? (
+          <span className="text-cyan-400 font-mono text-xs">{value.value}</span>
+        ) : null;
+
+      default:
+        return value.value ? <span className="truncate max-w-[80px]">{value.value}</span> : null;
+    }
+  };
+
+  const content = renderValue();
+  if (!content) return null;
+
+  return (
+    <div className="flex items-center gap-1 text-xs text-slate-400" title={field.name}>
+      {content}
+    </div>
+  );
+}
+
 // Sortable Task Card Component
 function SortableTaskCard({ 
   task, 
   members,
+  customFields,
+  fieldValuesMap,
   onClick,
   onEdit,
   onDelete,
 }: { 
   task: KanbanTask;
   members?: { id: number; name: string; avatar?: string }[];
+  customFields?: CustomFieldData[];
+  fieldValuesMap?: Map<number, Map<number, CustomFieldValueData>>;
   onClick?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -232,6 +372,19 @@ function SortableTaskCard({
           </div>
         )}
 
+        {/* Custom fields with showOnCard */}
+        {customFields && customFields.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {customFields.map(field => {
+              const taskValues = fieldValuesMap?.get(task.id);
+              const fieldValue = taskValues?.get(field.id);
+              return (
+                <CompactCustomField key={field.id} field={field} value={fieldValue} />
+              );
+            })}
+          </div>
+        )}
+
         {/* Footer: deadline, assignee, priority */}
         <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-700/50">
           <div className="flex items-center gap-2">
@@ -294,6 +447,8 @@ function KanbanColumn({
   column,
   tasks,
   members,
+  customFields,
+  fieldValuesMap,
   onTaskClick,
   onTaskEdit,
   onTaskDelete,
@@ -302,6 +457,8 @@ function KanbanColumn({
   column: typeof STATUS_COLUMNS[number];
   tasks: KanbanTask[];
   members?: { id: number; name: string; avatar?: string }[];
+  customFields?: CustomFieldData[];
+  fieldValuesMap?: Map<number, Map<number, CustomFieldValueData>>;
   onTaskClick?: (task: KanbanTask) => void;
   onTaskEdit?: (task: KanbanTask) => void;
   onTaskDelete?: (taskId: number) => void;
@@ -358,6 +515,8 @@ function KanbanColumn({
                     key={task.id}
                     task={task}
                     members={members}
+                    customFields={customFields}
+                    fieldValuesMap={fieldValuesMap}
                     onClick={() => onTaskClick?.(task)}
                     onEdit={() => onTaskEdit?.(task)}
                     onDelete={() => onTaskDelete?.(task.id)}
@@ -581,6 +740,42 @@ export function KanbanBoard({
     tag?: number;
   }>({});
 
+  // Fetch custom fields with showOnCard=true
+  const { data: customFieldsData } = trpc.customFields.getByProject.useQuery(
+    { projectId },
+    { enabled: !!projectId }
+  );
+
+  // Filter fields with showOnCard=true
+  const cardFields = useMemo(() => {
+    if (!customFieldsData) return [];
+    return customFieldsData.filter(f => f.showOnCard);
+  }, [customFieldsData]);
+
+  // Get all task IDs for fetching values
+  const taskIds = useMemo(() => tasks.map(t => t.id), [tasks]);
+
+  // Fetch custom field values for all tasks
+  const { data: fieldValuesData } = trpc.customFields.getValuesByTasks.useQuery(
+    { taskIds },
+    { enabled: taskIds.length > 0 && cardFields.length > 0 }
+  );
+
+  // Build a map of taskId -> fieldId -> value for quick lookup
+  const fieldValuesMap = useMemo(() => {
+    const map = new Map<number, Map<number, CustomFieldValueData>>();
+    if (!fieldValuesData) return map;
+    
+    fieldValuesData.forEach(value => {
+      if (!map.has(value.taskId)) {
+        map.set(value.taskId, new Map());
+      }
+      map.get(value.taskId)!.set(value.customFieldId, value as CustomFieldValueData);
+    });
+    
+    return map;
+  }, [fieldValuesData]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -712,6 +907,8 @@ export function KanbanBoard({
                 column={column}
                 tasks={tasksByStatus[column.id] || []}
                 members={members}
+                customFields={cardFields}
+                fieldValuesMap={fieldValuesMap}
                 onTaskClick={onTaskClick}
                 onTaskEdit={(task) => onTaskClick?.(task)}
                 onTaskDelete={(taskId) => deleteTaskMutation.mutate({ id: taskId })}
