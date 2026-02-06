@@ -2450,3 +2450,14 @@
 - [x] Add visual swipe indicators (dots, arrows) showing current position
 - [x] Add slide transition animations when switching sections
 - [x] Write vitest tests for swipe navigation logic
+
+## Swipe-to-Action on Tasks
+- [x] Create SwipeableTaskCard component with horizontal swipe detection
+- [x] Swipe right to complete task (green background, checkmark icon)
+- [x] Swipe left to delete task (red background, trash icon)
+- [x] Add confirmation dialog before delete
+- [x] Visual feedback: colored background reveal during swipe
+- [x] Snap-back animation when swipe doesn't reach threshold
+- [x] Integrate into SectionDetailPanel task lists
+- [x] Add haptic feedback (navigator.vibrate) on action trigger
+- [x] Write vitest tests for swipe-to-action logic (18 tests passing)

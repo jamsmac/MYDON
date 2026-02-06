@@ -37,6 +37,7 @@ import { QuickActionsBar } from "./QuickActionsBar";
 import { DiscussionPanel } from "./DiscussionPanel";
 import { BreadcrumbNav } from "./BreadcrumbNav";
 import { EntityAIChat } from "./EntityAIChat";
+import { SwipeableTaskCard } from "./SwipeableTaskCard";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -70,6 +71,7 @@ interface SectionDetailPanelProps {
   onNavigate: (item: { type: "project" | "block" | "section" | "task"; id: number; title: string }) => void;
   onMarkRead?: (entityType: string, entityId: number) => void;
   onDeleteTask?: (taskId: number) => void;
+  onUpdateTaskStatus?: (taskId: number, status: string) => void;
   onDuplicateTask?: (taskId: number) => void;
   onSplitTask?: (task: TaskData, sectionId: number) => void;
   onConvertTaskToSection?: (task: TaskData, sectionId: number) => void;
@@ -94,6 +96,7 @@ export function SectionDetailPanel({
   onNavigate,
   onMarkRead,
   onDeleteTask,
+  onUpdateTaskStatus,
   onDuplicateTask,
   onSplitTask,
   onConvertTaskToSection,
@@ -383,10 +386,33 @@ export function SectionDetailPanel({
         <div className="space-y-2">
           {tasks.length > 0 ? (
             tasks.map((task) => (
-              <Card
+              <SwipeableTaskCard
                 key={task.id}
+                taskId={task.id}
+                taskStatus={task.status || 'not_started'}
+                onComplete={(id) => {
+                  if (onUpdateTaskStatus) {
+                    onUpdateTaskStatus(id, 'completed');
+                    toast.success('Задача завершена');
+                  }
+                }}
+                onDelete={(id) => {
+                  if (onDeleteTask) {
+                    onDeleteTask(id);
+                    toast.success('Задача удалена');
+                  }
+                }}
+                onUncomplete={(id) => {
+                  if (onUpdateTaskStatus) {
+                    onUpdateTaskStatus(id, 'not_started');
+                    toast.info('Задача возвращена');
+                  }
+                }}
+                disabled={selectionMode}
+              >
+              <Card
                 className={cn(
-                  "bg-slate-800/50 border-slate-700 hover:border-slate-600 cursor-pointer transition-colors",
+                  "bg-slate-800/50 border-slate-700 hover:border-slate-600 cursor-pointer transition-colors border-0 shadow-none",
                   selectedTaskIds.includes(task.id) && "border-amber-500/50 bg-amber-500/5"
                 )}
                 onClick={() => {
@@ -496,6 +522,7 @@ export function SectionDetailPanel({
                   </div>
                 </CardContent>
               </Card>
+              </SwipeableTaskCard>
             ))
           ) : (
             <div className="text-center py-6 text-slate-500">
