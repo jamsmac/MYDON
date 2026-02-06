@@ -30,6 +30,9 @@ import { relationsRouter } from './relationsRouter';
 import { aiDecisionRouter } from './aiDecisionRouter';
 import { aiSessionRouter } from './aiSessionRouter';
 import { adminRouter } from './adminRouter';
+import { adminUsersRouter } from './adminUsersRouter';
+import { adminCreditsRouter } from './adminCreditsRouter';
+import { adminPricingRouter } from './adminPricingRouter';
 import { getDefaultTags } from './utils/defaultTags';
 import { checkAndAwardAchievements, type AchievementResult } from "./achievementService";
 import * as schema from '../drizzle/schema';
@@ -1567,6 +1570,9 @@ export const appRouter = router({
   aiDecision: aiDecisionRouter,
   aiSession: aiSessionRouter,
   admin: adminRouter,
+  adminUsers: adminUsersRouter,
+  adminCredits: adminCreditsRouter,
+  adminPricing: adminPricingRouter,
 });
 
 export type AppRouter = typeof appRouter;

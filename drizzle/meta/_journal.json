@@ -8,6 +8,13 @@
       "when": 1770330429332,
       "tag": "0000_shiny_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1770344341440,
+      "tag": "0001_awesome_slayback",
+      "breakpoints": true
     }
   ]
 }

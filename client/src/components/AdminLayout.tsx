@@ -103,6 +103,7 @@ const menuGroups = [
       { icon: Coins, label: "Баланс", path: "/admin/credits" },
       { icon: TrendingUp, label: "Лимиты", path: "/admin/limits" },
       { icon: Receipt, label: "Тарифы", path: "/admin/tariffs" },
+      { icon: Bot, label: "Стоимость моделей", path: "/admin/model-costs" },
     ],
   },
   {

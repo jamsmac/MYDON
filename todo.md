@@ -1521,3 +1521,62 @@
 - [x] Add "Test" button (opens mini-chat with agent)
 
 **448 total tests passing**
+
+
+## Phase 73: Admin Panel Overhaul - Stage 2 (Users + Credits + Billing)
+
+### 1. User Management (/admin → Users → List)
+- [ ] Users table: Avatar, Name, Email, Role, Status, Registration date, Last login, Credits used, AI requests
+- [ ] Filters: by role, status, date
+- [ ] Search by name/email
+- [ ] Actions: Change role, Block, Delete, Reset password
+- [ ] "Invite User" button with modal: email, role, credit limit
+- [ ] Click user → detail page with activity history
+
+### 2. Roles and Permissions (/admin → Users → Roles)
+- [ ] 4 preset roles: Admin, Manager, User, Viewer
+- [ ] Permissions table for each role:
+  - [ ] Projects: create / edit / delete / view only
+  - [ ] AI: use chat / create agents / configure skills
+  - [ ] Admin: access / full access / no access
+  - [ ] Credits: unlimited / limited / no access
+- [ ] "Create Custom Role" button
+- [ ] Visual permissions matrix with toggles
+
+### 3. Credits Balance and History (/admin → Credits → Balance)
+- [ ] Current platform balance (large number)
+- [ ] Usage chart: day/week/month toggle
+- [ ] Transactions table: Date, User, Type (AI request / top-up / gift / deduction), Model, Tokens, Credits, Balance after
+- [ ] Filters by user, type, date
+- [ ] Export to CSV
+- [ ] "Add Credits" button → user selection, amount, reason
+
+### 4. Limits Policies (/admin → Credits → Policies)
+- [ ] Global daily limit per user
+- [ ] Limit per request (max tokens)
+- [ ] Limits by role (Admin = unlimited, User = 100/day, Viewer = 10/day)
+- [ ] Limit per project
+- [ ] Notification at 80% limit
+- [ ] Block at 100% limit
+- [ ] Toggle: allow limit override (with warning)
+- [ ] All settings via sliders and inputs
+
+### 5. Pricing Plans (/admin → Credits → Plans)
+- [ ] Plans list: Free, Pro, Enterprise (cards)
+- [ ] For each plan: Name, Price, Credits/month, Max projects, Max users, Available AI models, Support priority
+- [ ] CRUD for plans (create, edit, delete)
+- [ ] Assign plan to user
+- [ ] Visual plan comparison table
+
+### 6. Model Costs (/admin → Credits → Model Costs)
+- [ ] Table: Model name, Credits per 1K input tokens, Credits per 1K output tokens
+- [ ] Inline cost editing
+- [ ] Enable/disable models for different plans
+
+### Database Tables Needed
+- [ ] user_roles (id, name, permissions JSON, isSystem, createdAt)
+- [ ] user_invitations (id, email, role, creditLimit, token, status, invitedBy, createdAt, expiresAt)
+- [ ] credit_limits (id, roleId, dailyLimit, perRequestLimit, projectLimit, notifyAt, blockAt)
+- [ ] pricing_plans (id, name, price, creditsPerMonth, maxProjects, maxUsers, features JSON, isActive)
+- [ ] model_pricing (id, modelName, inputCostPer1K, outputCostPer1K, isEnabled, planRestrictions JSON)
+

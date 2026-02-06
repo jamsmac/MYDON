@@ -1834,3 +1834,243 @@ export const aiChatMessages = mysqlTable("ai_chat_messages", {
 
 export type AIChatMessage = typeof aiChatMessages.$inferSelect;
 export type InsertAIChatMessage = typeof aiChatMessages.$inferInsert;
+
+
+// ============ ADMIN PANEL STAGE 2: USERS & CREDITS ============
+
+/**
+ * User Roles - Custom roles with permissions
+ */
+export const userRoles = mysqlTable("user_roles", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 64 }).notNull().unique(),
+  nameRu: varchar("nameRu", { length: 64 }),
+  description: text("description"),
+  color: varchar("color", { length: 32 }).default("#6366f1"),
+  
+  // Permission flags
+  permissions: json("permissions").$type<{
+    // Projects
+    projectsCreate: boolean;
+    projectsEdit: boolean;
+    projectsDelete: boolean;
+    projectsViewOnly: boolean;
+    // AI
+    aiUseChat: boolean;
+    aiCreateAgents: boolean;
+    aiConfigureSkills: boolean;
+    // Admin
+    adminAccess: boolean;
+    adminFullAccess: boolean;
+    // Credits
+    creditsUnlimited: boolean;
+    creditsLimited: boolean;
+  }>().notNull(),
+  
+  isSystem: boolean("isSystem").default(false), // System roles can't be deleted
+  isDefault: boolean("isDefault").default(false), // Default role for new users
+  priority: int("priority").default(0), // Higher = more important
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserRole = typeof userRoles.$inferSelect;
+export type InsertUserRole = typeof userRoles.$inferInsert;
+
+/**
+ * User Role Assignments - Link users to custom roles
+ */
+export const userRoleAssignments = mysqlTable("user_role_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  roleId: int("roleId").notNull(),
+  assignedBy: int("assignedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("ura_user_idx").on(table.userId),
+  roleIdx: index("ura_role_idx").on(table.roleId),
+}));
+
+export type UserRoleAssignment = typeof userRoleAssignments.$inferSelect;
+export type InsertUserRoleAssignment = typeof userRoleAssignments.$inferInsert;
+
+/**
+ * User Invitations - Platform-wide user invitations
+ */
+export const userInvitations = mysqlTable("user_invitations", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  token: varchar("token", { length: 128 }).notNull().unique(),
+  roleId: int("roleId"),
+  creditLimit: int("creditLimit").default(1000),
+  
+  status: mysqlEnum("status", ["pending", "accepted", "expired", "cancelled"]).default("pending").notNull(),
+  invitedBy: int("invitedBy").notNull(),
+  acceptedBy: int("acceptedBy"),
+  acceptedAt: timestamp("acceptedAt"),
+  
+  message: text("message"), // Custom invitation message
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  emailIdx: index("ui_email_idx").on(table.email),
+  tokenIdx: index("ui_token_idx").on(table.token),
+  statusIdx: index("ui_status_idx").on(table.status),
+}));
+
+export type UserInvitation = typeof userInvitations.$inferSelect;
+export type InsertUserInvitation = typeof userInvitations.$inferInsert;
+
+/**
+ * Credit Limits - Per-role and per-user limits
+ */
+export const creditLimits = mysqlTable("credit_limits", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  // Can be role-based or user-specific
+  roleId: int("roleId"),
+  userId: int("userId"),
+  
+  // Limits
+  dailyLimit: int("dailyLimit").default(100), // Credits per day
+  perRequestLimit: int("perRequestLimit").default(50), // Max credits per single request
+  monthlyLimit: int("monthlyLimit").default(3000), // Credits per month
+  projectLimit: int("projectLimit"), // Max credits per project (null = unlimited)
+  
+  // Notifications
+  notifyAtPercent: int("notifyAtPercent").default(80), // Notify at this % of limit
+  blockAtPercent: int("blockAtPercent").default(100), // Block at this % of limit
+  allowOverride: boolean("allowOverride").default(false), // Allow exceeding limit with warning
+  
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  roleIdx: index("cl_role_idx").on(table.roleId),
+  userIdx: index("cl_user_idx").on(table.userId),
+}));
+
+export type CreditLimit = typeof creditLimits.$inferSelect;
+export type InsertCreditLimit = typeof creditLimits.$inferInsert;
+
+/**
+ * Pricing Plans - Subscription tiers
+ */
+export const pricingPlans = mysqlTable("pricing_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 64 }).notNull(),
+  nameRu: varchar("nameRu", { length: 64 }),
+  slug: varchar("slug", { length: 64 }).notNull().unique(),
+  description: text("description"),
+  descriptionRu: text("descriptionRu"),
+  
+  // Pricing
+  priceMonthly: int("priceMonthly").default(0), // In cents
+  priceYearly: int("priceYearly").default(0), // In cents (discounted)
+  currency: varchar("currency", { length: 3 }).default("USD"),
+  
+  // Limits
+  creditsPerMonth: int("creditsPerMonth").default(1000),
+  maxProjects: int("maxProjects").default(5),
+  maxUsers: int("maxUsers").default(1), // Team members
+  maxStorage: int("maxStorage").default(100), // MB
+  
+  // Features
+  features: json("features").$type<{
+    aiModels: string[]; // Available AI models
+    prioritySupport: boolean;
+    customBranding: boolean;
+    apiAccess: boolean;
+    advancedAnalytics: boolean;
+    exportFormats: string[];
+  }>(),
+  
+  // Display
+  color: varchar("color", { length: 32 }).default("#6366f1"),
+  icon: varchar("icon", { length: 64 }).default("star"),
+  isPopular: boolean("isPopular").default(false),
+  displayOrder: int("displayOrder").default(0),
+  
+  isActive: boolean("isActive").default(true),
+  isSystem: boolean("isSystem").default(false), // System plans can't be deleted
+  
+  // Stripe integration
+  stripeProductId: varchar("stripeProductId", { length: 255 }),
+  stripePriceIdMonthly: varchar("stripePriceIdMonthly", { length: 255 }),
+  stripePriceIdYearly: varchar("stripePriceIdYearly", { length: 255 }),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PricingPlan = typeof pricingPlans.$inferSelect;
+export type InsertPricingPlan = typeof pricingPlans.$inferInsert;
+
+/**
+ * Model Pricing - AI model costs configuration
+ */
+export const modelPricing = mysqlTable("model_pricing", {
+  id: int("id").autoincrement().primaryKey(),
+  modelName: varchar("modelName", { length: 128 }).notNull().unique(),
+  modelDisplayName: varchar("modelDisplayName", { length: 128 }),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  
+  // Cost per 1K tokens (in credits)
+  inputCostPer1K: decimal("inputCostPer1K", { precision: 10, scale: 4 }).default("1.0000").notNull(),
+  outputCostPer1K: decimal("outputCostPer1K", { precision: 10, scale: 4 }).default("2.0000").notNull(),
+  
+  // Plan restrictions (null = available to all)
+  planRestrictions: json("planRestrictions").$type<{
+    allowedPlanIds: number[];
+    minPlanLevel: string; // "free", "pro", "enterprise"
+  }>(),
+  
+  // Model capabilities
+  capabilities: json("capabilities").$type<{
+    maxTokens: number;
+    supportsVision: boolean;
+    supportsStreaming: boolean;
+    supportsFunctionCalling: boolean;
+  }>(),
+  
+  isEnabled: boolean("isEnabled").default(true),
+  displayOrder: int("displayOrder").default(0),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ModelPricing = typeof modelPricing.$inferSelect;
+export type InsertModelPricing = typeof modelPricing.$inferInsert;
+
+/**
+ * User Activity Log - Track user actions for admin panel
+ */
+export const userActivityLog = mysqlTable("user_activity_log", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  
+  action: mysqlEnum("action", [
+    "login", "logout",
+    "project_created", "project_deleted",
+    "ai_request", "ai_generate",
+    "settings_changed", "password_reset",
+    "role_changed", "blocked", "unblocked",
+    "credits_added", "credits_spent",
+    "invitation_sent", "invitation_accepted"
+  ]).notNull(),
+  
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  ipAddress: varchar("ipAddress", { length: 45 }),
+  userAgent: text("userAgent"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("ual_user_idx").on(table.userId),
+  actionIdx: index("ual_action_idx").on(table.action),
+  createdIdx: index("ual_created_idx").on(table.createdAt),
+}));
+
+export type UserActivityLog = typeof userActivityLog.$inferSelect;
+export type InsertUserActivityLog = typeof userActivityLog.$inferInsert;

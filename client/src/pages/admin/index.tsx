@@ -3,7 +3,7 @@
  */
 
 import AdminLayout from "@/components/AdminLayout";
-import { Route, Switch, useLocation } from "wouter";
+import { Route, Switch } from "wouter";
 import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -12,6 +12,12 @@ const AdminDashboard = lazy(() => import("./AdminDashboard"));
 const AdminAgents = lazy(() => import("./AdminAgents"));
 const AdminSkills = lazy(() => import("./AdminSkills"));
 const AdminMCP = lazy(() => import("./AdminMCP"));
+const AdminUsers = lazy(() => import("./AdminUsers"));
+const AdminRoles = lazy(() => import("./AdminRoles"));
+const AdminCredits = lazy(() => import("./AdminCredits"));
+const AdminLimits = lazy(() => import("./AdminLimits"));
+const AdminTariffs = lazy(() => import("./AdminTariffs"));
+const AdminModelCosts = lazy(() => import("./AdminModelCosts"));
 
 // Placeholder pages for future implementation
 function PlaceholderPage({ title }: { title: string }) {
@@ -45,11 +51,12 @@ export default function AdminIndex() {
           <Route path="/admin/prompts">{() => <PlaceholderPage title="Промпты" />}</Route>
           <Route path="/admin/mcp" component={AdminMCP} />
           <Route path="/admin/orchestrator">{() => <PlaceholderPage title="Оркестратор" />}</Route>
-          <Route path="/admin/users">{() => <PlaceholderPage title="Пользователи" />}</Route>
-          <Route path="/admin/roles">{() => <PlaceholderPage title="Роли и права" />}</Route>
-          <Route path="/admin/credits">{() => <PlaceholderPage title="Баланс кредитов" />}</Route>
-          <Route path="/admin/limits">{() => <PlaceholderPage title="Лимиты" />}</Route>
-          <Route path="/admin/tariffs">{() => <PlaceholderPage title="Тарифы" />}</Route>
+          <Route path="/admin/users" component={AdminUsers} />
+          <Route path="/admin/roles" component={AdminRoles} />
+          <Route path="/admin/credits" component={AdminCredits} />
+          <Route path="/admin/limits" component={AdminLimits} />
+          <Route path="/admin/tariffs" component={AdminTariffs} />
+          <Route path="/admin/model-costs" component={AdminModelCosts} />
           <Route path="/admin/projects">{() => <PlaceholderPage title="Проекты" />}</Route>
           <Route path="/admin/templates">{() => <PlaceholderPage title="Шаблоны" />}</Route>
           <Route path="/admin/branding">{() => <PlaceholderPage title="Брендинг" />}</Route>
