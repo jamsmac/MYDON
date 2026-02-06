@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
-import { projectMembers, projectInvitations, taskComments, commentReactions, users, projects } from "../drizzle/schema";
+import { projectMembers, projectInvitations, taskComments, commentReactions, users, projects, blocks, sections, tasks } from "../drizzle/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
+import { invokeLLM } from "./_core/llm";
 
 // Helper to generate invite token
 const generateToken = () => crypto.randomBytes(32).toString("hex");
@@ -329,6 +330,90 @@ export const collaborationRouter = router({
   // ============ COMMENTS ============
   
   // List comments for a task
+  // Universal discussion list - supports project, block, section, task
+  listDiscussions: protectedProcedure
+    .input(z.object({
+      entityType: z.enum(["project", "block", "section", "task"]),
+      entityId: z.number(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      
+      const comments = await db.select({
+        id: taskComments.id,
+        taskId: taskComments.taskId,
+        entityType: taskComments.entityType,
+        entityId: taskComments.entityId,
+        userId: taskComments.userId,
+        content: taskComments.content,
+        parentId: taskComments.parentId,
+        mentions: taskComments.mentions,
+        isEdited: taskComments.isEdited,
+        isSummary: taskComments.isSummary,
+        createdAt: taskComments.createdAt,
+        updatedAt: taskComments.updatedAt,
+        userName: users.name,
+        userEmail: users.email,
+      })
+      .from(taskComments)
+      .leftJoin(users, eq(taskComments.userId, users.id))
+      .where(and(
+        eq(taskComments.entityType, input.entityType),
+        eq(taskComments.entityId, input.entityId)
+      ))
+      .orderBy(taskComments.createdAt);
+      
+      // Get reactions for all comments
+      const commentIds = comments.map(c => c.id);
+      const reactions = commentIds.length > 0 
+        ? await db.select()
+            .from(commentReactions)
+            .where(inArray(commentReactions.commentId, commentIds))
+        : [];
+      
+      // Group reactions by comment
+      const reactionsByComment = reactions.reduce((acc, r) => {
+        if (!acc[r.commentId]) acc[r.commentId] = [];
+        acc[r.commentId].push(r);
+        return acc;
+      }, {} as Record<number, typeof reactions>);
+      
+      return comments.map(comment => ({
+        ...comment,
+        reactions: reactionsByComment[comment.id] || [],
+      }));
+    }),
+
+  // Universal add discussion message
+  addDiscussion: protectedProcedure
+    .input(z.object({
+      entityType: z.enum(["project", "block", "section", "task"]),
+      entityId: z.number(),
+      content: z.string().min(1).max(5000),
+      parentId: z.number().optional(),
+      mentions: z.array(z.number()).optional(),
+      isSummary: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      
+      const [result] = await db.insert(taskComments).values({
+        taskId: input.entityType === "task" ? input.entityId : null,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        userId: ctx.user.id,
+        content: input.content,
+        parentId: input.parentId || null,
+        mentions: input.mentions || [],
+        isSummary: input.isSummary || false,
+      });
+      
+      return { id: result.insertId };
+    }),
+
+  // Legacy listComments - backward compatible
   listComments: protectedProcedure
     .input(z.object({ taskId: z.number() }))
     .query(async ({ input }) => {
@@ -343,6 +428,7 @@ export const collaborationRouter = router({
         parentId: taskComments.parentId,
         mentions: taskComments.mentions,
         isEdited: taskComments.isEdited,
+        isSummary: taskComments.isSummary,
         createdAt: taskComments.createdAt,
         updatedAt: taskComments.updatedAt,
         userName: users.name,
@@ -492,6 +578,204 @@ export const collaborationRouter = router({
       return { action: "added" };
     }),
   
+  // ============ AI DISCUSSION TOOLS ============
+
+  // AI-powered finalize: summarize discussion into structured document
+  finalizeDiscussion: protectedProcedure
+    .input(z.object({
+      entityType: z.enum(["project", "block", "section", "task"]),
+      entityId: z.number(),
+      entityTitle: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+      // Fetch all non-summary comments for this entity
+      const comments = await db.select({
+        id: taskComments.id,
+        content: taskComments.content,
+        userName: users.name,
+        createdAt: taskComments.createdAt,
+        isSummary: taskComments.isSummary,
+      })
+      .from(taskComments)
+      .leftJoin(users, eq(taskComments.userId, users.id))
+      .where(and(
+        eq(taskComments.entityType, input.entityType),
+        eq(taskComments.entityId, input.entityId)
+      ))
+      .orderBy(taskComments.createdAt);
+
+      const regularComments = comments.filter(c => !c.isSummary);
+      if (regularComments.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No messages to finalize" });
+      }
+
+      const discussionText = regularComments
+        .map(c => `${c.userName || 'User'} (${new Date(c.createdAt).toLocaleDateString('ru')}): ${c.content}`)
+        .join('\n');
+
+      const entityLabel = { project: 'проекта', block: 'блока', section: 'раздела', task: 'задачи' }[input.entityType];
+
+      try {
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: `Ты — помощник по управлению проектами. Создай структурированный итоговый документ из обсуждения. Пиши на русском. Формат: markdown с заголовками. Включи: 1) Ключевые решения, 2) Открытые вопросы, 3) Следующие шаги. Будь кратким и конкретным.`
+            },
+            {
+              role: "user",
+              content: `Финализируй обсуждение ${entityLabel} "${input.entityTitle}":\n\n${discussionText}`
+            }
+          ],
+        });
+
+        const summary = response.choices[0]?.message?.content;
+        if (typeof summary !== 'string' || !summary.trim()) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI returned empty response" });
+        }
+
+        // Save as summary comment
+        const [result] = await db.insert(taskComments).values({
+          taskId: input.entityType === 'task' ? input.entityId : null,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          userId: ctx.user.id,
+          content: summary.trim(),
+          isSummary: true,
+        });
+
+        return { id: result.insertId, summary: summary.trim() };
+      } catch (error: any) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `AI error: ${error.message}` });
+      }
+    }),
+
+  // AI-powered distribute: analyze discussion and suggest tasks
+  distributeDiscussion: protectedProcedure
+    .input(z.object({
+      entityType: z.enum(["project", "block", "section", "task"]),
+      entityId: z.number(),
+      entityTitle: z.string(),
+      projectId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+      // Fetch discussion
+      const comments = await db.select({
+        content: taskComments.content,
+        userName: users.name,
+        isSummary: taskComments.isSummary,
+      })
+      .from(taskComments)
+      .leftJoin(users, eq(taskComments.userId, users.id))
+      .where(and(
+        eq(taskComments.entityType, input.entityType),
+        eq(taskComments.entityId, input.entityId)
+      ))
+      .orderBy(taskComments.createdAt);
+
+      const regularComments = comments.filter(c => !c.isSummary);
+      if (regularComments.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No messages to distribute" });
+      }
+
+      // Get project structure for context
+      const projectBlocks = await db.select({
+        id: blocks.id,
+        title: blocks.title,
+      }).from(blocks).where(eq(blocks.projectId, input.projectId));
+
+      const allSections = [];
+      for (const block of projectBlocks) {
+        const secs = await db.select({
+          id: sections.id,
+          title: sections.title,
+          blockId: sections.blockId,
+        }).from(sections).where(eq(sections.blockId, block.id));
+        allSections.push(...secs.map(s => ({ ...s, blockTitle: block.title })));
+      }
+
+      const discussionText = regularComments
+        .map(c => `${c.userName || 'User'}: ${c.content}`)
+        .join('\n');
+
+      const structureText = allSections.map(s => 
+        `Блок "${s.blockTitle}" → Раздел "${s.title}" (id: ${s.id})`
+      ).join('\n');
+
+      try {
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: `Ты — помощник по управлению проектами. Проанализируй обсуждение и предложи задачи. Ответ — строго JSON. Формат:\n{"tasks": [{"title": "...", "description": "...", "sectionId": <number>, "priority": "medium|high|low|critical"}]}\nВыбирай sectionId из предоставленной структуры проекта. Если подходящего раздела нет, используй sectionId: null. Пиши названия задач на русском.`
+            },
+            {
+              role: "user",
+              content: `Обсуждение по "${input.entityTitle}":\n\n${discussionText}\n\nСтруктура проекта:\n${structureText}`
+            }
+          ],
+          response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (typeof content !== 'string') return { tasks: [] };
+
+        try {
+          const parsed = JSON.parse(content);
+          const suggestedTasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+          return {
+            tasks: suggestedTasks.map((t: any) => ({
+              title: String(t.title || '').substring(0, 500),
+              description: String(t.description || '').substring(0, 2000),
+              sectionId: typeof t.sectionId === 'number' ? t.sectionId : null,
+              priority: ['critical', 'high', 'medium', 'low'].includes(t.priority) ? t.priority : 'medium',
+            })),
+            sections: allSections.map(s => ({ id: s.id, title: s.title, blockTitle: s.blockTitle })),
+          };
+        } catch {
+          return { tasks: [], sections: [] };
+        }
+      } catch (error: any) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `AI error: ${error.message}` });
+      }
+    }),
+
+  // Create tasks from distributed discussion results
+  createTasksFromDiscussion: protectedProcedure
+    .input(z.object({
+      tasks: z.array(z.object({
+        title: z.string().min(1).max(500),
+        description: z.string().optional(),
+        sectionId: z.number(),
+        priority: z.enum(["critical", "high", "medium", "low"]).optional(),
+      })),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+      const createdIds: number[] = [];
+      for (const task of input.tasks) {
+        const [result] = await db.insert(tasks).values({
+          sectionId: task.sectionId,
+          title: task.title,
+          description: task.description || null,
+          priority: task.priority || 'medium',
+          status: 'not_started',
+        });
+        createdIds.push(Number(result.insertId));
+      }
+
+      return { createdIds, count: createdIds.length };
+    }),
+
   // Get users for @mentions
   searchUsers: protectedProcedure
     .input(z.object({

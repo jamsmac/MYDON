@@ -70,6 +70,10 @@ import { FloatingAIButton } from '@/components/AIAssistantButton';
 import CustomFieldsManager from '@/components/CustomFieldsManager';
 import CustomFieldsForm from '@/components/CustomFieldsForm';
 import { TaskAIPanel } from '@/components/TaskAIPanel';
+import { DiscussionPanel } from '@/components/DiscussionPanel';
+import { QuickActionsBar } from '@/components/QuickActionsBar';
+import { SmartTaskCreator } from '@/components/SmartTaskCreator';
+import { BreadcrumbNav } from '@/components/BreadcrumbNav';
 import { 
   SplitTaskDialog, 
   MergeTasksDialog, 
@@ -634,6 +638,26 @@ function TaskDetailPanel({
             </div>
           </div>
 
+          {/* AI Quick Actions */}
+          <div>
+            <Label className="text-slate-400 text-xs mb-2 block flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              Быстрые действия AI
+            </Label>
+            <QuickActionsBar
+              entityType="task"
+              entityId={task.id}
+              projectId={projectId}
+              compact
+              onInsertResult={(content) => {
+                const newNotes = notes ? `${notes}\n\n---\n\n${content}` : content;
+                setNotes(newNotes);
+                onUpdate({ notes: newNotes });
+                toast.success('Результат добавлен в заметки');
+              }}
+            />
+          </div>
+
           {/* Custom Fields */}
           <div>
             <Label className="text-slate-400 text-xs mb-2 block flex items-center gap-2">
@@ -841,6 +865,7 @@ export default function ProjectView() {
   const [selectedSectionForAction, setSelectedSectionForAction] = useState<{ id: number; title: string; blockId: number; tasks: any[] } | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
+  const [discussionEntity, setDiscussionEntity] = useState<{ type: 'project' | 'block' | 'section' | 'task'; id: number; title: string } | null>(null);
 
   const { data: project, isLoading, refetch } = trpc.project.getFull.useQuery(
     { id: projectId },
@@ -1680,12 +1705,111 @@ export default function ProjectView() {
             />
           ) : selectedContext ? (
             <div className="p-6">
+              {/* Breadcrumb Navigation */}
+              <BreadcrumbNav
+                items={(() => {
+                  const crumbs: { type: 'project' | 'block' | 'section' | 'task'; id: number; title: string }[] = [
+                    { type: 'project', id: projectId, title: project.name }
+                  ];
+                  if (selectedContext.type === 'block') {
+                    crumbs.push({ type: 'block', id: selectedContext.id, title: selectedContext.title });
+                  } else if (selectedContext.type === 'section') {
+                    const block = project.blocks?.find(b => b.sections?.some(s => s.id === selectedContext.id));
+                    if (block) crumbs.push({ type: 'block', id: block.id, title: block.titleRu || block.title });
+                    crumbs.push({ type: 'section', id: selectedContext.id, title: selectedContext.title });
+                  } else if (selectedContext.type === 'task') {
+                    for (const block of project.blocks || []) {
+                      for (const section of block.sections || []) {
+                        if (section.tasks?.some(t => t.id === selectedContext.id)) {
+                          crumbs.push({ type: 'block', id: block.id, title: block.titleRu || block.title });
+                          crumbs.push({ type: 'section', id: section.id, title: section.title });
+                          break;
+                        }
+                      }
+                    }
+                    crumbs.push({ type: 'task', id: selectedContext.id, title: selectedContext.title });
+                  }
+                  return crumbs;
+                })()}
+                onNavigate={(item) => {
+                  setSelectedContext({
+                    type: item.type,
+                    id: item.id,
+                    title: item.title,
+                    content: getContextContent(item.type, item.id)
+                  });
+                  if (item.type !== 'task') setSelectedTask(null);
+                }}
+                className="mb-3"
+              />
               <h2 className="text-xl font-semibold text-white mb-2">{selectedContext.title}</h2>
-              <p className="text-sm text-slate-400 mb-4">
-                {selectedContext.type === 'project' && 'Используйте AI чат справа для работы с проектом'}
-                {selectedContext.type === 'block' && 'Используйте AI чат справа для работы с блоком'}
-                {selectedContext.type === 'section' && 'Выберите задачу или используйте AI чат'}
-              </p>
+              
+              {/* Quick Action Buttons for all entity types */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Button
+                  variant={discussionEntity?.type === selectedContext.type && discussionEntity?.id === selectedContext.id ? "default" : "outline"}
+                  size="sm"
+                  className={cn(
+                    discussionEntity?.type === selectedContext.type && discussionEntity?.id === selectedContext.id
+                      ? "bg-blue-600 hover:bg-blue-700 text-white"
+                      : "border-slate-600 text-blue-400 hover:bg-blue-500/10"
+                  )}
+                  onClick={() => {
+                    if (discussionEntity?.type === selectedContext.type && discussionEntity?.id === selectedContext.id) {
+                      setDiscussionEntity(null);
+                    } else {
+                      setDiscussionEntity({ type: selectedContext.type as any, id: selectedContext.id, title: selectedContext.title });
+                    }
+                  }}
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Обсудить
+                </Button>
+                {selectedContext.type !== 'project' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-slate-600 text-purple-400 hover:bg-purple-500/10"
+                    onClick={() => {
+                      // Open AI chat for this context
+                    }}
+                  >
+                    <Brain className="w-4 h-4 mr-2" />
+                    AI чат
+                  </Button>
+                )}
+              </div>
+
+              {/* AI Quick Actions Bar */}
+              {selectedContext.type !== 'project' && (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-xs text-slate-400">Быстрые действия AI</span>
+                  </div>
+                  <QuickActionsBar
+                    entityType={selectedContext.type as 'block' | 'section' | 'task'}
+                    entityId={selectedContext.id}
+                    projectId={projectId}
+                    onInsertResult={(content) => {
+                      navigator.clipboard.writeText(content);
+                      toast.success('Скопировано в буфер обмена');
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Discussion Panel */}
+              {discussionEntity?.type === selectedContext.type && discussionEntity?.id === selectedContext.id && (
+                <div className="mb-4">
+                  <DiscussionPanel
+                    entityType={discussionEntity.type}
+                    entityId={discussionEntity.id}
+                    entityTitle={discussionEntity.title}
+                    projectId={projectId}
+                  />
+                </div>
+              )}
               
               {/* Section Action Buttons */}
               {selectedContext.type === 'section' && (
@@ -1959,56 +2083,28 @@ export default function ProjectView() {
       </Dialog>
 
       {/* Create Task Dialog */}
-      <Dialog open={createTaskOpen} onOpenChange={setCreateTaskOpen}>
-        <DialogContent className="bg-slate-800 border-slate-700">
-          <DialogHeader>
-            <DialogTitle className="text-white">Новая задача</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <Label className="text-slate-300">Название задачи</Label>
-              <Input
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                placeholder="Например: Провести исследование конкурентов"
-                className="bg-slate-900 border-slate-600 text-white"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-300">Описание (опционально)</Label>
-              <Textarea
-                value={newTaskDescription}
-                onChange={(e) => setNewTaskDescription(e.target.value)}
-                placeholder="Детальное описание задачи..."
-                className="bg-slate-900 border-slate-600 text-white"
-                rows={3}
-              />
-            </div>
-            <Button 
-              onClick={() => {
-                if (!newTaskTitle.trim() || !targetSectionId) {
-                  toast.error('Введите название');
-                  return;
-                }
-                createTask.mutate({
-                  sectionId: targetSectionId,
-                  title: newTaskTitle.trim(),
-                  description: newTaskDescription.trim() || undefined,
-                });
-              }}
-              disabled={createTask.isPending}
-              className="w-full bg-amber-500 hover:bg-amber-600 text-slate-900"
-            >
-              {createTask.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Plus className="w-4 h-4 mr-2" />
-              )}
-              Создать
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Smart Task Creator */}
+      <SmartTaskCreator
+        open={createTaskOpen}
+        onClose={() => {
+          setCreateTaskOpen(false);
+          setTargetSectionId(null);
+        }}
+        sectionId={targetSectionId || 0}
+        projectId={projectId}
+        sectionTitle={targetSectionId ? project.blocks?.flatMap(b => b.sections).find(s => s.id === targetSectionId)?.title : undefined}
+        onCreateTask={(task) => {
+          if (!targetSectionId) return;
+          createTask.mutate({
+            sectionId: targetSectionId,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            deadline: task.dueDate || undefined,
+          });
+        }}
+        isCreating={createTask.isPending}
+      />
 
       {/* Google Calendar Dialog */}
       <CalendarDialog

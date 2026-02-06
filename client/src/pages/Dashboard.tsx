@@ -40,6 +40,7 @@ import { ActivityFeed } from '@/components/ActivityFeed';
 import { FloatingAIButton } from '@/components/AIAssistantButton';
 import { ProjectsFilterModal, CreditsModal, AIDecisionsModal } from '@/components/DashboardModals';
 import { Link, useLocation } from 'wouter';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Coins, Lightbulb } from 'lucide-react';
 import { useState, useMemo, useRef } from 'react';
 import { useKeyboardShortcuts, getShortcutDisplay } from '@/hooks/useKeyboardShortcuts';
@@ -50,6 +51,56 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { useAchievementTrigger } from '@/hooks/useAchievementTrigger';
+
+// Reusable NavItem component for the navigation bar
+function NavItem({ 
+  href, 
+  icon: Icon, 
+  label, 
+  colorClass, 
+  hoverBgClass, 
+  onClick 
+}: { 
+  href?: string; 
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; 
+  label: string; 
+  colorClass: string; 
+  hoverBgClass: string; 
+  onClick?: () => void;
+}) {
+  const [location] = useLocation();
+  const isActive = href ? location === href : false;
+  
+  const content = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onClick}
+          className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+            isActive 
+              ? `bg-white/5 ring-1 ring-white/10` 
+              : `${hoverBgClass}`
+          }`}
+        >
+          <Icon className={`w-6 h-6 transition-colors ${colorClass}`} />
+          <span className={`text-[10px] font-medium leading-tight transition-colors ${
+            isActive ? 'text-slate-200' : 'text-slate-400'
+          }`}>
+            {label}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="text-xs">
+        <p>{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+
+  if (href) {
+    return <Link href={href}>{content}</Link>;
+  }
+  return content;
+}
 
 export default function Dashboard() {
   const { user, loading: authLoading, isAuthenticated, logout } = useAuth();
@@ -226,7 +277,8 @@ export default function Dashboard() {
     <div className="min-h-screen bg-slate-900">
       {/* Header */}
       <header className="border-b border-slate-800 bg-slate-900/95 backdrop-blur sticky top-0 z-50">
-        <div className="container flex h-16 items-center justify-between">
+        {/* Top row: Logo + User */}
+        <div className="container flex h-14 items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-amber-500/10 rounded-xl flex items-center justify-center">
               <FolderKanban className="w-5 h-5 text-amber-500" />
@@ -237,72 +289,67 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Link href="/ai-chat">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-primary hover:text-primary/80 hover:bg-primary/10"
-                title="AI Chat"
-              >
-                <Bot className="w-5 h-5" />
-              </Button>
-            </Link>
-            <Link href="/achievements">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
-                title="Achievements"
-              >
-                <Trophy className="w-5 h-5" />
-              </Button>
-            </Link>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
-              onClick={() => setDailyBriefingOpen(true)}
-              title="Daily Briefing"
-            >
-              <Sparkles className="w-5 h-5" />
-            </Button>
+          <div className="flex items-center gap-3">
             <NotificationCenter />
             <CreditsWidget />
             <UsageStats />
-            <Link href="/decisions">
-              <Button variant="ghost" size="icon" className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10" title="AI Решения">
-                <Brain className="w-5 h-5" />
-              </Button>
-            </Link>
-            {user?.role === 'admin' && (
-              <Link href="/admin">
-                <Button variant="ghost" size="icon" className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10" title="Админ-панель">
-                  <Shield className="w-5 h-5" />
-                </Button>
-              </Link>
-            )}
-            <Link href="/payments">
-              <Button variant="ghost" size="icon" className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10" title="Биллинг">
-                <CreditCard className="w-5 h-5" />
-              </Button>
-            </Link>
-            <Link href="/settings">
-              <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
-                <Settings className="w-5 h-5" />
-              </Button>
-            </Link>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="text-slate-400 hover:text-white"
-              onClick={() => logout()}
-            >
-              <LogOut className="w-5 h-5" />
-            </Button>
-            <div className="ml-2 px-3 py-1.5 bg-slate-800 rounded-lg">
-              <span className="text-sm text-slate-300">{user?.name || user?.email || 'User'}</span>
+            <div className="h-6 w-px bg-slate-700" />
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg">
+              <div className="w-7 h-7 bg-amber-500/20 rounded-full flex items-center justify-center">
+                <span className="text-xs font-semibold text-amber-400">
+                  {(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <span className="text-sm text-slate-300 hidden sm:inline">{user?.name || user?.email || 'User'}</span>
             </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-slate-400 hover:text-white"
+                  onClick={() => logout()}
+                >
+                  <LogOut className="w-5 h-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom"><p>Выйти</p></TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* Bottom row: Navigation icons with labels */}
+        <div className="border-t border-slate-800/50">
+          <div className="container">
+            <nav className="flex items-center gap-1 py-1.5 overflow-x-auto scrollbar-hide">
+              {/* AI Tools Group */}
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-slate-600 px-2 hidden lg:inline">AI</span>
+                <NavItem href="/ai-chat" icon={Bot} label="AI Чат" colorClass="text-blue-400" hoverBgClass="hover:bg-blue-500/10" />
+                <NavItem icon={Sparkles} label="Брифинг" colorClass="text-amber-400" hoverBgClass="hover:bg-amber-500/10" onClick={() => setDailyBriefingOpen(true)} />
+                <NavItem href="/decisions" icon={Brain} label="Решения" colorClass="text-purple-400" hoverBgClass="hover:bg-purple-500/10" />
+              </div>
+
+              <div className="h-8 w-px bg-slate-800 mx-1 flex-shrink-0" />
+
+              {/* Management Group */}
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-slate-600 px-2 hidden lg:inline">Управление</span>
+                <NavItem href="/achievements" icon={Trophy} label="Награды" colorClass="text-amber-400" hoverBgClass="hover:bg-amber-500/10" />
+                <NavItem href="/payments" icon={CreditCard} label="Биллинг" colorClass="text-emerald-400" hoverBgClass="hover:bg-emerald-500/10" />
+                {user?.role === 'admin' && (
+                  <NavItem href="/admin" icon={Shield} label="Админ" colorClass="text-red-400" hoverBgClass="hover:bg-red-500/10" />
+                )}
+              </div>
+
+              <div className="h-8 w-px bg-slate-800 mx-1 flex-shrink-0" />
+
+              {/* System Group */}
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-slate-600 px-2 hidden lg:inline">Система</span>
+                <NavItem href="/settings" icon={Settings} label="Настройки" colorClass="text-slate-400" hoverBgClass="hover:bg-slate-700" />
+              </div>
+            </nav>
           </div>
         </div>
       </header>

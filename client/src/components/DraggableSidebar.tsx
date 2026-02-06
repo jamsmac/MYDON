@@ -351,6 +351,13 @@ function SortableSection({
               Добавить задачу
             </DropdownMenuItem>
             <DropdownMenuItem 
+              className="text-blue-400"
+              onClick={onSelectContext}
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Обсудить раздел
+            </DropdownMenuItem>
+            <DropdownMenuItem 
               className="text-slate-300"
               onClick={onSelectContext}
             >
@@ -715,6 +722,18 @@ export function DraggableSidebar({
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     Добавить раздел
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    className="text-blue-400"
+                    onClick={() => onSelectContext({ 
+                      type: 'block', 
+                      id: block.id, 
+                      title: block.titleRu || block.title,
+                      content: getContextContent('block', block.id)
+                    })}
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Обсудить блок
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-slate-700" />
                   <DropdownMenuItem 

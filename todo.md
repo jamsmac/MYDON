@@ -2244,3 +2244,42 @@
 - [x] SubscriptionSuccess page: poll subscription status until confirmed active (3-phase UI: verifying → confirmed → timeout)
 - [x] PaymentHistory page: auto-refresh subscription status after returning from checkout (useSubscriptionStatus hook)
 - [x] Write vitest tests for real-time subscription status flow (15 tests)
+
+### UX Overhaul - Block 1: Navigation Redesign
+- [x] Increase icon sizes to 24px with text labels underneath
+- [x] Add animated tooltips on hover (shadcn Tooltip)
+- [x] Group icons by category (AI / Управление / Система) with separators
+- [x] Replace title= with shadcn Tooltip components
+- [x] Two-row header: logo+user top, navigation bottom
+- [x] User avatar with initial letter
+- [x] Active page indicator (ring highlight)
+- [ ] Mobile responsive: icons without labels in single row
+
+### UX Overhaul - Block 2: Discussions at All Levels
+- [x] Extend comments DB schema with entityType/entityId fields
+- [x] Create universal DiscussionPanel component
+- [x] Add Discussion tab on blocks
+- [x] Add Discussion tab on sections
+- [x] Add Distribute to tasks button from discussions (AI analyzes discussion, suggests tasks, creates them)
+- [x] Add Finalize button for discussion summaries (AI generates summary with key decisions, action items)
+
+### UX Overhaul - Block 3: Quick Action Buttons
+- [x] Quick action buttons on task cards (subtasks, estimate, risks, spec, howto)
+- [x] Quick action buttons on sections (create tasks, generate plan, evaluate, find deps)
+- [x] Quick action buttons on blocks (create roadmap, decompose, risks, report)
+- [x] AI result dialog with copy and insert-to-notes actions
+- [ ] AI floating button: Create task from AI response
+- [ ] AI floating button: Create plan/roadmap from idea
+- [ ] Context menu on every element (discuss, add subtask, plan, evaluate)
+
+### UX Overhaul - Block 4: Smart Selectors
+- [x] AI priority suggestion when creating tasks (auto-detect with confidence %)
+- [x] Quick deadline buttons (today, tomorrow, 3 days, week, 2 weeks, month)
+- [x] AI task suggestions from section context
+- [ ] Quick subtask templates (Research, Analysis, Document, Review, Testing)
+- [ ] Auto-suggest dependencies
+- [x] Simplified task creation: SmartTaskCreator with AI suggestions, priority, deadline
+
+### UX Overhaul - Additional
+- [x] Breadcrumb navigation in right panel (project > block > section > task)
+- [ ] Unread discussion badge on blocks/sections

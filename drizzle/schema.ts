@@ -828,16 +828,20 @@ export type InsertAiUsageTracking = typeof aiUsageTracking.$inferInsert;
 // ============ COLLABORATION TABLES ============
 
 /**
- * Task Comments - Discussion on tasks
+ * Task Comments - Universal Discussion System
+ * Supports discussions on projects, blocks, sections, and tasks
  */
 export const taskComments = mysqlTable("task_comments", {
   id: int("id").autoincrement().primaryKey(),
-  taskId: int("taskId").notNull(),
+  taskId: int("taskId"), // Legacy field, nullable for non-task discussions
+  entityType: mysqlEnum("entityType", ["project", "block", "section", "task"]).default("task").notNull(),
+  entityId: int("entityId"), // ID of the project/block/section/task
   userId: int("userId").notNull(),
   content: text("content").notNull(),
   parentId: int("parentId"), // For threaded replies
   mentions: json("mentions").$type<number[]>(), // Array of mentioned user IDs
   isEdited: boolean("isEdited").default(false),
+  isSummary: boolean("isSummary").default(false), // Finalized discussion summary
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
