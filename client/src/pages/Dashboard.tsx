@@ -42,7 +42,7 @@ import { ProjectsFilterModal, CreditsModal, AIDecisionsModal } from '@/component
 import { Link, useLocation } from 'wouter';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Coins, Lightbulb } from 'lucide-react';
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { useKeyboardShortcuts, getShortcutDisplay } from '@/hooks/useKeyboardShortcuts';
 import { LayoutTemplate } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -51,6 +51,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { useAchievementTrigger } from '@/hooks/useAchievementTrigger';
+import { PullToRefresh } from '@/components/PullToRefresh';
 
 // Reusable NavItem component for the navigation bar
 function NavItem({ 
@@ -217,6 +218,14 @@ export default function Dashboard() {
   });
 
   const utils = trpc.useUtils();
+
+  const handlePullRefresh = useCallback(async () => {
+    await Promise.all([
+      refetch(),
+      utils.task.getOverdue.invalidate(),
+    ]);
+    toast.success('Данные обновлены');
+  }, [refetch, utils]);
   const updateTaskMutation = trpc.task.update.useMutation({
     onSuccess: () => {
       utils.task.getOverdue.invalidate();
@@ -355,6 +364,7 @@ export default function Dashboard() {
       </header>
 
       {/* Main Content */}
+      <PullToRefresh onRefresh={handlePullRefresh} className="flex-1">
       <main className="container py-4 md:py-8">
         {/* Stats Overview */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-4 mb-6 md:mb-8">
@@ -754,6 +764,7 @@ export default function Dashboard() {
           </Card>
         )}
       </main>
+      </PullToRefresh>
 
       {/* Daily Briefing Dialog */}
       <DailyBriefing 

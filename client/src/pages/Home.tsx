@@ -13,8 +13,9 @@ import { RoadmapProvider } from '@/contexts/RoadmapContext';
 import { DeadlineProvider } from '@/contexts/DeadlineContext';
 import { FilterProvider } from '@/contexts/FilterContext';
 import { useMobile } from '@/hooks/useMobile';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Menu, X } from 'lucide-react';
+import { PullToRefresh } from '@/components/PullToRefresh';
 
 export default function Home() {
   const { user, loading, isAuthenticated } = useAuth();
@@ -78,9 +79,15 @@ export default function Home() {
             )}
 
             {/* Main content - full width on mobile with top padding for header */}
-            <div className={`flex-1 ${isMobile ? 'pt-12' : ''}`}>
+            <PullToRefresh
+              onRefresh={async () => {
+                // Force re-render by toggling a key - roadmap data is local state
+                window.location.reload();
+              }}
+              className={`flex-1 overflow-auto ${isMobile ? 'pt-12' : ''}`}
+            >
               <MainContent />
-            </div>
+            </PullToRefresh>
           </div>
         </FilterProvider>
       </DeadlineProvider>

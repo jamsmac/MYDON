@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { Link, useParams, useLocation } from 'wouter';
 import { PriorityBadge, PrioritySelector, type Priority } from '@/components/PriorityBadge';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { TaskDeadlineBadge, getTaskDeadlineStatus } from '@/components/TaskDeadlineBadge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
@@ -1078,6 +1079,13 @@ export default function ProjectView() {
     { projectId },
     { enabled: isAuthenticated && projectId > 0, refetchInterval: 30000 }
   );
+
+  const handlePullRefresh = useCallback(async () => {
+    await Promise.all([
+      refetch(),
+      refetchUnread(),
+    ]);
+  }, [refetch, refetchUnread]);
   const markReadMutation = trpc.collaboration.markDiscussionRead.useMutation({
     onSuccess: () => refetchUnread(),
   });
@@ -2103,7 +2111,8 @@ export default function ProjectView() {
       )}
 
       {/* Main Content */}
-      <main className={cn("flex-1 flex min-w-0", isMobile && "pt-12")}>
+      <PullToRefresh onRefresh={handlePullRefresh} className={cn("flex-1 flex flex-col min-w-0", isMobile && "pt-12")}>
+      <main className="flex-1 flex min-w-0">
         {/* Task Detail or Welcome */}
         <div className={cn("flex-1 flex flex-col min-w-0", isMobile && mobileShowDetail && "fixed inset-0 z-40 bg-slate-900 pt-12")}>
           {selectedTask ? (
@@ -2382,6 +2391,7 @@ export default function ProjectView() {
 
         {/* AI Chat Panel removed - now contextual per task via TaskAIPanel */}
       </main>
+      </PullToRefresh>
 
       {/* Create Section Dialog */}
       <Dialog open={createSectionOpen} onOpenChange={setCreateSectionOpen}>

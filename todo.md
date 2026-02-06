@@ -813,7 +813,7 @@
 ### 53.3 Touch Optimization
 - [ ] Enlarged touch targets
 - [ ] Long press for context menu
-- [ ] Pull-to-refresh
+- [x] Pull-to-refresh
 
 ## Phase 54: Integrations
 
@@ -2433,3 +2433,12 @@
 - [x] Dashboard - full-width project cards on mobile
 - [x] All dialogs - full-screen on mobile (max-w-full, max-h-full)
 - [x] Touch-friendly sizing for all interactive elements
+
+## Pull-to-Refresh Mobile Gesture
+- [x] Create reusable usePullToRefresh hook with touch event handling
+- [x] Create PullToRefresh wrapper component with animated indicator
+- [x] Integrate pull-to-refresh into Dashboard (refresh projects list)
+- [x] Integrate pull-to-refresh into ProjectView (refresh project data)
+- [x] Integrate pull-to-refresh into Home page (refresh roadmap data)
+- [x] Add pull-to-refresh CSS animations (spinner, arrow rotation)
+- [x] Write vitest tests for pull-to-refresh logic
