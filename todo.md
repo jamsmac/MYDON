@@ -2034,3 +2034,21 @@
 - [x] Quick prompts for empty chat: Разбить на подзадачи, Оценить сложность, Найти риски, Написать ТЗ
 - [x] Task context badges (status, priority) in panel header
 - [x] Keep FloatingAIButton for general chat without context
+
+
+## Phase 92: Inline Editing of Custom Fields in Table View
+
+- [x] Make custom field cells clickable to enter edit mode
+- [x] Text/URL/Email: click → input field, save on blur/Enter, cancel on Escape
+- [x] Number/Currency/Percent: click → number input, save on blur/Enter
+- [x] Date: click → date picker input, save on blur/Enter
+- [x] Checkbox: direct toggle on click (no edit mode needed)
+- [x] Rating: click stars to set/clear rating directly
+- [x] Select: inline dropdown selector
+- [x] Multiselect: dropdown with checkable options
+- [x] Formula/Rollup: read-only display (no editing)
+- [x] Save changes on blur or Enter key
+- [x] Cancel editing on Escape key
+- [x] Show visual feedback during save (opacity change)
+- [x] Invalidate cache after successful save
+- [x] Hover highlight on editable cells
