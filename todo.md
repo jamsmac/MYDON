@@ -2215,3 +2215,4 @@
 
 ### Tests
 - [x] 54 new tests for block & section drag & drop (718 total)
+- [x] Fix infinite render loop bug in CustomFieldsForm.tsx (Maximum update depth exceeded) - added useRef guard + useCallback + 23 tests

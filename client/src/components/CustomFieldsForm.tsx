@@ -2,7 +2,7 @@
  * Custom Fields Form - Renders and manages custom field values for a task
  */
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -50,6 +50,10 @@ interface FieldOption {
 
 export function CustomFieldsForm({ projectId, taskId, compact = false }: CustomFieldsFormProps) {
   const [localValues, setLocalValues] = useState<Record<number, any>>({});
+
+  // Track the last fingerprint we synced from to prevent re-running the effect
+  // when the data hasn't actually changed (fixes infinite render loop).
+  const lastSyncedFingerprint = useRef<string>('');
   
   const utils = trpc.useUtils();
   
@@ -65,7 +69,7 @@ export function CustomFieldsForm({ projectId, taskId, compact = false }: CustomF
     },
   });
   
-  // Create a stable fingerprint of the server data to avoid infinite re-renders
+  // Create a stable fingerprint of the server data.
   const dataFingerprint = useMemo(() => {
     if (fields.length === 0) return '';
     const parts = fields.map(f => {
@@ -75,9 +79,14 @@ export function CustomFieldsForm({ projectId, taskId, compact = false }: CustomF
     return parts.join('|');
   }, [fields, values]);
 
-  // Initialize local values from server
+  // Sync server data → local state ONLY when the fingerprint actually changes.
+  // Using a ref comparison prevents the setState→rerender→effect loop.
   useEffect(() => {
     if (fields.length === 0) return;
+    if (dataFingerprint === lastSyncedFingerprint.current) return;
+
+    lastSyncedFingerprint.current = dataFingerprint;
+
     const initial: Record<number, any> = {};
     for (const field of fields) {
       const value = values.find(v => v.customFieldId === field.id);
@@ -102,18 +111,15 @@ export function CustomFieldsForm({ projectId, taskId, compact = false }: CustomF
             initial[field.id] = value.value || '';
         }
       } else {
-        // Use default value
         initial[field.id] = field.defaultValue || (field.type === 'checkbox' ? false : field.type === 'multiselect' ? [] : '');
       }
     }
     setLocalValues(initial);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataFingerprint]);
+  }, [dataFingerprint, fields, values]);
   
-  const handleChange = (fieldId: number, value: any, fieldType: string) => {
+  const handleChange = useCallback((fieldId: number, value: any, fieldType: string) => {
     setLocalValues(prev => ({ ...prev, [fieldId]: value }));
     
-    // Prepare value for API
     const apiValue: any = { customFieldId: fieldId, taskId };
     
     switch (fieldType) {
@@ -137,7 +143,7 @@ export function CustomFieldsForm({ projectId, taskId, compact = false }: CustomF
     }
     
     setValue.mutate(apiValue);
-  };
+  }, [taskId, setValue]);
   
   if (fields.length === 0) {
     return null;
