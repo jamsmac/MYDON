@@ -351,6 +351,7 @@ export default function ProjectViewAlternate() {
           <TableView
             tasks={allTasks}
             members={members}
+            projectId={projectId}
             onTaskUpdate={(taskId, data) => handleTaskUpdate(taskId, data as any)}
             onTaskClick={handleTaskClick}
             onTaskDelete={(taskId) => deleteTask.mutate({ id: taskId })}

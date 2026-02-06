@@ -2204,6 +2204,15 @@ export async function getCustomFieldValuesByTask(taskId: number): Promise<Custom
     .where(eq(customFieldValues.taskId, taskId));
 }
 
+export async function getCustomFieldValuesByTasks(taskIds: number[]): Promise<CustomFieldValue[]> {
+  const db = await getDb();
+  if (!db || taskIds.length === 0) return [];
+  
+  return await db.select()
+    .from(customFieldValues)
+    .where(inArray(customFieldValues.taskId, taskIds));
+}
+
 export async function getCustomFieldValuesByField(customFieldId: number): Promise<CustomFieldValue[]> {
   const db = await getDb();
   if (!db) return [];

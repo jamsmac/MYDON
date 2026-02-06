@@ -1987,3 +1987,14 @@
 - [x] Add CustomFieldsForm to task details panel
 - [x] Pass projectId and taskId to component
 - [x] Show custom fields section with Settings icon header
+
+
+## Phase 89: Custom Field Columns in Table View
+
+- [x] Add projectId prop to TableView
+- [x] Fetch custom fields for project
+- [x] Filter fields with showInTable=true
+- [x] Fetch all custom field values for displayed tasks (getValuesByTasks)
+- [x] Add column headers for custom fields with tooltip
+- [x] Add cells for custom field values with type-specific rendering
+- [x] Support all 13 field types: text, number, date, checkbox, select, multiselect, url, email, currency, percent, rating, formula, rollup

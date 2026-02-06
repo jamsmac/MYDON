@@ -54,6 +54,9 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { toast } from 'sonner';
+import { trpc } from '@/lib/trpc';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Star, Link as LinkIcon, Mail, DollarSign, Percent, Hash, Type, CalendarDays, CheckSquare, List, ListChecks, Calculator, Sigma } from 'lucide-react';
 
 // Status configuration
 const STATUS_CONFIG = {
@@ -85,9 +88,33 @@ interface TableTask {
   tags?: { id: number; name: string; color: string }[];
 }
 
+// Use 'any' for custom fields since the actual schema types are complex
+type CustomFieldData = {
+  id: number;
+  name: string;
+  type: string;
+  options?: any;
+  formula?: string | null;
+  rollupConfig?: any;
+  showInTable?: boolean | null;
+  showOnCard?: boolean | null;
+};
+
+type CustomFieldValueData = {
+  id: number;
+  customFieldId: number;
+  taskId: number;
+  value?: string | null;
+  numericValue?: string | null;
+  dateValue?: Date | string | null;
+  booleanValue?: boolean | null;
+  jsonValue?: any;
+};
+
 interface TableViewProps {
   tasks: TableTask[];
   members?: { id: number; name: string; avatar?: string }[];
+  projectId: number;
   onTaskUpdate: (taskId: number, data: Partial<TableTask>) => void;
   onTaskClick?: (task: TableTask) => void;
   onTaskDelete?: (taskId: number) => void;
@@ -296,15 +323,174 @@ function GroupHeader({
   );
 }
 
+// Custom field value display component
+function CustomFieldCell({ field, value, taskId }: { field: CustomFieldData; value?: CustomFieldValueData; taskId: number }) {
+  const getFieldIcon = (type: string) => {
+    switch (type) {
+      case 'text': return Type;
+      case 'number': return Hash;
+      case 'date': return CalendarDays;
+      case 'checkbox': return CheckSquare;
+      case 'select': return List;
+      case 'multiselect': return ListChecks;
+      case 'url': return LinkIcon;
+      case 'email': return Mail;
+      case 'currency': return DollarSign;
+      case 'percent': return Percent;
+      case 'rating': return Star;
+      case 'formula': return Calculator;
+      case 'rollup': return Sigma;
+      default: return Type;
+    }
+  };
+
+  const renderValue = () => {
+    if (!value) return <span className="text-slate-500">—</span>;
+
+    switch (field.type) {
+      case 'text':
+      case 'url':
+      case 'email':
+        return value.value ? (
+          field.type === 'url' ? (
+            <a href={value.value} target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline truncate max-w-[150px] block">
+              {value.value}
+            </a>
+          ) : field.type === 'email' ? (
+            <a href={`mailto:${value.value}`} className="text-purple-400 hover:underline">
+              {value.value}
+            </a>
+          ) : (
+            <span className="truncate max-w-[150px] block">{value.value}</span>
+          )
+        ) : <span className="text-slate-500">—</span>;
+
+      case 'number':
+        return value.numericValue ? (
+          <span>{parseFloat(value.numericValue).toLocaleString()}</span>
+        ) : <span className="text-slate-500">—</span>;
+
+      case 'currency':
+        return value.numericValue ? (
+          <span className="text-emerald-400">${parseFloat(value.numericValue).toLocaleString()}</span>
+        ) : <span className="text-slate-500">—</span>;
+
+      case 'percent':
+        return value.numericValue ? (
+          <span>{parseFloat(value.numericValue)}%</span>
+        ) : <span className="text-slate-500">—</span>;
+
+      case 'date':
+        return value.dateValue ? (
+          <span>{format(new Date(value.dateValue), 'd MMM yyyy', { locale: ru })}</span>
+        ) : <span className="text-slate-500">—</span>;
+
+      case 'checkbox':
+        return (
+          <div className={cn(
+            "w-5 h-5 rounded border flex items-center justify-center",
+            value.booleanValue ? "bg-emerald-500/20 border-emerald-500" : "border-slate-600"
+          )}>
+            {value.booleanValue && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+          </div>
+        );
+
+      case 'select':
+        if (!value.value) return <span className="text-slate-500">—</span>;
+        try {
+          const options = field.options ? JSON.parse(field.options) : [];
+          const option = options.find((o: any) => o.value === value.value);
+          return option ? (
+            <Badge variant="outline" style={{ borderColor: option.color + '50', color: option.color }}>
+              {option.label}
+            </Badge>
+          ) : <span>{value.value}</span>;
+        } catch {
+          return <span>{value.value}</span>;
+        }
+
+      case 'multiselect':
+        if (!value.jsonValue) return <span className="text-slate-500">—</span>;
+        try {
+          const selected = JSON.parse(value.jsonValue);
+          const options = field.options ? JSON.parse(field.options) : [];
+          return (
+            <div className="flex gap-1 flex-wrap">
+              {selected.slice(0, 2).map((val: string) => {
+                const option = options.find((o: any) => o.value === val);
+                return (
+                  <Badge key={val} variant="outline" className="text-xs" style={{ borderColor: option?.color + '50', color: option?.color }}>
+                    {option?.label || val}
+                  </Badge>
+                );
+              })}
+              {selected.length > 2 && <Badge variant="secondary" className="text-xs">+{selected.length - 2}</Badge>}
+            </div>
+          );
+        } catch {
+          return <span className="text-slate-500">—</span>;
+        }
+
+      case 'rating':
+        const rating = value.numericValue ? parseInt(value.numericValue) : 0;
+        return (
+          <div className="flex gap-0.5">
+            {[1, 2, 3, 4, 5].map(i => (
+              <Star key={i} className={cn("w-3.5 h-3.5", i <= rating ? "text-amber-400 fill-amber-400" : "text-slate-600")} />
+            ))}
+          </div>
+        );
+
+      case 'formula':
+      case 'rollup':
+        return value.value ? (
+          <span className="text-cyan-400 font-mono text-sm">{value.value}</span>
+        ) : <span className="text-slate-500 italic">—</span>;
+
+      default:
+        return value.value || <span className="text-slate-500">—</span>;
+    }
+  };
+
+  return (
+    <div className="text-sm text-slate-300">
+      {renderValue()}
+    </div>
+  );
+}
+
 // Main Table View Component
 export function TableView({
   tasks,
   members,
+  projectId,
   onTaskUpdate,
   onTaskClick,
   onTaskDelete,
   onExportCSV,
 }: TableViewProps) {
+  // Fetch custom fields for project
+  const { data: customFields = [] } = trpc.customFields.getByProject.useQuery({ projectId });
+  
+  // Get fields that should show in table
+  const tableFields = customFields.filter((f: CustomFieldData) => f.showInTable) as CustomFieldData[];
+  
+  // Fetch all custom field values for all tasks
+  const taskIds = tasks.map(t => t.id);
+  const { data: allFieldValues = [] } = trpc.customFields.getValuesByTasks.useQuery(
+    { taskIds },
+    { enabled: taskIds.length > 0 && tableFields.length > 0 }
+  );
+  
+  // Create a map for quick lookup: taskId -> fieldId -> value
+  const fieldValuesMap = new Map<number, Map<number, CustomFieldValueData>>();
+  allFieldValues.forEach((v: CustomFieldValueData) => {
+    if (!fieldValuesMap.has(v.taskId)) {
+      fieldValuesMap.set(v.taskId, new Map());
+    }
+    fieldValuesMap.get(v.taskId)!.set(v.customFieldId, v);
+  });
+
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
@@ -591,6 +777,21 @@ export function TableView({
                   onSort={handleSort}
                 />
               </TableHead>
+              {/* Custom field columns */}
+              {tableFields.map((field: CustomFieldData) => (
+                <TableHead key={field.id} className="w-[140px]">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-1.5 text-slate-400 font-medium cursor-help">
+                        <span className="truncate">{field.name}</span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent className="bg-slate-800 border-slate-700">
+                      <p>Тип: {field.type}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TableHead>
+              ))}
               <TableHead className="w-10"></TableHead>
             </TableRow>
           </TableHeader>
@@ -694,6 +895,16 @@ export function TableView({
                             <span className="text-slate-500 text-sm">—</span>
                           )}
                         </TableCell>
+                        {/* Custom field cells */}
+                        {tableFields.map((field: CustomFieldData) => {
+                          const taskValues = fieldValuesMap.get(task.id);
+                          const fieldValue = taskValues?.get(field.id);
+                          return (
+                            <TableCell key={field.id}>
+                              <CustomFieldCell field={field} value={fieldValue} taskId={task.id} />
+                            </TableCell>
+                          );
+                        })}
                         <TableCell>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>

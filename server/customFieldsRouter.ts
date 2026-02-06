@@ -133,6 +133,14 @@ export const customFieldsRouter = router({
       return db.getCustomFieldValuesByTask(input.taskId);
     }),
   
+  // Get values for multiple tasks
+  getValuesByTasks: protectedProcedure
+    .input(z.object({ taskIds: z.array(z.number()) }))
+    .query(async ({ input }) => {
+      if (input.taskIds.length === 0) return [];
+      return db.getCustomFieldValuesByTasks(input.taskIds);
+    }),
+  
   // Get all values for a project (fields + values grouped by task)
   getValuesForProject: protectedProcedure
     .input(z.object({ projectId: z.number() }))
