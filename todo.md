@@ -1974,3 +1974,9 @@
 - [x] Progress indicator during import
 - [x] 43 tests for formula engine (529 total tests passing)
 
+
+## Phase 87: CustomFieldsManager Integration
+
+- [x] Add Custom Fields menu item to project dropdown menu
+- [x] Create Custom Fields dialog with CustomFieldsManager component
+- [x] Connect CustomFieldsManager component with projectId

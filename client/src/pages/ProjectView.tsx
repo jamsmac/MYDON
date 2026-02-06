@@ -67,6 +67,7 @@ import { CalendarDialog } from '@/components/CalendarDialog';
 import { SaveAsTemplateDialog } from '@/components/SaveAsTemplateDialog';
 import { PitchDeckGenerator } from '@/components/PitchDeckGenerator';
 import { FloatingAIButton } from '@/components/AIAssistantButton';
+import CustomFieldsManager from '@/components/CustomFieldsManager';
 import { 
   SplitTaskDialog, 
   MergeTasksDialog, 
@@ -74,7 +75,7 @@ import {
   ConvertSectionToTaskDialog,
   BulkActionsDialog 
 } from '@/components/TaskManagementDialogs';
-import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical, BarChart3, Sparkles, AlertTriangle, Brain } from 'lucide-react';
+import { LayoutTemplate, Presentation, Split, Merge, ArrowUpCircle, ArrowDownCircle, CopyPlus, CheckSquare, GripVertical, BarChart3, Sparkles, AlertTriangle, Brain, Settings } from 'lucide-react';
 import { 
   DragDropProvider, 
   SortableTask, 
@@ -1008,6 +1009,7 @@ export default function ProjectView() {
   const [showPitchDeckDialog, setShowPitchDeckDialog] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [showRiskPanel, setShowRiskPanel] = useState(false);
+  const [showCustomFieldsDialog, setShowCustomFieldsDialog] = useState(false);
   
   const saveToDrive = trpc.drive.saveProject.useMutation({
     onSuccess: (result) => {
@@ -1319,6 +1321,13 @@ export default function ProjectView() {
                 >
                   <Tag className="w-4 h-4 mr-2" />
                   Управление тегами
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-teal-400"
+                  onClick={() => setShowCustomFieldsDialog(true)}
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  Кастомные поля
                 </DropdownMenuItem>
                 <DropdownMenuItem 
                   className="text-pink-400"
@@ -2024,6 +2033,24 @@ export default function ProjectView() {
           </DialogHeader>
           <div className="space-y-4 max-h-[60vh] overflow-y-auto">
             <RiskAnalysisContent projectId={projectId} />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Fields Manager Dialog */}
+      <Dialog open={showCustomFieldsDialog} onOpenChange={setShowCustomFieldsDialog}>
+        <DialogContent className="max-w-4xl max-h-[85vh] bg-slate-900 border-slate-700 overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Settings className="w-5 h-5 text-teal-400" />
+              Кастомные поля
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Создавайте пользовательские поля для задач: текст, числа, даты, формулы и многое другое
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto max-h-[calc(85vh-120px)]">
+            <CustomFieldsManager projectId={projectId} />
           </div>
         </DialogContent>
       </Dialog>
