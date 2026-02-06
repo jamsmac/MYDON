@@ -2197,14 +2197,149 @@ export const localizationStrings = mysqlTable("localization_strings", {
 export type LocalizationString = typeof localizationStrings.$inferSelect;
 export type InsertLocalizationString = typeof localizationStrings.$inferInsert;
 
+// ============================================================================
+// ADMIN PANEL STAGE 4: PLATFORM API KEYS, EMAIL SETTINGS, ADMIN LOGS, ALERTS
+// ============================================================================
+
 /**
- * Branding Settings Type
+ * Platform API Keys - Global AI provider keys (admin-managed)
  */
-export type BrandingSettings = {
-  logoUrl?: string;
-  faviconUrl?: string;
-  platformName?: string;
-  primaryColor?: string;
-  theme?: "dark" | "light";
-  customCss?: string;
-};
+export const platformApiKeys = mysqlTable("platform_api_keys", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  apiKey: text("apiKey").notNull(), // Encrypted
+  
+  status: mysqlEnum("status", ["valid", "invalid", "expired", "rate_limited"]).default("valid"),
+  lastVerifiedAt: timestamp("lastVerifiedAt"),
+  lastErrorMessage: text("lastErrorMessage"),
+  
+  // Usage tracking
+  totalRequests: int("totalRequests").default(0),
+  totalTokens: int("totalTokens").default(0),
+  
+  isEnabled: boolean("isEnabled").default(true),
+  
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, (table) => ({
+  providerIdx: index("pak_provider_idx").on(table.provider),
+}));
+
+export type PlatformApiKey = typeof platformApiKeys.$inferSelect;
+export type InsertPlatformApiKey = typeof platformApiKeys.$inferInsert;
+
+/**
+ * Email Settings - SMTP configuration
+ */
+export const emailSettings = mysqlTable("email_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  smtpHost: varchar("smtpHost", { length: 255 }),
+  smtpPort: int("smtpPort").default(587),
+  smtpUser: varchar("smtpUser", { length: 255 }),
+  smtpPassword: text("smtpPassword"), // Encrypted
+  smtpSecure: boolean("smtpSecure").default(true),
+  
+  fromEmail: varchar("fromEmail", { length: 255 }),
+  fromName: varchar("fromName", { length: 128 }),
+  
+  isEnabled: boolean("isEnabled").default(false),
+  lastTestedAt: timestamp("lastTestedAt"),
+  lastTestResult: mysqlEnum("lastTestResult", ["success", "failed"]),
+  lastTestError: text("lastTestError"),
+  
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+});
+
+export type EmailSetting = typeof emailSettings.$inferSelect;
+export type InsertEmailSetting = typeof emailSettings.$inferInsert;
+
+/**
+ * Email Templates - Customizable email templates
+ */
+export const emailTemplates = mysqlTable("email_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  slug: varchar("slug", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  
+  subject: varchar("subject", { length: 255 }).notNull(),
+  bodyHtml: text("bodyHtml").notNull(),
+  bodyText: text("bodyText"),
+  
+  // Available variables for this template
+  variables: json("variables").$type<string[]>(),
+  
+  isActive: boolean("isActive").default(true),
+  
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, (table) => ({
+  slugIdx: index("et_slug_idx").on(table.slug),
+}));
+
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
+
+/**
+ * Admin Activity Logs - Extended logging for admin actions
+ */
+export const adminActivityLogs = mysqlTable("admin_activity_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  
+  action: varchar("action", { length: 64 }).notNull(),
+  category: varchar("category", { length: 32 }).notNull(), // users, projects, ai, settings, etc.
+  targetType: varchar("targetType", { length: 32 }), // user, project, agent, etc.
+  targetId: int("targetId"),
+  
+  details: json("details"),
+  ipAddress: varchar("ipAddress", { length: 45 }),
+  userAgent: text("userAgent"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("aal_user_idx").on(table.userId),
+  actionIdx: index("aal_action_idx").on(table.action),
+  categoryIdx: index("aal_category_idx").on(table.category),
+  createdIdx: index("aal_created_idx").on(table.createdAt),
+}));
+
+export type AdminActivityLog = typeof adminActivityLogs.$inferSelect;
+export type InsertAdminActivityLog = typeof adminActivityLogs.$inferInsert;
+
+/**
+ * System Alerts - Automated alerts for admin
+ */
+export const systemAlerts = mysqlTable("system_alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  type: mysqlEnum("type", [
+    "error_spike",
+    "credits_low",
+    "api_key_invalid",
+    "webhook_failed",
+    "usage_limit",
+    "security"
+  ]).notNull(),
+  
+  severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("warning"),
+  
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message"),
+  data: json("data"),
+  
+  isResolved: boolean("isResolved").default(false),
+  resolvedAt: timestamp("resolvedAt"),
+  resolvedBy: int("resolvedBy"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  typeIdx: index("sa_type_idx").on(table.type),
+  severityIdx: index("sa_severity_idx").on(table.severity),
+  resolvedIdx: index("sa_resolved_idx").on(table.isResolved),
+}));
+
+export type SystemAlert = typeof systemAlerts.$inferSelect;
+export type InsertSystemAlert = typeof systemAlerts.$inferInsert;

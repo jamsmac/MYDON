@@ -53,6 +53,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/project/:id" component={ProjectView} />
         <Route path="/settings" component={Settings} />
+        <Route path="/admin" component={AdminPanel} />
         <Route path="/admin/:rest*" component={AdminPanel} />
         <Route path="/integrations" component={AIIntegrations} />
         <Route path="/pricing" component={Pricing} />

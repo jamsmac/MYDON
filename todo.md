@@ -1641,3 +1641,60 @@
 - [ ] navbar_items (id, name, icon, path, isEnabled, order, isCustom, createdAt)
 - [ ] localization_strings (id, key, locale, value, updatedBy, updatedAt)
 
+
+
+## Phase 74: Admin Panel Overhaul - Stage 4 (FINAL: UI Settings, Integrations, Logs)
+
+### 1. Branding Settings (/admin → UI → Branding)
+- [x] Platform name field (replaces "MYDON Roadmap Hub")
+- [x] Color picker for accent color
+- [x] Dark/Light theme toggle
+- [x] Mini preview of changes on right side
+- [x] Save and Reset to Default buttons
+
+### 2. Navbar Settings (/admin → UI → Navbar)
+- [x] List of navbar elements with toggle show/hide
+- [x] Drag-and-drop or arrows for reordering
+- [x] Add custom link button (name, URL, icon)
+- [x] Preview of navbar at top
+
+### 3. Localization (/admin → UI → Localization)
+- [x] Default language selector (Russian, English, Uzbek)
+- [x] Table of strings: Key | Russian | English | Uzbek
+- [x] Search by key or text
+- [x] Inline editing for each string
+- [x] Export/Import JSON buttons
+- [x] Translation progress bar per language
+
+### 4. Webhooks (/admin → Integrations → Webhooks)
+- [x] List webhooks: Name, URL, Events, Status, Last call
+- [x] Create webhook: Name, URL, Secret, Event selection
+- [x] Test button sends test payload
+- [x] Call history (last 50)
+
+### 5. API Keys Management (/admin → Integrations → API Keys)
+- [x] Table: Provider, Key (hidden), Status, Date added
+- [x] Verify key button (test API request)
+- [x] Add new key (provider, key)
+- [x] Global keys vs BYOK distinction
+
+### 6. Notifications (/admin → Integrations → Notifications)
+- [x] Email SMTP settings (host, port, login, password)
+- [x] Email templates: Invite, Reset password, Low balance, Task overdue
+- [x] Send test email button
+- [x] Telegram/Slack placeholders (Coming soon)
+
+### 7. Extended Logs & Analytics (/admin → Logs)
+- [x] Logs table with filters (user, type, model, status, date)
+- [x] AI requests line chart over time
+- [x] Top 5 users by requests (bar chart)
+- [x] Model usage breakdown (pie chart)
+- [x] Average cost and response time metrics
+- [x] Export to CSV button
+- [ ] Auto-alerts for >10 errors per hour (future enhancement)
+
+### 8. Global Admin Search
+- [x] Search field at top of admin (Ctrl+/)
+- [x] Search across agents, skills, users, projects, prompts, settings
+- [x] Results with links to corresponding sections
+

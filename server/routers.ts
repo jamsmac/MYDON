@@ -36,6 +36,8 @@ import { adminPricingRouter } from './adminPricingRouter';
 import { adminPromptsRouter } from './adminPromptsRouter';
 import { adminContentRouter } from './adminContentRouter';
 import { adminUIRouter } from './adminUIRouter';
+import { adminIntegrationsRouter } from './adminIntegrationsRouter';
+import { adminLogsRouter } from './adminLogsRouter';
 import { getDefaultTags } from './utils/defaultTags';
 import { checkAndAwardAchievements, type AchievementResult } from "./achievementService";
 import * as schema from '../drizzle/schema';
@@ -1579,6 +1581,8 @@ export const appRouter = router({
   adminPrompts: adminPromptsRouter,
   adminContent: adminContentRouter,
   adminUI: adminUIRouter,
+  adminIntegrations: adminIntegrationsRouter,
+  adminLogs: adminLogsRouter,
 });
 
 export type AppRouter = typeof appRouter;
