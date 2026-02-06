@@ -2322,10 +2322,10 @@
 - [x] Write tests for detail panels (27 tests)
 
 ### Fix: Embed AI Chat into Detail Panels + Section Selection
-- [ ] Embed AI chat directly into BlockDetailPanel (not separate button)
-- [ ] Embed AI chat directly into SectionDetailPanel (not separate button)
-- [ ] Fix section click in sidebar not showing SectionDetailPanel
-- [ ] Ensure all sections (Маркетинговые исследования, Customer Development, etc.) show their detail card
+- [x] Embed AI chat directly into BlockDetailPanel (not separate button)
+- [x] Embed AI chat directly into SectionDetailPanel (not separate button)
+- [x] Fix section click in sidebar not showing SectionDetailPanel
+- [x] Ensure all sections (Маркетинговые исследования, Customer Development, etc.) show their detail card
 
 
 ## Phase Navigation Fixes & Embedded AI Chat
@@ -2356,3 +2356,34 @@
 - [x] Also wire block/section context where available
 - [x] Write vitest tests for context building logic
 - [x] Verify AI receives and uses context in responses
+
+
+## Streaming AI Responses in EntityAIChat
+- [x] Replace blocking fetch with streaming fetch using ReadableStream
+- [x] Show AI response tokens in real-time as they arrive
+- [x] Add cancel button (AbortController) during streaming
+- [x] Show typing indicator while waiting for first token
+- [x] Use Streamdown component for markdown rendering of streamed content
+- [x] Handle stream errors gracefully with user-friendly messages
+- [x] Disable input and quick actions during streaming
+- [x] Write vitest tests for streaming logic
+- [x] Verify visually that streaming works smoothly
+
+
+## Streaming AI + Business-Oriented Task Prompts
+- [x] Replace blocking fetch with streaming SSE via /api/ai/stream
+- [x] Parse SSE chunks and render tokens in real-time
+- [x] Add streaming assistant message with isStreaming flag
+- [x] Add cancel button with AbortController during streaming
+- [x] Show typing indicator before first token arrives
+- [x] Disable input and quick actions during streaming
+- [x] Add action buttons only after streaming completes
+- [x] Redesign task quick prompts with practical business actions:
+  - [x] Обсудить вопрос (discuss/brainstorm)
+  - [x] Проработать тему (research/analyze)
+  - [x] Создать документ (generate document/report)
+  - [x] Составить таблицу (create structured table)
+  - [x] Написать план действий (action plan)
+  - [x] Подготовить презентацию (prepare presentation outline)
+- [x] Write vitest tests for streaming and new prompts
+- [x] Verify visually

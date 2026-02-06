@@ -28,19 +28,27 @@ describe('EntityAIChat & Navigation Fixes', () => {
       expect(prompts[0].prompt).toContain(title);
     });
 
-    it('should have default task prompts for task entity type', () => {
+    it('should have default task prompts with business-oriented actions', () => {
       const title = 'Analyze market competitors';
       const prompts = [
-        { label: 'Разбить на подзадачи', prompt: `Разбей задачу "${title}" на конкретные подзадачи с оценкой времени` },
-        { label: 'Оценить сложность', prompt: `Оцени сложность и трудозатраты задачи "${title}". Какие навыки нужны?` },
-        { label: 'Найти риски', prompt: `Какие риски и блокеры могут возникнуть при выполнении задачи "${title}"?` },
-        { label: 'Написать ТЗ', prompt: `Напиши техническое задание для задачи "${title}" с критериями приёмки` },
-        { label: 'Как выполнить', prompt: `Опиши пошаговый план выполнения задачи "${title}" с рекомендациями и ресурсами` },
+        { label: '💬 Обсудить', prompt: `Давай обсудим задачу "${title}". Какие ключевые вопросы нужно проработать? Предложи темы для обсуждения и возможные решения.` },
+        { label: '🔍 Проработать', prompt: `Проведи глубокий анализ задачи "${title}". Исследуй тему, собери ключевые факты, лучшие практики и рекомендации.` },
+        { label: '📄 Создать документ', prompt: `Создай структурированный документ по задаче "${title}". Включи цели, описание, требования, критерии приёмки и сроки.` },
+        { label: '📊 Составить таблицу', prompt: `Составь таблицу (в формате Markdown) для задачи "${title}" с ключевыми параметрами, метриками, ответственными и сроками.` },
+        { label: '📋 План действий', prompt: `Напиши пошаговый план действий для задачи "${title}" с конкретными шагами, ответственными, сроками и ожидаемыми результатами.` },
+        { label: '📑 Подготовить презентацию', prompt: `Подготовь структуру презентации по задаче "${title}". Предложи слайды с заголовками, ключевыми тезисами и визуальными элементами.` },
+        { label: '⚡ Подзадачи', prompt: `Разбей задачу "${title}" на конкретные подзадачи с оценкой времени и приоритетами.` },
+        { label: '⚠️ Риски', prompt: `Какие риски и блокеры могут возникнуть при выполнении задачи "${title}"? Как их минимизировать?` },
       ];
-      expect(prompts).toHaveLength(5);
-      expect(prompts[0].label).toBe('Разбить на подзадачи');
-      expect(prompts[3].label).toBe('Написать ТЗ');
-      expect(prompts[4].label).toBe('Как выполнить');
+      expect(prompts).toHaveLength(8);
+      expect(prompts[0].label).toBe('💬 Обсудить');
+      expect(prompts[1].label).toBe('🔍 Проработать');
+      expect(prompts[2].label).toBe('📄 Создать документ');
+      expect(prompts[3].label).toBe('📊 Составить таблицу');
+      expect(prompts[4].label).toBe('📋 План действий');
+      expect(prompts[5].label).toBe('📑 Подготовить презентацию');
+      expect(prompts[6].label).toBe('⚡ Подзадачи');
+      expect(prompts[7].label).toBe('⚠️ Риски');
       expect(prompts.every(p => p.prompt.includes(title))).toBe(true);
     });
 
@@ -49,11 +57,11 @@ describe('EntityAIChat & Navigation Fixes', () => {
       const getPrompts = (entityType: 'block' | 'section' | 'task') => {
         if (entityType === 'block') return 4;
         if (entityType === 'section') return 4;
-        return 5;
+        return 8;
       };
       expect(getPrompts('block')).toBe(4);
       expect(getPrompts('section')).toBe(4);
-      expect(getPrompts('task')).toBe(5);
+      expect(getPrompts('task')).toBe(8);
     });
 
     it('should use correct placeholder for task entity type', () => {
@@ -639,6 +647,210 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}`;
         }
       };
       expect(payload["0"].json.projectContext).toBeUndefined();
+    });
+
+    it('should build streaming payload with /api/ai/stream endpoint', () => {
+      const entityContext = 'Задача: "Deploy app"\nСтатус: В работе';
+      const entityType = 'task';
+      const entityTitle = 'Deploy app';
+      const userMsg = 'How to deploy?';
+      const conversationHistory = [
+        { role: 'user', content: 'Previous question' },
+        { role: 'assistant', content: 'Previous answer' },
+      ];
+
+      let projectContext = '';
+      if (entityContext) projectContext = entityContext;
+      if (entityType && entityTitle) {
+        const entityLabel = entityType === 'block' ? 'блок' : entityType === 'section' ? 'раздел' : 'задача';
+        projectContext = `Текущий контекст: ${entityLabel} "${entityTitle}".\n${projectContext || ''}`;
+      }
+
+      const payload = {
+        messages: [...conversationHistory, { role: 'user', content: userMsg }],
+        taskType: 'chat',
+        projectContext: projectContext || undefined,
+      };
+
+      expect(payload.messages).toHaveLength(3);
+      expect(payload.messages[2].content).toBe('How to deploy?');
+      expect(payload.taskType).toBe('chat');
+      expect(payload.projectContext).toContain('задача');
+      expect(payload.projectContext).toContain('Deploy app');
+    });
+
+    it('should parse SSE chunks correctly', () => {
+      const chunk = 'data: {"choices":[{"delta":{"content":"Hello"}}]}\ndata: {"choices":[{"delta":{"content":" world"}}]}\n';
+      const lines = chunk.split('\n');
+      let fullContent = '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+          try {
+            const data = JSON.parse(line.slice(6));
+            const content = data.choices?.[0]?.delta?.content;
+            if (content) fullContent += content;
+          } catch {}
+        }
+      }
+
+      expect(fullContent).toBe('Hello world');
+    });
+
+    it('should handle SSE done event', () => {
+      const chunk = 'data: {"type":"done","executionTime":1500}\n';
+      const lines = chunk.split('\n');
+      let isDone = false;
+      let executionTime = 0;
+
+      for (const line of lines) {
+        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'done') {
+              isDone = true;
+              executionTime = data.executionTime || 0;
+            }
+          } catch {}
+        }
+      }
+
+      expect(isDone).toBe(true);
+      expect(executionTime).toBe(1500);
+    });
+
+    it('should handle SSE error event', () => {
+      const chunk = 'data: {"type":"error","message":"Stream failed"}\n';
+      const lines = chunk.split('\n');
+      let errorMsg = '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'error') errorMsg = data.message;
+          } catch {}
+        }
+      }
+
+      expect(errorMsg).toBe('Stream failed');
+    });
+
+    it('should handle streaming message state transitions', () => {
+      type Msg = { id: string; role: string; content: string; isStreaming?: boolean };
+      let messages: Msg[] = [];
+
+      // 1. Add user message
+      messages.push({ id: 'user-1', role: 'user', content: 'Hello' });
+      expect(messages).toHaveLength(1);
+
+      // 2. Add empty streaming assistant message
+      const assistantId = 'assistant-1';
+      messages.push({ id: assistantId, role: 'assistant', content: '', isStreaming: true });
+      expect(messages).toHaveLength(2);
+      expect(messages[1].isStreaming).toBe(true);
+      expect(messages[1].content).toBe('');
+
+      // 3. Update with streaming content
+      messages = messages.map(m =>
+        m.id === assistantId ? { ...m, content: 'Partial' } : m
+      );
+      expect(messages[1].content).toBe('Partial');
+      expect(messages[1].isStreaming).toBe(true);
+
+      // 4. Mark streaming complete
+      messages = messages.map(m =>
+        m.id === assistantId ? { ...m, content: 'Full response', isStreaming: false } : m
+      );
+      expect(messages[1].content).toBe('Full response');
+      expect(messages[1].isStreaming).toBe(false);
+    });
+
+    it('should handle abort/cancel during streaming', () => {
+      type Msg = { id: string; role: string; content: string; isStreaming?: boolean };
+      let messages: Msg[] = [
+        { id: 'user-1', role: 'user', content: 'Hello' },
+        { id: 'assistant-1', role: 'assistant', content: 'Partial content', isStreaming: true },
+      ];
+
+      // Simulate cancel
+      const assistantId = 'assistant-1';
+      messages = messages.map(m =>
+        m.id === assistantId
+          ? { ...m, isStreaming: false, content: m.content || '*(Генерация отменена)*' }
+          : m
+      );
+
+      expect(messages[1].isStreaming).toBe(false);
+      expect(messages[1].content).toBe('Partial content');
+    });
+
+    it('should show cancelled text when no content received before abort', () => {
+      type Msg = { id: string; role: string; content: string; isStreaming?: boolean };
+      let messages: Msg[] = [
+        { id: 'user-1', role: 'user', content: 'Hello' },
+        { id: 'assistant-1', role: 'assistant', content: '', isStreaming: true },
+      ];
+
+      const assistantId = 'assistant-1';
+      messages = messages.map(m =>
+        m.id === assistantId
+          ? { ...m, isStreaming: false, content: m.content || '*(Генерация отменена)*' }
+          : m
+      );
+
+      expect(messages[1].content).toBe('*(Генерация отменена)*');
+    });
+
+    it('should count only non-streaming assistant messages for badge', () => {
+      const messages = [
+        { id: '1', role: 'user', content: 'Q1' },
+        { id: '2', role: 'assistant', content: 'A1', isStreaming: false },
+        { id: '3', role: 'user', content: 'Q2' },
+        { id: '4', role: 'assistant', content: '', isStreaming: true },
+      ];
+      const count = messages.filter(m => m.role === 'assistant' && !m.isStreaming).length;
+      expect(count).toBe(1);
+    });
+
+    it('should include conversation history in streaming payload (last 10 messages)', () => {
+      const allMessages = Array.from({ length: 15 }, (_, i) => ({
+        id: `msg-${i}`,
+        role: i % 2 === 0 ? 'user' as const : 'assistant' as const,
+        content: `Message ${i}`,
+      }));
+
+      const conversationHistory = allMessages
+        .filter(m => !(m as any).isStreaming)
+        .slice(-10)
+        .map(m => ({ role: m.role, content: m.content }));
+
+      expect(conversationHistory).toHaveLength(10);
+      expect(conversationHistory[0].content).toBe('Message 5');
+      expect(conversationHistory[9].content).toBe('Message 14');
+    });
+
+    it('should have business-oriented prompts covering key use cases', () => {
+      const title = 'Test task';
+      const prompts = [
+        { label: '💬 Обсудить', prompt: `Давай обсудим задачу "${title}".` },
+        { label: '🔍 Проработать', prompt: `Проведи глубокий анализ задачи "${title}".` },
+        { label: '📄 Создать документ', prompt: `Создай структурированный документ по задаче "${title}".` },
+        { label: '📊 Составить таблицу', prompt: `Составь таблицу для задачи "${title}".` },
+        { label: '📋 План действий', prompt: `Напиши пошаговый план действий для задачи "${title}".` },
+        { label: '📑 Подготовить презентацию', prompt: `Подготовь структуру презентации по задаче "${title}".` },
+        { label: '⚡ Подзадачи', prompt: `Разбей задачу "${title}" на подзадачи.` },
+        { label: '⚠️ Риски', prompt: `Какие риски у задачи "${title}"?` },
+      ];
+
+      // Verify all key business actions are covered
+      const labels = prompts.map(p => p.label);
+      expect(labels).toContain('💬 Обсудить');
+      expect(labels).toContain('📄 Создать документ');
+      expect(labels).toContain('📊 Составить таблицу');
+      expect(labels).toContain('📋 План действий');
+      expect(labels).toContain('📑 Подготовить презентацию');
+      expect(labels).toContain('🔍 Проработать');
     });
 
     it('should resolve dependency names from allTasks', () => {

@@ -19,9 +19,10 @@ import {
 } from 'lucide-react';
 
 interface Message {
-  id: number;
+  id: string | number;
   role: 'user' | 'assistant';
   content: string;
+  isStreaming?: boolean;
 }
 
 interface EntityAIChatProps {
@@ -56,11 +57,14 @@ const defaultSectionPrompts = (title: string) => [
 ];
 
 const defaultTaskPrompts = (title: string) => [
-  { label: 'Разбить на подзадачи', prompt: `Разбей задачу "${title}" на конкретные подзадачи с оценкой времени` },
-  { label: 'Оценить сложность', prompt: `Оцени сложность и трудозатраты задачи "${title}". Какие навыки нужны?` },
-  { label: 'Найти риски', prompt: `Какие риски и блокеры могут возникнуть при выполнении задачи "${title}"?` },
-  { label: 'Написать ТЗ', prompt: `Напиши техническое задание для задачи "${title}" с критериями приёмки` },
-  { label: 'Как выполнить', prompt: `Опиши пошаговый план выполнения задачи "${title}" с рекомендациями и ресурсами` },
+  { label: '💬 Обсудить', prompt: `Давай обсудим задачу "${title}". Какие ключевые вопросы нужно проработать? Предложи темы для обсуждения и возможные решения.` },
+  { label: '🔍 Проработать', prompt: `Проведи глубокий анализ задачи "${title}". Исследуй тему, собери ключевые факты, лучшие практики и рекомендации.` },
+  { label: '📄 Создать документ', prompt: `Создай структурированный документ по задаче "${title}". Включи цели, описание, требования, критерии приёмки и сроки.` },
+  { label: '📊 Составить таблицу', prompt: `Составь таблицу (в формате Markdown) для задачи "${title}" с ключевыми параметрами, метриками, ответственными и сроками.` },
+  { label: '📋 План действий', prompt: `Напиши пошаговый план действий для задачи "${title}" с конкретными шагами, ответственными, сроками и ожидаемыми результатами.` },
+  { label: '📑 Подготовить презентацию', prompt: `Подготовь структуру презентации по задаче "${title}". Предложи слайды с заголовками, ключевыми тезисами и визуальными элементами.` },
+  { label: '⚡ Подзадачи', prompt: `Разбей задачу "${title}" на конкретные подзадачи с оценкой времени и приоритетами.` },
+  { label: '⚠️ Риски', prompt: `Какие риски и блокеры могут возникнуть при выполнении задачи "${title}"? Как их минимизировать?` },
 ];
 
 export function EntityAIChat({
@@ -125,8 +129,10 @@ export function EntityAIChat({
     const userMsg = message.trim();
     setMessage('');
 
-    const tempId = Date.now();
-    setLocalMessages(prev => [...prev, { id: tempId, role: 'user', content: userMsg }]);
+    const tempUserId = `user-${Date.now()}`;
+    setLocalMessages(prev => [...prev, { id: tempUserId, role: 'user', content: userMsg }]);
+
+    const assistantId = `assistant-${Date.now()}`;
 
     try {
       setIsStreaming(true);
@@ -134,45 +140,135 @@ export function EntityAIChat({
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      const response = await fetch('/api/trpc/chat.send', {
+      // Build messages array for the streaming endpoint
+      // Include recent conversation history for context
+      const conversationHistory = localMessages
+        .filter(m => !m.isStreaming)
+        .slice(-10)
+        .map(m => ({ role: m.role, content: m.content }));
+
+      // Build entity-specific system context
+      let projectContext = '';
+      if (entityContext) {
+        projectContext = entityContext;
+      }
+      if (entityType && entityTitle) {
+        const entityLabel = entityType === 'block' ? 'блок' : entityType === 'section' ? 'раздел' : 'задача';
+        projectContext = `Текущий контекст: ${entityLabel} "${entityTitle}".\n${projectContext || ''}`;
+      }
+
+      const messages_payload = [
+        ...conversationHistory,
+        { role: 'user', content: userMsg },
+      ];
+
+      // Add empty streaming assistant message
+      setLocalMessages(prev => [...prev, {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        isStreaming: true,
+      }]);
+
+      const response = await fetch('/api/ai/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          "0": {
-            json: {
-              contextType: entityType,
-              contextId: entityId,
-              content: userMsg,
-              projectContext: entityContext,
-            }
-          }
+          messages: messages_payload,
+          taskType: 'chat',
+          projectContext: projectContext || undefined,
         }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send message');
+        const error = await response.json();
+        throw new Error(error.error || 'Ошибка запроса');
       }
 
-      const data = await response.json();
-      const content = data?.[0]?.result?.data?.json?.content || data?.result?.data?.json?.content || '';
+      if (!response.body) throw new Error('Нет тела ответа');
 
-      setLocalMessages(prev => [...prev, {
-        id: Date.now(),
-        role: 'assistant',
-        content: content,
-      }]);
-      refetch();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'done') continue;
+              if (data.type === 'error') throw new Error(data.message);
+              const content = data.choices?.[0]?.delta?.content;
+              if (content) {
+                fullContent += content;
+                setLocalMessages(prev => prev.map(m =>
+                  m.id === assistantId ? { ...m, content: fullContent } : m
+                ));
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue;
+              throw e;
+            }
+          }
+        }
+      }
+
+      // Mark streaming as complete
+      setLocalMessages(prev => prev.map(m =>
+        m.id === assistantId ? { ...m, content: fullContent, isStreaming: false } : m
+      ));
+
+      // Also save the message via tRPC for persistence
+      try {
+        await fetch('/api/trpc/chat.send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            "0": {
+              json: {
+                contextType: entityType,
+                contextId: entityId,
+                content: userMsg,
+                projectContext: projectContext || undefined,
+                // Pass the AI response to save it in history
+                _streamedResponse: fullContent,
+              }
+            }
+          }),
+        });
+        refetch();
+      } catch {
+        // Non-critical: history save failed but user already has the response
+      }
+
     } catch (error: any) {
-      if (error.name !== 'AbortError') {
+      if (error.name === 'AbortError') {
+        // Mark partial content as complete on cancel
+        setLocalMessages(prev => prev.map(m =>
+          m.id === assistantId
+            ? { ...m, isStreaming: false, content: m.content || '*(Генерация отменена)*' }
+            : m
+        ));
+        toast.info('Генерация отменена');
+      } else {
+        // Remove the empty assistant message on error
+        setLocalMessages(prev => prev.filter(m => m.id !== assistantId));
         toast.error('Ошибка AI: ' + (error.message || 'Неизвестная ошибка'));
       }
     } finally {
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
-  }, [message, isStreaming, entityType, entityId, entityContext, refetch]);
+  }, [message, isStreaming, entityType, entityId, entityTitle, entityContext, localMessages, refetch]);
 
   const handleStop = () => {
     if (abortControllerRef.current) {
@@ -183,6 +279,18 @@ export function EntityAIChat({
   const handleCopy = (content: string) => {
     navigator.clipboard.writeText(content);
     toast.success('Скопировано');
+  };
+
+  const handleQuickPrompt = (prompt: string) => {
+    setMessage(prompt);
+    // Auto-send after a short delay so user sees what's being sent
+    setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>('[data-entity-ai-input]');
+      if (input) {
+        const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+        input.dispatchEvent(event);
+      }
+    }, 100);
   };
 
   return (
@@ -199,7 +307,12 @@ export function EntityAIChat({
           </span>
           {localMessages.length > 0 && (
             <Badge variant="outline" className="text-[10px] border-slate-600 text-slate-400">
-              {localMessages.filter(m => m.role === 'assistant').length} ответов
+              {localMessages.filter(m => m.role === 'assistant' && !m.isStreaming).length} ответов
+            </Badge>
+          )}
+          {isStreaming && (
+            <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-400 animate-pulse">
+              генерация...
             </Badge>
           )}
         </div>
@@ -218,22 +331,26 @@ export function EntityAIChat({
             ref={scrollRef}
             className={cn(
               "overflow-y-auto px-4 py-3 space-y-3",
-              localMessages.length > 0 ? "max-h-[350px] min-h-[120px]" : ""
+              localMessages.length > 0 ? "max-h-[400px] min-h-[120px]" : ""
             )}
           >
             {localMessages.length === 0 && !isStreaming && (
               <div className="py-2">
                 <p className="text-xs text-slate-500 mb-3">
-                  Задайте вопрос или выберите быстрое действие:
+                  {entityType === 'task'
+                    ? 'Выберите действие или задайте свой вопрос:'
+                    : 'Задайте вопрос или выберите быстрое действие:'}
                 </p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className={cn(
+                  "grid gap-2",
+                  entityType === 'task' ? "grid-cols-2" : "grid-cols-2"
+                )}>
                   {prompts.map((qp, i) => (
                     <button
                       key={i}
-                      onClick={() => setMessage(qp.prompt)}
+                      onClick={() => handleQuickPrompt(qp.prompt)}
                       className="text-left px-3 py-2 rounded-lg bg-slate-800/80 border border-slate-700 hover:border-amber-500/30 hover:bg-slate-800 transition-colors text-xs text-slate-300"
                     >
-                      <Sparkles className="w-3 h-3 text-amber-400 inline mr-1.5" />
                       {qp.label}
                     </button>
                   ))}
@@ -251,35 +368,44 @@ export function EntityAIChat({
                 )}>
                   {msg.role === 'assistant' ? (
                     <div className="text-sm">
-                      <Streamdown>{msg.content}</Streamdown>
-                      {/* Action buttons under AI response */}
-                      <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-700/50">
-                        <button
-                          onClick={() => handleCopy(msg.content)}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-slate-700/50 text-slate-400 hover:bg-slate-700 transition-colors"
-                        >
-                          <Copy className="w-3 h-3" />
-                          Копировать
-                        </button>
-                        {onInsertResult && (
+                      {msg.content ? (
+                        <Streamdown>{msg.content}</Streamdown>
+                      ) : msg.isStreaming ? (
+                        <div className="flex items-center gap-2 text-slate-400">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span className="text-xs">Думаю...</span>
+                        </div>
+                      ) : null}
+                      {/* Action buttons - only show when not streaming */}
+                      {!msg.isStreaming && msg.content && (
+                        <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-700/50">
                           <button
-                            onClick={() => onInsertResult(msg.content)}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                            onClick={() => handleCopy(msg.content)}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-slate-700/50 text-slate-400 hover:bg-slate-700 transition-colors"
                           >
-                            <MessageSquare className="w-3 h-3" />
-                            В заметки
+                            <Copy className="w-3 h-3" />
+                            Копировать
                           </button>
-                        )}
-                        {onSaveAsDocument && (
-                          <button
-                            onClick={() => onSaveAsDocument(msg.content)}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
-                          >
-                            <FileText className="w-3 h-3" />
-                            Как документ
-                          </button>
-                        )}
-                      </div>
+                          {onInsertResult && (
+                            <button
+                              onClick={() => onInsertResult(msg.content)}
+                              className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                            >
+                              <MessageSquare className="w-3 h-3" />
+                              В заметки
+                            </button>
+                          )}
+                          {onSaveAsDocument && (
+                            <button
+                              onClick={() => onSaveAsDocument(msg.content)}
+                              className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
+                            >
+                              <FileText className="w-3 h-3" />
+                              Как документ
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-sm">{msg.content}</p>
@@ -287,18 +413,6 @@ export function EntityAIChat({
                 </div>
               </div>
             ))}
-
-            {/* Streaming indicator */}
-            {isStreaming && (
-              <div className="flex justify-start">
-                <div className="max-w-[90%] rounded-xl px-3 py-2 bg-slate-900/60 text-slate-200">
-                  <div className="flex items-center gap-2 text-sm text-slate-400">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Думаю...
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Input area */}
@@ -306,6 +420,7 @@ export function EntityAIChat({
             <div className="flex gap-2">
               <Input
                 ref={inputRef}
+                data-entity-ai-input
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={(e) => {
