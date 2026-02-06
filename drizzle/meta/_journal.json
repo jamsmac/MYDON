@@ -15,6 +15,13 @@
       "when": 1770357067783,
       "tag": "0001_cheerful_venom",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1770358617030,
+      "tag": "0002_overjoyed_fabian_cortez",
+      "breakpoints": true
     }
   ]
 }

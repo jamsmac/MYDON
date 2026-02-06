@@ -1901,3 +1901,76 @@
 - [ ] Add dependency management UI in task details panel (future)
 - [ ] Support drag to adjust task dates (future)
 
+
+## Phase 85: Gantt Chart Drag-and-Drop for Dates
+
+### Drag-and-Drop Implementation
+- [ ] Add mouse event handlers for drag start/move/end
+- [ ] Calculate new date from drag position based on zoom level
+- [ ] Update task deadline via API on drop
+- [ ] Visual feedback: ghost bar showing new position during drag
+- [ ] Cursor change to grab/grabbing during drag
+- [ ] Snap to grid (day/week boundaries based on zoom)
+
+### Resize Handles
+- [ ] Add resize handles on task bar edges
+- [ ] Drag left edge to change start date (future)
+- [ ] Drag right edge to change deadline
+- [ ] Visual indicator for resize mode
+
+### Constraints & Validation
+- [ ] Prevent dragging completed tasks (optional)
+- [ ] Show dependency warnings when moving affects chain
+- [ ] Undo support for accidental moves
+
+
+## Phase 86: Custom Fields, Formula Engine & Import/Export
+
+### 1. Custom Fields Database
+- [x] Create custom_fields table (id, projectId, name, type, options, formula, rollupConfig, sortOrder, isRequired, defaultValue)
+- [x] Create custom_field_values table (id, customFieldId, taskId, value, numericValue, dateValue, booleanValue, jsonValue)
+- [x] Add relations and indexes
+
+### 2. Formula Engine
+- [x] Create shared/lib/formulaEngine.ts (670+ lines)
+- [x] Implement functions: SUM, AVG, COUNT, MIN, MAX, IF, CONCAT, LEN, UPPER, LOWER, ROUND, FLOOR, CEIL, ABS, POWER, SQRT, MOD
+- [x] Field references: {field_name}, {status}, {priority}, {deadline}, {progress}, {title}, {description}
+- [x] Error handling: #ERROR!, #REF!, #DIV/0!
+- [x] evaluateFormula(formula, context) function
+- [x] evaluateRollup(aggregation, values) function
+- [x] validateFormula(formula) function
+- [x] extractFieldRefs(formula) function
+- [x] getAvailableFunctions() function
+
+### 3. Custom Fields Backend
+- [x] Create customFieldsRouter with CRUD (create, update, delete, getByProject, get)
+- [x] getValuesByTask / setValue for field values
+- [x] evaluateFormula endpoint
+- [x] evaluateRollup endpoint
+- [x] validateFormula endpoint
+- [x] extractFieldRefs endpoint
+- [x] reorder endpoint
+
+### 4. Custom Fields Frontend
+- [x] CustomFieldsManager component for project settings
+- [x] Add/Edit field dialog with type selection (13 field types)
+- [x] Select type: options editor with colors
+- [x] Formula type: editor with function dropdown helper
+- [x] Rollup type: source field and aggregation selector
+- [x] Display settings: showOnCard, showInTable, isRequired
+
+### 5. Custom Fields Integration
+- [x] CustomFieldsForm component for task details
+- [x] All field type renderers (text, number, date, checkbox, select, multiselect, url, email, currency, percent, rating)
+- [x] FormulaValue component with live evaluation
+- [x] RollupValue component with aggregation
+- [x] Compact mode for Kanban cards
+
+### 6. Improved Import/Export
+- [x] CSVImportDialog component with 3-step wizard
+- [x] CSV parsing with auto-detection of delimiters
+- [x] Column mapping UI with auto-mapping by name
+- [x] Import preview before confirmation
+- [x] Progress indicator during import
+- [x] 43 tests for formula engine (529 total tests passing)
+

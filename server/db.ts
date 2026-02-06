@@ -20,7 +20,9 @@ import {
   projectMembers, InsertProjectMember, ProjectMember,
   projectInvitations, InsertProjectInvitation, ProjectInvitation,
   activityLog, InsertActivityLog, ActivityLog,
-  taskDependencies, InsertTaskDependency, TaskDependency
+  taskDependencies, InsertTaskDependency, TaskDependency,
+  customFields, InsertCustomField, CustomField,
+  customFieldValues, InsertCustomFieldValue, CustomFieldValue
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -2116,4 +2118,187 @@ export async function getGanttChartData(projectId: number): Promise<{
     : [];
   
   return { tasks: allTasks, dependencies };
+}
+
+
+// ============ CUSTOM FIELDS QUERIES ============
+
+export async function getCustomFieldsByProject(projectId: number): Promise<CustomField[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db.select()
+    .from(customFields)
+    .where(eq(customFields.projectId, projectId))
+    .orderBy(asc(customFields.sortOrder));
+}
+
+export async function getCustomFieldById(id: number): Promise<CustomField | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const results = await db.select()
+    .from(customFields)
+    .where(eq(customFields.id, id))
+    .limit(1);
+  
+  return results[0] || null;
+}
+
+export async function createCustomField(field: InsertCustomField): Promise<CustomField> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(customFields).values(field);
+  const insertId = result[0].insertId;
+  
+  const created = await getCustomFieldById(insertId);
+  if (!created) throw new Error("Failed to create custom field");
+  
+  return created;
+}
+
+export async function updateCustomField(id: number, updates: Partial<InsertCustomField>): Promise<CustomField | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  await db.update(customFields)
+    .set(updates)
+    .where(eq(customFields.id, id));
+  
+  return await getCustomFieldById(id);
+}
+
+export async function deleteCustomField(id: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  // Delete all values for this field first
+  await db.delete(customFieldValues).where(eq(customFieldValues.customFieldId, id));
+  
+  // Delete the field
+  await db.delete(customFields).where(eq(customFields.id, id));
+  
+  return true;
+}
+
+export async function reorderCustomFields(projectId: number, fieldIds: number[]): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  
+  for (let i = 0; i < fieldIds.length; i++) {
+    await db.update(customFields)
+      .set({ sortOrder: i })
+      .where(and(eq(customFields.id, fieldIds[i]), eq(customFields.projectId, projectId)));
+  }
+}
+
+// ============ CUSTOM FIELD VALUES QUERIES ============
+
+export async function getCustomFieldValuesByTask(taskId: number): Promise<CustomFieldValue[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db.select()
+    .from(customFieldValues)
+    .where(eq(customFieldValues.taskId, taskId));
+}
+
+export async function getCustomFieldValuesByField(customFieldId: number): Promise<CustomFieldValue[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return await db.select()
+    .from(customFieldValues)
+    .where(eq(customFieldValues.customFieldId, customFieldId));
+}
+
+export async function getCustomFieldValue(customFieldId: number, taskId: number): Promise<CustomFieldValue | null> {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const results = await db.select()
+    .from(customFieldValues)
+    .where(and(
+      eq(customFieldValues.customFieldId, customFieldId),
+      eq(customFieldValues.taskId, taskId)
+    ))
+    .limit(1);
+  
+  return results[0] || null;
+}
+
+export async function setCustomFieldValue(
+  customFieldId: number, 
+  taskId: number, 
+  value: Partial<InsertCustomFieldValue>
+): Promise<CustomFieldValue> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const existing = await getCustomFieldValue(customFieldId, taskId);
+  
+  if (existing) {
+    await db.update(customFieldValues)
+      .set(value)
+      .where(eq(customFieldValues.id, existing.id));
+    
+    const updated = await getCustomFieldValue(customFieldId, taskId);
+    return updated!;
+  } else {
+    const result = await db.insert(customFieldValues).values({
+      customFieldId,
+      taskId,
+      ...value
+    });
+    
+    const insertId = result[0].insertId;
+    const results = await db.select()
+      .from(customFieldValues)
+      .where(eq(customFieldValues.id, insertId))
+      .limit(1);
+    
+    return results[0];
+  }
+}
+
+export async function deleteCustomFieldValue(customFieldId: number, taskId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  
+  await db.delete(customFieldValues)
+    .where(and(
+      eq(customFieldValues.customFieldId, customFieldId),
+      eq(customFieldValues.taskId, taskId)
+    ));
+  
+  return true;
+}
+
+export async function getCustomFieldValuesForProject(projectId: number): Promise<{
+  fields: CustomField[];
+  values: Record<number, CustomFieldValue[]>;
+}> {
+  const db = await getDb();
+  if (!db) return { fields: [], values: {} };
+  
+  const fields = await getCustomFieldsByProject(projectId);
+  const fieldIds = fields.map(f => f.id);
+  
+  if (fieldIds.length === 0) {
+    return { fields, values: {} };
+  }
+  
+  const allValues = await db.select()
+    .from(customFieldValues)
+    .where(inArray(customFieldValues.customFieldId, fieldIds));
+  
+  // Group values by task
+  const values: Record<number, CustomFieldValue[]> = {};
+  for (const v of allValues) {
+    if (!values[v.taskId]) values[v.taskId] = [];
+    values[v.taskId].push(v);
+  }
+  
+  return { fields, values };
 }

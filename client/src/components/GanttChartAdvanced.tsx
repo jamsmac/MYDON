@@ -1,12 +1,11 @@
 /**
- * Advanced Gantt Chart Component with Task Dependencies
+ * Advanced Gantt Chart Component with Task Dependencies and Drag-and-Drop
  * Interactive timeline visualization for project tasks with dependency arrows
  */
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { 
   Tooltip,
   TooltipContent,
@@ -20,8 +19,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { 
-  ZoomIn, 
-  ZoomOut, 
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -30,7 +27,9 @@ import {
   CheckCircle2,
   Circle,
   PlayCircle,
-  Link2
+  Link2,
+  GripVertical,
+  Move
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, addDays, differenceInDays, startOfWeek, addWeeks, addMonths, isBefore, isToday } from 'date-fns';
@@ -60,11 +59,20 @@ interface TaskDependency {
 
 type ZoomLevel = 'day' | 'week' | 'month' | 'quarter';
 
+interface DragState {
+  taskId: number;
+  startX: number;
+  originalDate: Date;
+  currentDate: Date;
+  isDragging: boolean;
+}
+
 interface GanttChartAdvancedProps {
   tasks: GanttTask[];
   dependencies?: TaskDependency[];
   onTaskClick?: (task: GanttTask) => void;
   onAddDependency?: (fromTaskId: number, toTaskId: number) => void;
+  onTaskDateChange?: (taskId: number, newDeadline: number) => void;
 }
 
 // Constants
@@ -118,12 +126,17 @@ export function GanttChartAdvanced({
   dependencies = [],
   onTaskClick,
   onAddDependency,
+  onTaskDateChange,
 }: GanttChartAdvancedProps) {
   const [zoom, setZoom] = useState<ZoomLevel>('week');
   const [viewStart, setViewStart] = useState<Date>(() => startOfWeek(new Date(), { locale: ru }));
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [hoveredTask, setHoveredTask] = useState<number | null>(null);
   const [selectedForDependency, setSelectedForDependency] = useState<number | null>(null);
+  
+  // Drag state
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
 
   // Generate time periods based on zoom level
   const timePeriods = useMemo(() => {
@@ -166,8 +179,8 @@ export function GanttChartAdvanced({
   }, [viewStart, zoom]);
 
   // Calculate task bar positions
-  const getTaskPosition = (task: GanttTask): { left: number; width: number } | null => {
-    const taskDate = getTaskDate(task);
+  const getTaskPosition = useCallback((task: GanttTask, overrideDate?: Date): { left: number; width: number } | null => {
+    const taskDate = overrideDate || getTaskDate(task);
     if (!taskDate) return null;
 
     const daysFromStart = differenceInDays(taskDate, viewStart);
@@ -177,7 +190,14 @@ export function GanttChartAdvanced({
     const width = Math.max(cellWidth * 0.8, 80);
 
     return { left, width };
-  };
+  }, [viewStart, zoom]);
+
+  // Calculate date from position
+  const getDateFromPosition = useCallback((pixelX: number): Date => {
+    const { cellWidth, daysPerCell } = ZOOM_CONFIG[zoom];
+    const daysFromStart = (pixelX / cellWidth) * daysPerCell;
+    return addDays(viewStart, Math.round(daysFromStart));
+  }, [viewStart, zoom]);
 
   // Calculate today marker position
   const todayPosition = useMemo(() => {
@@ -210,8 +230,69 @@ export function GanttChartAdvanced({
     setViewStart(startOfWeek(new Date(), { locale: ru }));
   };
 
+  // Drag handlers
+  const handleDragStart = useCallback((task: GanttTask, e: React.MouseEvent) => {
+    if (task.status === 'completed') return; // Don't allow dragging completed tasks
+    
+    const taskDate = getTaskDate(task);
+    if (!taskDate) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const state: DragState = {
+      taskId: task.id,
+      startX: e.clientX,
+      originalDate: taskDate,
+      currentDate: taskDate,
+      isDragging: true,
+    };
+
+    dragRef.current = state;
+    setDragState(state);
+
+    // Add global mouse event listeners
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+  }, []);
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!dragRef.current) return;
+
+    const deltaX = e.clientX - dragRef.current.startX;
+    const { cellWidth, daysPerCell } = ZOOM_CONFIG[zoom];
+    const deltaDays = Math.round((deltaX / cellWidth) * daysPerCell);
+    const newDate = addDays(dragRef.current.originalDate, deltaDays);
+
+    dragRef.current = {
+      ...dragRef.current,
+      currentDate: newDate,
+    };
+
+    setDragState({ ...dragRef.current });
+  }, [zoom]);
+
+  const handleDragEnd = useCallback(() => {
+    if (dragRef.current && onTaskDateChange) {
+      const { taskId, originalDate, currentDate } = dragRef.current;
+      
+      // Only update if date actually changed
+      if (currentDate.getTime() !== originalDate.getTime()) {
+        onTaskDateChange(taskId, currentDate.getTime());
+      }
+    }
+
+    // Clean up
+    dragRef.current = null;
+    setDragState(null);
+    document.removeEventListener('mousemove', handleDragMove);
+    document.removeEventListener('mouseup', handleDragEnd);
+  }, [onTaskDateChange, handleDragMove]);
+
   // Handle dependency creation
   const handleTaskBarClick = (task: GanttTask, e: React.MouseEvent) => {
+    if (dragState?.isDragging) return;
+    
     if (e.shiftKey && selectedForDependency !== null && selectedForDependency !== task.id) {
       onAddDependency?.(selectedForDependency, task.id);
       setSelectedForDependency(null);
@@ -290,6 +371,10 @@ export function GanttChartAdvanced({
             <div className="w-3 h-3 rounded bg-slate-600" />
             <span>Не начато</span>
           </div>
+          <div className="flex items-center gap-1.5 border-l border-slate-600 pl-4">
+            <Move className="w-3 h-3" />
+            <span>Перетащите для изменения даты</span>
+          </div>
           {onAddDependency && (
             <div className="flex items-center gap-1.5 border-l border-slate-600 pl-4">
               <Link2 className="w-3 h-3" />
@@ -313,6 +398,7 @@ export function GanttChartAdvanced({
               const taskDate = getTaskDate(task);
               const isOverdue = taskDate && isBefore(taskDate, new Date()) && task.status !== 'completed';
               const isSelected = selectedForDependency === task.id;
+              const isDragging = dragState?.taskId === task.id;
 
               return (
                 <div
@@ -321,6 +407,7 @@ export function GanttChartAdvanced({
                     "flex items-center gap-2 px-4 border-b border-slate-800/50 cursor-pointer transition-colors",
                     hoveredTask === task.id && "bg-slate-700/30",
                     isSelected && "bg-amber-500/20 border-l-2 border-l-amber-500",
+                    isDragging && "bg-blue-500/20 border-l-2 border-l-blue-500",
                     "hover:bg-slate-700/20"
                   )}
                   style={{ height: ROW_HEIGHT }}
@@ -340,7 +427,12 @@ export function GanttChartAdvanced({
                       <p className="text-xs text-slate-500 truncate">{task.sectionTitle}</p>
                     )}
                   </div>
-                  {isOverdue && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />}
+                  {isDragging && dragState && (
+                    <span className="text-xs text-blue-400 font-medium">
+                      {format(dragState.currentDate, 'd MMM', { locale: ru })}
+                    </span>
+                  )}
+                  {isOverdue && !isDragging && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />}
                 </div>
               );
             })}
@@ -389,7 +481,8 @@ export function GanttChartAdvanced({
                     key={`row-${task.id}`}
                     className={cn(
                       "absolute left-0 right-0 border-b border-slate-800/30",
-                      hoveredTask === task.id && "bg-slate-700/10"
+                      hoveredTask === task.id && "bg-slate-700/10",
+                      dragState?.taskId === task.id && "bg-blue-500/5"
                     )}
                     style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
                   />
@@ -402,8 +495,36 @@ export function GanttChartAdvanced({
                   </div>
                 )}
 
+                {/* Ghost bar during drag */}
+                {dragState && (() => {
+                  const task = flatTasks.find(t => t.id === dragState.taskId);
+                  if (!task) return null;
+                  const index = flatTasks.indexOf(task);
+                  const ghostPosition = getTaskPosition(task, dragState.currentDate);
+                  if (!ghostPosition) return null;
+
+                  return (
+                    <div
+                      className="absolute rounded border-2 border-dashed border-blue-400 bg-blue-500/20 pointer-events-none z-30"
+                      style={{
+                        left: Math.max(0, ghostPosition.left),
+                        top: index * ROW_HEIGHT + (ROW_HEIGHT - TASK_BAR_HEIGHT) / 2,
+                        width: ghostPosition.width,
+                        height: TASK_BAR_HEIGHT,
+                      }}
+                    >
+                      <div className="px-2 h-full flex items-center justify-center">
+                        <span className="text-xs text-blue-300 font-medium">
+                          {format(dragState.currentDate, 'd MMM yyyy', { locale: ru })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Task bars */}
                 {flatTasks.map((task, index) => {
+                  const isDragging = dragState?.taskId === task.id;
                   const position = getTaskPosition(task);
                   if (!position) return null;
 
@@ -411,18 +532,21 @@ export function GanttChartAdvanced({
                   const isOverdue = taskDate && isBefore(taskDate, new Date()) && task.status !== 'completed';
                   const isSelected = selectedForDependency === task.id;
                   const hasDependencies = dependencies.some(d => d.taskId === task.id || d.dependsOnTaskId === task.id);
+                  const canDrag = task.status !== 'completed' && onTaskDateChange;
 
                   return (
                     <Tooltip key={task.id}>
                       <TooltipTrigger asChild>
                         <div
                           className={cn(
-                            "absolute rounded cursor-pointer transition-all border-l-4",
+                            "absolute rounded transition-all border-l-4 group",
                             getStatusColor(task.status),
                             getPriorityBorder(task.priority),
-                            hoveredTask === task.id && "ring-2 ring-white/30 scale-[1.02]",
-                            isOverdue && "ring-2 ring-red-500/50",
-                            isSelected && "ring-2 ring-amber-400"
+                            hoveredTask === task.id && !isDragging && "ring-2 ring-white/30 scale-[1.02]",
+                            isOverdue && !isDragging && "ring-2 ring-red-500/50",
+                            isSelected && "ring-2 ring-amber-400",
+                            isDragging && "opacity-50",
+                            canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
                           )}
                           style={{
                             left: Math.max(0, position.left),
@@ -431,10 +555,14 @@ export function GanttChartAdvanced({
                             height: TASK_BAR_HEIGHT,
                           }}
                           onClick={(e) => handleTaskBarClick(task, e)}
+                          onMouseDown={(e) => canDrag && handleDragStart(task, e)}
                           onMouseEnter={() => setHoveredTask(task.id)}
                           onMouseLeave={() => setHoveredTask(null)}
                         >
                           <div className="px-2 h-full flex items-center gap-1">
+                            {canDrag && (
+                              <GripVertical className="w-3 h-3 text-white/50 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            )}
                             {hasDependencies && <Link2 className="w-3 h-3 text-white/70 flex-shrink-0" />}
                             <span className="text-xs text-white font-medium truncate">{task.title}</span>
                           </div>
@@ -459,6 +587,12 @@ export function GanttChartAdvanced({
                                 {format(taskDate, 'd MMMM yyyy', { locale: ru })}
                                 {isOverdue && ' (просрочено)'}
                               </span>
+                            </div>
+                          )}
+                          {canDrag && (
+                            <div className="flex items-center gap-2 text-xs border-t border-slate-700 pt-1.5 mt-1.5">
+                              <Move className="w-3 h-3 text-slate-400" />
+                              <span className="text-slate-400">Перетащите для изменения даты</span>
                             </div>
                           )}
                           {hasDependencies && (
@@ -525,6 +659,19 @@ export function GanttChartAdvanced({
             <p className="text-lg font-medium text-slate-400">Нет задач с дедлайнами</p>
             <p className="text-sm text-slate-500 mt-1">Добавьте дедлайны к задачам для отображения на диаграмме</p>
           </div>
+        </div>
+      )}
+
+      {/* Drag indicator overlay */}
+      {dragState && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
+          <Move className="w-4 h-4" />
+          <span className="text-sm font-medium">
+            Новая дата: {format(dragState.currentDate, 'd MMMM yyyy', { locale: ru })}
+          </span>
+          <span className="text-xs text-blue-200 ml-2">
+            (отпустите для сохранения)
+          </span>
         </div>
       )}
     </div>

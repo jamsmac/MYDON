@@ -2411,3 +2411,92 @@ export const taskDependencies = mysqlTable("task_dependencies", {
 
 export type TaskDependency = typeof taskDependencies.$inferSelect;
 export type InsertTaskDependency = typeof taskDependencies.$inferInsert;
+
+
+/**
+ * Custom Fields - user-defined fields for tasks
+ * Supports various types including formulas and rollups
+ */
+export const customFields = mysqlTable("custom_fields", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  type: mysqlEnum("type", [
+    "text",       // Simple text input
+    "number",     // Numeric value
+    "date",       // Date picker
+    "checkbox",   // Boolean toggle
+    "select",     // Dropdown with options
+    "multiselect", // Multiple selection
+    "url",        // URL with validation
+    "email",      // Email with validation
+    "formula",    // Calculated field
+    "rollup",     // Aggregation from related tasks
+    "currency",   // Money value with currency
+    "percent",    // Percentage value
+    "rating",     // Star rating (1-5)
+    "phone",      // Phone number
+  ]).notNull(),
+  description: text("description"),
+  // For select/multiselect types - JSON array of options
+  options: json("options").$type<{ label: string; value: string; color?: string }[]>(),
+  // For formula type - the formula expression
+  formula: text("formula"),
+  // For rollup type - configuration
+  rollupConfig: json("rollupConfig").$type<{
+    sourceField: string;
+    aggregation: "sum" | "avg" | "count" | "min" | "max" | "concat";
+    filter?: string;
+  }>(),
+  // For currency type
+  currencyCode: varchar("currencyCode", { length: 3 }),
+  // Display settings
+  sortOrder: int("sortOrder").default(0),
+  isRequired: boolean("isRequired").default(false),
+  showOnCard: boolean("showOnCard").default(false), // Show in Kanban cards
+  showInTable: boolean("showInTable").default(true), // Show in Table view
+  // Default value (stored as string, parsed based on type)
+  defaultValue: text("defaultValue"),
+  // Validation
+  minValue: decimal("minValue", { precision: 15, scale: 2 }),
+  maxValue: decimal("maxValue", { precision: 15, scale: 2 }),
+  // Metadata
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  projectIdx: index("cf_project_idx").on(table.projectId),
+  sortIdx: index("cf_sort_idx").on(table.projectId, table.sortOrder),
+}));
+
+export type CustomField = typeof customFields.$inferSelect;
+export type InsertCustomField = typeof customFields.$inferInsert;
+
+/**
+ * Custom Field Values - stores values for custom fields on tasks
+ */
+export const customFieldValues = mysqlTable("custom_field_values", {
+  id: int("id").autoincrement().primaryKey(),
+  customFieldId: int("customFieldId").notNull(),
+  taskId: int("taskId").notNull(),
+  // Text value (for text, select, url, email, phone, formula result as string)
+  value: text("value"),
+  // Numeric value (for number, currency, percent, rating, formula result as number)
+  numericValue: decimal("numericValue", { precision: 15, scale: 4 }),
+  // Date value (for date type)
+  dateValue: timestamp("dateValue"),
+  // Boolean value (for checkbox type)
+  booleanValue: boolean("booleanValue"),
+  // JSON value (for multiselect - array of selected values)
+  jsonValue: json("jsonValue").$type<string[]>(),
+  // Metadata
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  fieldIdx: index("cfv_field_idx").on(table.customFieldId),
+  taskIdx: index("cfv_task_idx").on(table.taskId),
+  uniqueFieldTask: index("cfv_unique_idx").on(table.customFieldId, table.taskId),
+}));
+
+export type CustomFieldValue = typeof customFieldValues.$inferSelect;
+export type InsertCustomFieldValue = typeof customFieldValues.$inferInsert;
+
