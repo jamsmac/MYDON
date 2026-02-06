@@ -1,0 +1,371 @@
+/**
+ * Project View with Alternative Views (Kanban, Table, Calendar)
+ * This component provides multiple ways to view and manage project tasks
+ */
+
+import { useState, useMemo, useEffect } from 'react';
+import { useAuth } from '@/_core/hooks/useAuth';
+import { getLoginUrl } from '@/const';
+import { trpc } from '@/lib/trpc';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
+import { 
+  ArrowLeft, 
+  Plus, 
+  Loader2,
+  MoreVertical,
+  Edit,
+  FileDown,
+  Download,
+  Cloud,
+  Calendar,
+  FileText,
+  List,
+  Kanban,
+  Table2,
+  GanttChart,
+  Settings,
+  Users
+} from 'lucide-react';
+import { Link, useParams, useLocation } from 'wouter';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger,
+  DropdownMenuSeparator
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+// Import view components
+import { KanbanBoard } from '@/components/KanbanBoard';
+import { TableView } from '@/components/TableView';
+import { CalendarView } from '@/components/CalendarView';
+import { ViewSwitcher, useProjectView, type ViewType } from '@/components/ViewSwitcher';
+
+// Task type for views
+interface ViewTask {
+  id: number;
+  title: string;
+  description?: string | null;
+  status: string | null;
+  priority?: string | null;
+  deadline?: Date | string | null;
+  assignedTo?: number | null;
+  sectionId: number;
+  sectionTitle?: string;
+  blockTitle?: string;
+  sortOrder?: number | null;
+  tags?: { id: number; name: string; color: string }[];
+}
+
+export default function ProjectViewAlternate() {
+  const params = useParams<{ id: string }>();
+  const projectId = parseInt(params.id || '0');
+  const [, navigate] = useLocation();
+  const { isAuthenticated, loading: authLoading, user } = useAuth();
+  
+  // View state
+  const [currentView, setCurrentView] = useProjectView(projectId, 'list');
+  const [selectedTask, setSelectedTask] = useState<ViewTask | null>(null);
+
+  // Fetch project data
+  const { data: project, isLoading, refetch } = trpc.project.getFull.useQuery(
+    { id: projectId },
+    { enabled: isAuthenticated && projectId > 0 }
+  );
+
+  // Fetch team members
+  const { data: teamMembers } = trpc.team.getMembers.useQuery(
+    { projectId },
+    { enabled: isAuthenticated && projectId > 0 }
+  );
+
+  // Tags from project data
+  const projectTags = useMemo(() => {
+    if (!project?.blocks) return [];
+    const tagMap = new Map<number, { id: number; name: string; color: string }>();
+    project.blocks.forEach(block => {
+      block.sections?.forEach(section => {
+        section.tasks?.forEach(task => {
+          // Tags would be fetched separately if available
+        });
+      });
+    });
+    return Array.from(tagMap.values());
+  }, [project]);
+
+  // Mutations
+  const updateTask = trpc.task.update.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  const deleteTask = trpc.task.delete.useMutation({
+    onSuccess: () => {
+      toast.success('Задача удалена');
+      refetch();
+    },
+    onError: (error) => toast.error('Ошибка: ' + error.message)
+  });
+
+  // Flatten all tasks from project structure
+  const allTasks: ViewTask[] = useMemo(() => {
+    if (!project?.blocks) return [];
+    
+    const tasks: ViewTask[] = [];
+    project.blocks.forEach(block => {
+      block.sections?.forEach(section => {
+        section.tasks?.forEach(task => {
+          tasks.push({
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            status: task.status,
+            priority: task.priority,
+            deadline: task.deadline,
+            assignedTo: task.assignedTo,
+            sectionId: section.id,
+            sectionTitle: section.title,
+            blockTitle: block.titleRu || block.title,
+            sortOrder: task.sortOrder,
+            // tags: task.tags, // Tags not available in current schema
+          });
+        });
+      });
+    });
+    return tasks;
+  }, [project]);
+
+  // Calculate progress
+  const progress = useMemo(() => {
+    if (allTasks.length === 0) return 0;
+    const completed = allTasks.filter(t => t.status === 'completed').length;
+    return Math.round((completed / allTasks.length) * 100);
+  }, [allTasks]);
+
+  // Members for views
+  const members = useMemo(() => {
+    if (!teamMembers?.members) return [];
+    return teamMembers.members.map(m => ({
+      id: m.userId,
+      name: m.user?.name || 'Unknown',
+      avatar: m.user?.avatar || undefined,
+    }));
+  }, [teamMembers]);
+
+  // Handle task update from views
+  const handleTaskUpdate = (taskId: number, data: { status?: string; sortOrder?: number; deadline?: number | null }) => {
+    const updateData: any = { id: taskId };
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;
+    if (data.deadline !== undefined) updateData.deadline = data.deadline;
+    updateTask.mutate(updateData);
+  };
+
+  // Handle task click
+  const handleTaskClick = (task: { id: number }) => {
+    // Navigate to the main project view with the task selected
+    navigate(`/project/${projectId}?task=${task.id}`);
+  };
+
+  // Loading states
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-900">
+        <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    window.location.href = getLoginUrl();
+    return null;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-900">
+        <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-900">
+        <div className="text-center">
+          <p className="text-slate-400 mb-4">Проект не найден</p>
+          <Link href="/">
+            <Button variant="outline">Вернуться на главную</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-900 flex flex-col">
+      {/* Header */}
+      <header className="border-b border-slate-800 bg-slate-900/95 sticky top-0 z-50">
+        <div className="px-4 py-3 flex items-center justify-between">
+          {/* Left: Back + Project Info */}
+          <div className="flex items-center gap-4">
+            <Link href="/">
+              <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Назад
+              </Button>
+            </Link>
+            
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-lg font-semibold text-white">{project.name}</h1>
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <span>{allTasks.length} задач</span>
+                  <span>•</span>
+                  <span>{progress}% выполнено</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Center: View Switcher */}
+          <ViewSwitcher
+            projectId={projectId}
+            currentView={currentView}
+            onViewChange={setCurrentView}
+          />
+
+          {/* Right: Actions */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-slate-700"
+              onClick={() => navigate(`/project/${projectId}/team`)}
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Команда
+            </Button>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="text-slate-400">
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                <DropdownMenuItem 
+                  className="text-slate-300"
+                  onClick={() => navigate(`/project/${projectId}`)}
+                >
+                  <List className="w-4 h-4 mr-2" />
+                  Классический вид
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-slate-700" />
+                <DropdownMenuItem 
+                  className="text-slate-300"
+                  onClick={() => {
+                    window.open(`/api/export/markdown/${projectId}`, '_blank');
+                    toast.success('Экспорт в Markdown начат');
+                  }}
+                >
+                  <FileDown className="w-4 h-4 mr-2" />
+                  Экспорт в Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  className="text-slate-300"
+                  onClick={() => {
+                    window.open(`/api/export/json/${projectId}`, '_blank');
+                    toast.success('Экспорт в JSON начат');
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Экспорт в JSON
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+        
+        {/* Progress bar */}
+        <div className="px-4 pb-2">
+          <Progress value={progress} className="h-1" />
+        </div>
+      </header>
+
+      {/* Main Content - View Area */}
+      <main className="flex-1 overflow-hidden">
+        {currentView === 'list' && (
+          <div className="h-full flex items-center justify-center text-slate-400">
+            <div className="text-center">
+              <List className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p className="text-lg font-medium">Классический вид</p>
+              <p className="text-sm mt-1">Используйте кнопку "Классический вид" в меню</p>
+              <Button
+                variant="outline"
+                className="mt-4 border-slate-700"
+                onClick={() => navigate(`/project/${projectId}`)}
+              >
+                Перейти к классическому виду
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {currentView === 'kanban' && (
+          <KanbanBoard
+            projectId={projectId}
+            tasks={allTasks}
+            members={members}
+            tags={projectTags}
+            onTaskUpdate={(taskId, data) => handleTaskUpdate(taskId, data as any)}
+            onTaskClick={handleTaskClick}
+          />
+        )}
+
+        {currentView === 'table' && (
+          <TableView
+            tasks={allTasks}
+            members={members}
+            onTaskUpdate={(taskId, data) => handleTaskUpdate(taskId, data as any)}
+            onTaskClick={handleTaskClick}
+            onTaskDelete={(taskId) => deleteTask.mutate({ id: taskId })}
+          />
+        )}
+
+        {currentView === 'calendar' && (
+          <CalendarView
+            tasks={allTasks}
+            onTaskClick={handleTaskClick}
+            onTaskUpdate={(taskId, data) => {
+              if (data.deadline !== undefined) {
+                updateTask.mutate({ id: taskId, deadline: data.deadline });
+              }
+            }}
+          />
+        )}
+
+        {currentView === 'gantt' && (
+          <div className="h-full flex items-center justify-center text-slate-400">
+            <div className="text-center">
+              <GanttChart className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p className="text-lg font-medium">Диаграмма Ганта</p>
+              <p className="text-sm mt-1">Скоро будет доступна</p>
+              <Badge variant="outline" className="mt-4 border-slate-600">
+                В разработке
+              </Badge>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

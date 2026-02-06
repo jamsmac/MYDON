@@ -2347,3 +2347,42 @@ export const systemAlerts = mysqlTable("system_alerts", {
 
 export type SystemAlert = typeof systemAlerts.$inferSelect;
 export type InsertSystemAlert = typeof systemAlerts.$inferInsert;
+
+
+/**
+ * Saved AI Model Comparisons - Store comparison results for later analysis
+ */
+export const modelComparisons = mysqlTable("model_comparisons", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  
+  prompt: text("prompt").notNull(),
+  title: varchar("title", { length: 255 }), // Optional user-provided title
+  
+  // Store all model responses as JSON array
+  results: json("results").$type<{
+    modelId: string;
+    modelName: string;
+    provider: string;
+    response: string;
+    inputTokens: number;
+    outputTokens: number;
+    cost: number;
+    responseTime: number;
+  }[]>(),
+  
+  // Metadata
+  totalCost: decimal("totalCost", { precision: 10, scale: 4 }),
+  modelsCompared: int("modelsCompared").default(0),
+  
+  // User feedback
+  preferredModel: varchar("preferredModel", { length: 64 }), // Which model user preferred
+  notes: text("notes"), // User notes about comparison
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("mc_user_idx").on(table.userId),
+  createdIdx: index("mc_created_idx").on(table.createdAt),
+}));
+export type ModelComparison = typeof modelComparisons.$inferSelect;
+export type InsertModelComparison = typeof modelComparisons.$inferInsert;

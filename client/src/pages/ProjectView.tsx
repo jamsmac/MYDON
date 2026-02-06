@@ -1350,6 +1350,14 @@ export default function ProjectView() {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-700" />
                 <DropdownMenuItem 
+                  className="text-cyan-400"
+                  onClick={() => navigate(`/project/${projectId}/views`)}
+                >
+                  <Layers className="w-4 h-4 mr-2" />
+                  Альтернативные виды
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-slate-700" />
+                <DropdownMenuItem 
                   className="text-red-400"
                   onClick={() => {
                     if (confirm('Удалить проект?')) {

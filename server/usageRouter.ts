@@ -8,7 +8,7 @@ import { getDb } from "./db";
 import * as schema from "../drizzle/schema";
 import { eq, desc, and, gte, sql, count, isNotNull } from "drizzle-orm";
 
-const { userCredits, aiRequestLogs, modelPricing, activityLog, aiSettings, platformApiKeys } = schema;
+const { userCredits, aiRequestLogs, modelPricing, activityLog, aiSettings, platformApiKeys, modelComparisons } = schema;
 
 export const usageRouter = router({
   // Get current user's credit balance and stats
@@ -498,6 +498,158 @@ export const usageRouter = router({
         entityTitle: input.entityTitle,
         metadata: input.metadata,
       });
+      return { success: true };
+    }),
+
+  // Save a model comparison result
+  saveComparison: protectedProcedure
+    .input(z.object({
+      prompt: z.string(),
+      title: z.string().optional(),
+      results: z.array(z.object({
+        modelId: z.string(),
+        modelName: z.string(),
+        provider: z.string(),
+        response: z.string(),
+        inputTokens: z.number(),
+        outputTokens: z.number(),
+        cost: z.number(),
+        responseTime: z.number(),
+      })),
+      totalCost: z.number(),
+      preferredModel: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database not available');
+      
+      const [result] = await db.insert(modelComparisons).values({
+        userId: ctx.user.id,
+        prompt: input.prompt,
+        title: input.title || `Comparison: ${input.prompt.substring(0, 50)}...`,
+        results: input.results,
+        totalCost: input.totalCost.toFixed(4),
+        modelsCompared: input.results.length,
+        preferredModel: input.preferredModel,
+        notes: input.notes,
+      });
+      
+      return { id: result.insertId, success: true };
+    }),
+
+  // Get user's saved comparisons
+  getSavedComparisons: protectedProcedure
+    .input(z.object({
+      limit: z.number().default(20),
+      offset: z.number().default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database not available');
+      
+      const comparisons = await db
+        .select()
+        .from(modelComparisons)
+        .where(eq(modelComparisons.userId, ctx.user.id))
+        .orderBy(desc(modelComparisons.createdAt))
+        .limit(input.limit)
+        .offset(input.offset);
+      
+      const [{ total }] = await db
+        .select({ total: count() })
+        .from(modelComparisons)
+        .where(eq(modelComparisons.userId, ctx.user.id));
+      
+      return {
+        comparisons: comparisons.map(c => ({
+          id: c.id,
+          title: c.title,
+          prompt: c.prompt,
+          modelsCompared: c.modelsCompared,
+          totalCost: parseFloat(c.totalCost || '0'),
+          preferredModel: c.preferredModel,
+          createdAt: c.createdAt,
+        })),
+        total,
+      };
+    }),
+
+  // Get single comparison by ID
+  getComparisonById: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database not available');
+      
+      const [comparison] = await db
+        .select()
+        .from(modelComparisons)
+        .where(and(
+          eq(modelComparisons.id, input.id),
+          eq(modelComparisons.userId, ctx.user.id)
+        ))
+        .limit(1);
+      
+      if (!comparison) {
+        throw new Error('Comparison not found');
+      }
+      
+      return {
+        id: comparison.id,
+        title: comparison.title,
+        prompt: comparison.prompt,
+        results: comparison.results,
+        totalCost: parseFloat(comparison.totalCost || '0'),
+        modelsCompared: comparison.modelsCompared,
+        preferredModel: comparison.preferredModel,
+        notes: comparison.notes,
+        createdAt: comparison.createdAt,
+      };
+    }),
+
+  // Update comparison (add notes, preferred model)
+  updateComparison: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      title: z.string().optional(),
+      preferredModel: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database not available');
+      
+      const updateData: Record<string, unknown> = {};
+      if (input.title !== undefined) updateData.title = input.title;
+      if (input.preferredModel !== undefined) updateData.preferredModel = input.preferredModel;
+      if (input.notes !== undefined) updateData.notes = input.notes;
+      
+      await db
+        .update(modelComparisons)
+        .set(updateData)
+        .where(and(
+          eq(modelComparisons.id, input.id),
+          eq(modelComparisons.userId, ctx.user.id)
+        ));
+      
+      return { success: true };
+    }),
+
+  // Delete a saved comparison
+  deleteComparison: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database not available');
+      
+      await db
+        .delete(modelComparisons)
+        .where(and(
+          eq(modelComparisons.id, input.id),
+          eq(modelComparisons.userId, ctx.user.id)
+        ));
+      
       return { success: true };
     }),
 });

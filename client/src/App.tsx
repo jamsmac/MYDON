@@ -34,6 +34,7 @@ const AIChatPage = lazy(() => import("./pages/AIChatPage"));
 const TagManagement = lazy(() => import("./pages/TagManagement"));
 const DecisionLogDashboard = lazy(() => import("./pages/DecisionLogDashboard"));
 const UsagePage = lazy(() => import("./pages/UsagePage"));
+const ProjectViewAlternate = lazy(() => import("./pages/ProjectViewAlternate"));
 
 // Loading fallback component
 function PageLoader() {
@@ -53,6 +54,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/project/:id" component={ProjectView} />
+        <Route path="/project/:id/views" component={ProjectViewAlternate} />
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={AdminPanel} />
         <Route path="/admin/:rest*" component={AdminPanel} />

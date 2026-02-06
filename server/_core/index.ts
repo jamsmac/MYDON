@@ -347,6 +347,113 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}
     }
   });
 
+  // JSON export endpoint
+  app.get("/api/export/json/:projectId", async (req, res) => {
+    try {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const projectId = parseInt(req.params.projectId);
+      const project = await db.getFullProject(projectId, user.id);
+      
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      // Generate JSON export
+      const exportData = {
+        name: project.name,
+        description: project.description,
+        status: project.status,
+        exportedAt: new Date().toISOString(),
+        blocks: project.blocks?.map((block: any) => ({
+          number: block.number,
+          title: block.title,
+          titleRu: block.titleRu,
+          icon: block.icon,
+          sections: block.sections?.map((section: any) => ({
+            title: section.title,
+            tasks: section.tasks?.map((task: any) => ({
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              priority: task.priority,
+              deadline: task.deadline,
+              notes: task.notes,
+              summary: task.summary,
+              subtasks: task.subtasks?.map((subtask: any) => ({
+                title: subtask.title,
+                status: subtask.status
+              }))
+            }))
+          }))
+        }))
+      };
+      
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${project.name.replace(/[^a-zA-Z0-9а-яА-Я]/g, '_')}_export.json"`);
+      res.send(JSON.stringify(exportData, null, 2));
+    } catch (error) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: "Failed to export project" });
+    }
+  });
+
+  // CSV export endpoint (tasks only)
+  app.get("/api/export/csv/:projectId", async (req, res) => {
+    try {
+      const user = await getUserFromRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const projectId = parseInt(req.params.projectId);
+      const project = await db.getFullProject(projectId, user.id);
+      
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+
+      // Generate CSV
+      const headers = ['Block', 'Section', 'Task', 'Status', 'Priority', 'Deadline', 'Description'];
+      const rows: string[][] = [];
+
+      project.blocks?.forEach((block: any) => {
+        block.sections?.forEach((section: any) => {
+          section.tasks?.forEach((task: any) => {
+            rows.push([
+              block.titleRu || block.title,
+              section.title,
+              task.title,
+              task.status || 'not_started',
+              task.priority || '',
+              task.deadline ? new Date(task.deadline).toISOString().split('T')[0] : '',
+              (task.description || '').replace(/[\n\r,"]/g, ' ')
+            ]);
+          });
+        });
+      });
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+      
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${project.name.replace(/[^a-zA-Z0-9а-яА-Я]/g, '_')}_tasks.csv"`);
+      res.send('\ufeff' + csvContent); // BOM for Excel UTF-8 support
+    } catch (error) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: "Failed to export project" });
+    }
+  });
+
   // Import roadmap endpoint
   app.post("/api/import/roadmap", async (req, res) => {
     try {

@@ -1805,3 +1805,73 @@
 - [x] Add "Compare Mode" toggle button in AI Chat
 - [x] Show total cost before sending comparison request
 
+
+
+## Phase 82: Save AI Model Comparison Results
+
+### Database
+- [ ] Create model_comparisons table (id, userId, prompt, results JSON, createdAt)
+- [ ] Store model responses, tokens, cost, response time in results
+
+### Backend
+- [ ] Create saveComparison procedure in usageRouter
+- [ ] Create getSavedComparisons procedure (list user's saved comparisons)
+- [ ] Create getComparisonById procedure (view single comparison)
+- [ ] Create deleteComparison procedure
+
+### Frontend
+- [ ] Add "Save Comparison" button after comparison completes
+- [ ] Create ComparisonHistory component to list saved comparisons
+- [ ] Add "View History" button in ModelComparison
+- [ ] Show saved comparison details with all model responses
+- [ ] Add delete button for saved comparisons
+
+
+
+## Phase 83: Formula Engine + Alternative Views + Import/Export
+
+### 1. Custom Fields & Formula Engine
+- [ ] Create custom_fields table (projectId, name, type, options, formula)
+- [ ] Create field_values table (taskId, fieldId, value)
+- [ ] Backend: CRUD for custom fields
+- [ ] Backend: Formula parser and evaluator
+- [ ] UI: Add custom field button in project settings
+- [ ] UI: Display custom fields in task details
+- [ ] Support formulas: SUM, AVG, COUNT, MIN, MAX, IF, CONCAT
+- [ ] Rollup fields for aggregating child data
+
+### 2. Kanban Board View
+- [x] Create KanbanBoard component with status columns
+- [x] Drag-and-drop tasks between columns
+- [x] Task cards with title, priority color, assignee, deadline, tags
+- [x] Filters: priority, assignee, tags
+- [x] Add task directly to column
+- [x] Click card to open task details
+
+### 3. Table View
+- [x] Create TableView component with all tasks
+- [x] Columns: Name, Status, Priority, Assignee, Deadline, Progress
+- [x] Sort by any column
+- [x] Inline editing of cells
+- [x] Group by: status, priority, block, assignee
+- [x] Export to CSV
+
+### 4. Calendar View
+- [x] Create CalendarView component
+- [x] Month and week views
+- [x] Tasks displayed on deadline dates
+- [x] Drag-and-drop to change deadline
+- [x] Color by priority
+- [x] Click day to add task
+
+### 5. View Switcher
+- [x] Add view tabs: List | Kanban | Table | Calendar | Gantt
+- [x] Remember last view per project
+- [x] Smooth transitions between views
+
+### 6. Improved Import/Export
+- [x] Export: JSON (full), CSV (tasks), Markdown (document), HTML
+- [x] ImprovedExportDialog with format selection and options
+- [x] Import: JSON, Markdown parsing (existing)
+- [x] Preview before import (existing)
+
