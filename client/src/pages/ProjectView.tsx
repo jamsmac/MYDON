@@ -446,6 +446,57 @@ function TaskDetailPanel({
   const [summary, setSummary] = useState(task.summary || '');
   const [isEditing, setIsEditing] = useState(false);
 
+  // Build rich context string for AI chat
+  const taskContext = useMemo(() => {
+    const statusMap: Record<string, string> = {
+      not_started: 'Не начата',
+      in_progress: 'В работе',
+      completed: 'Завершена',
+    };
+    const priorityMap: Record<string, string> = {
+      critical: 'Критический',
+      high: 'Высокий',
+      medium: 'Средний',
+      low: 'Низкий',
+    };
+
+    const parts: string[] = [];
+    parts.push(`Задача: "${task.title}"`);
+    if (task.description) parts.push(`Описание: ${task.description}`);
+    parts.push(`Статус: ${statusMap[task.status || ''] || task.status || 'Не указан'}`);
+    parts.push(`Приоритет: ${priorityMap[task.priority || ''] || task.priority || 'Не указан'}`);
+
+    if (task.deadline) {
+      const deadlineDate = new Date(task.deadline);
+      const now = new Date();
+      const diffDays = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      const deadlineStr = deadlineDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+      const urgency = diffDays < 0 ? `(просрочена на ${Math.abs(diffDays)} дн.)` : diffDays <= 3 ? `(осталось ${diffDays} дн., срочно!)` : `(осталось ${diffDays} дн.)`;
+      parts.push(`Дедлайн: ${deadlineStr} ${urgency}`);
+    } else {
+      parts.push('Дедлайн: Не установлен');
+    }
+
+    if (task.dependencies && task.dependencies.length > 0) {
+      const depNames = task.dependencies.map(depId => {
+        const depTask = allTasks.find(t => t.id === depId);
+        if (!depTask) return `#${depId}`;
+        const depStatus = statusMap[depTask.status || ''] || depTask.status || '?';
+        return `"${depTask.title}" (${depStatus})`;
+      });
+      parts.push(`Зависимости (блокирующие задачи): ${depNames.join(', ')}`);
+    } else {
+      parts.push('Зависимости: Нет');
+    }
+
+    if (notes) {
+      const truncatedNotes = notes.length > 500 ? notes.slice(0, 500) + '...' : notes;
+      parts.push(`Заметки: ${truncatedNotes}`);
+    }
+
+    return parts.join('\n');
+  }, [task.id, task.title, task.description, task.status, task.priority, task.deadline, task.dependencies, allTasks, notes]);
+
   const handleSave = () => {
     onUpdate({ notes, summary });
     setIsEditing(false);
@@ -683,6 +734,7 @@ function TaskDetailPanel({
             entityTitle={task.title}
             projectId={projectId}
             defaultExpanded={false}
+            entityContext={taskContext}
             onInsertResult={(content) => {
               const newNotes = notes ? `${notes}\n\n---\n\n${content}` : content;
               setNotes(newNotes);

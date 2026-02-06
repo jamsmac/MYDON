@@ -405,4 +405,259 @@ describe('EntityAIChat & Navigation Fixes', () => {
       expect(selectedTask).toBeNull();
     });
   });
+
+  describe('Entity Context for AI Chat', () => {
+    it('should build task context with all fields', () => {
+      const task = {
+        id: 1,
+        title: 'Analyze market competitors',
+        description: 'Research top 5 competitors',
+        status: 'in_progress',
+        priority: 'high' as const,
+        deadline: new Date('2026-03-15').getTime(),
+        dependencies: [2, 3],
+        notes: 'Started research on competitor A',
+      };
+      const allTasks = [
+        { id: 2, title: 'Define target market', status: 'completed' },
+        { id: 3, title: 'Collect data sources', status: 'in_progress' },
+      ];
+
+      const statusMap: Record<string, string> = {
+        not_started: 'Не начата', in_progress: 'В работе', completed: 'Завершена',
+      };
+      const priorityMap: Record<string, string> = {
+        critical: 'Критический', high: 'Высокий', medium: 'Средний', low: 'Низкий',
+      };
+
+      const parts: string[] = [];
+      parts.push(`Задача: "${task.title}"`);
+      if (task.description) parts.push(`Описание: ${task.description}`);
+      parts.push(`Статус: ${statusMap[task.status || ''] || 'Не указан'}`);
+      parts.push(`Приоритет: ${priorityMap[task.priority || ''] || 'Не указан'}`);
+
+      if (task.deadline) {
+        const deadlineDate = new Date(task.deadline);
+        const now = new Date();
+        const diffDays = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const deadlineStr = deadlineDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+        parts.push(`Дедлайн: ${deadlineStr}`);
+      }
+
+      if (task.dependencies && task.dependencies.length > 0) {
+        const depNames = task.dependencies.map(depId => {
+          const depTask = allTasks.find(t => t.id === depId);
+          if (!depTask) return `#${depId}`;
+          return `"${depTask.title}" (${statusMap[depTask.status || ''] || '?'})`;
+        });
+        parts.push(`Зависимости: ${depNames.join(', ')}`);
+      }
+
+      if (task.notes) parts.push(`Заметки: ${task.notes}`);
+
+      const context = parts.join('\n');
+      expect(context).toContain('Analyze market competitors');
+      expect(context).toContain('Research top 5 competitors');
+      expect(context).toContain('В работе');
+      expect(context).toContain('Высокий');
+      expect(context).toContain('Define target market');
+      expect(context).toContain('Collect data sources');
+      expect(context).toContain('Started research');
+    });
+
+    it('should build task context with missing optional fields', () => {
+      const task = {
+        id: 5,
+        title: 'Simple task',
+        status: 'not_started',
+        priority: null,
+        deadline: null,
+        dependencies: null,
+        notes: null,
+      };
+
+      const parts: string[] = [];
+      parts.push(`Задача: "${task.title}"`);
+      parts.push(`Статус: Не начата`);
+      parts.push(`Приоритет: Не указан`);
+      parts.push('Дедлайн: Не установлен');
+      parts.push('Зависимости: Нет');
+
+      const context = parts.join('\n');
+      expect(context).toContain('Simple task');
+      expect(context).toContain('Не начата');
+      expect(context).toContain('Не указан');
+      expect(context).toContain('Не установлен');
+      expect(context).toContain('Зависимости: Нет');
+      expect(context).not.toContain('Заметки');
+    });
+
+    it('should truncate long notes in context', () => {
+      const longNotes = 'A'.repeat(600);
+      const truncatedNotes = longNotes.length > 500 ? longNotes.slice(0, 500) + '...' : longNotes;
+      expect(truncatedNotes.length).toBe(503); // 500 + '...'
+      expect(truncatedNotes.endsWith('...')).toBe(true);
+    });
+
+    it('should calculate deadline urgency correctly', () => {
+      const now = new Date();
+      
+      // Overdue
+      const overdue = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+      const diffOverdue = Math.ceil((overdue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      expect(diffOverdue).toBeLessThan(0);
+
+      // Urgent (3 days)
+      const urgent = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+      const diffUrgent = Math.ceil((urgent.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      expect(diffUrgent).toBeGreaterThan(0);
+      expect(diffUrgent).toBeLessThanOrEqual(3);
+
+      // Normal
+      const normal = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
+      const diffNormal = Math.ceil((normal.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      expect(diffNormal).toBeGreaterThan(3);
+    });
+
+    it('should build block context with statistics', () => {
+      const block = {
+        id: 1,
+        title: 'Research',
+        titleRu: 'Исследование',
+        description: 'Research phase',
+        duration: '4 weeks',
+        sections: [
+          { id: 1, title: 'Market Research', tasks: [
+            { id: 1, title: 'T1', status: 'completed', priority: null, deadline: null },
+            { id: 2, title: 'T2', status: 'in_progress', priority: 'high', deadline: null },
+          ]},
+          { id: 2, title: 'Competitor Analysis', tasks: [
+            { id: 3, title: 'T3', status: 'not_started', priority: 'critical', deadline: null },
+          ]},
+        ],
+      };
+
+      let totalTasks = 0, completedTasks = 0, inProgressTasks = 0, notStartedTasks = 0;
+      block.sections.forEach(s => s.tasks.forEach(t => {
+        totalTasks++;
+        if (t.status === 'completed') completedTasks++;
+        else if (t.status === 'in_progress') inProgressTasks++;
+        else notStartedTasks++;
+      }));
+      const progress = Math.round((completedTasks / totalTasks) * 100);
+
+      const parts: string[] = [];
+      parts.push(`Блок: "${block.titleRu}"`);
+      parts.push(`Описание: ${block.description}`);
+      parts.push(`Длительность: ${block.duration}`);
+      parts.push(`Прогресс: ${progress}% (${completedTasks} из ${totalTasks} задач)`);
+      parts.push(`В работе: ${inProgressTasks}, Не начато: ${notStartedTasks}`);
+      const sectionNames = block.sections.map(s => `"${s.title}" (${s.tasks.length} задач)`).join(', ');
+      parts.push(`Разделы (${block.sections.length}): ${sectionNames}`);
+
+      const context = parts.join('\n');
+      expect(context).toContain('Исследование');
+      expect(context).toContain('Research phase');
+      expect(context).toContain('4 weeks');
+      expect(context).toContain('33%');
+      expect(context).toContain('Market Research');
+      expect(context).toContain('Competitor Analysis');
+    });
+
+    it('should build section context with task list', () => {
+      const section = {
+        id: 1,
+        title: 'Marketing Research',
+        description: 'Research marketing channels',
+      };
+      const blockTitle = 'Research Block';
+      const tasks = [
+        { id: 1, title: 'Survey users', status: 'completed' },
+        { id: 2, title: 'Analyze data', status: 'in_progress' },
+        { id: 3, title: 'Write report', status: 'not_started' },
+      ];
+
+      const completedTasks = tasks.filter(t => t.status === 'completed').length;
+      const progress = Math.round((completedTasks / tasks.length) * 100);
+
+      const parts: string[] = [];
+      parts.push(`Раздел: "${section.title}"`);
+      parts.push(`Описание: ${section.description}`);
+      parts.push(`Блок: "${blockTitle}"`);
+      parts.push(`Прогресс: ${progress}%`);
+      const taskList = tasks.map(t => {
+        const icon = t.status === 'completed' ? '✅' : t.status === 'in_progress' ? '⏳' : '○';
+        return `${icon} "${t.title}"`;
+      }).join(', ');
+      parts.push(`Задачи: ${taskList}`);
+
+      const context = parts.join('\n');
+      expect(context).toContain('Marketing Research');
+      expect(context).toContain('Research marketing channels');
+      expect(context).toContain('Research Block');
+      expect(context).toContain('33%');
+      expect(context).toContain('✅ "Survey users"');
+      expect(context).toContain('⏳ "Analyze data"');
+      expect(context).toContain('○ "Write report"');
+    });
+
+    it('should pass entityContext as projectContext in API payload', () => {
+      const entityContext = 'Задача: "Test"\nСтатус: В работе';
+      const payload = {
+        "0": {
+          json: {
+            contextType: 'task',
+            contextId: 42,
+            content: 'Break into subtasks',
+            projectContext: entityContext,
+          }
+        }
+      };
+      expect(payload["0"].json.projectContext).toBe(entityContext);
+      expect(payload["0"].json.contextType).toBe('task');
+    });
+
+    it('should include entityContext in server system prompt', () => {
+      const projectContext = 'Задача: "Analyze competitors"\nСтатус: В работе\nПриоритет: Высокий';
+      const systemPrompt = `Ты AI-ассистент для управления проектами.
+${projectContext ? `Контекст проекта: ${projectContext}` : ""}`;
+      expect(systemPrompt).toContain('Analyze competitors');
+      expect(systemPrompt).toContain('В работе');
+      expect(systemPrompt).toContain('Высокий');
+    });
+
+    it('should handle missing entityContext gracefully', () => {
+      const entityContext = undefined;
+      const payload = {
+        "0": {
+          json: {
+            contextType: 'task',
+            contextId: 42,
+            content: 'Question',
+            projectContext: entityContext,
+          }
+        }
+      };
+      expect(payload["0"].json.projectContext).toBeUndefined();
+    });
+
+    it('should resolve dependency names from allTasks', () => {
+      const allTasks = [
+        { id: 1, title: 'Task A', status: 'completed' },
+        { id: 2, title: 'Task B', status: 'in_progress' },
+        { id: 99, title: 'Unknown', status: null },
+      ];
+      const dependencies = [1, 2, 50];
+
+      const depNames = dependencies.map(depId => {
+        const depTask = allTasks.find(t => t.id === depId);
+        if (!depTask) return `#${depId}`;
+        return `"${depTask.title}"`;
+      });
+
+      expect(depNames[0]).toBe('"Task A"');
+      expect(depNames[1]).toBe('"Task B"');
+      expect(depNames[2]).toBe('#50'); // Not found, fallback to ID
+    });
+  });
 });

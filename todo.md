@@ -2347,3 +2347,12 @@
 - [x] Wire onSaveAsDocument in TaskDetailPanel to save AI response as task summary
 - [x] Write vitest tests for save-as-document functionality
 - [x] Verify visually that button appears and works correctly
+
+## Pass Task Context to AI Chat
+- [x] Add entityContext prop to EntityAIChat component
+- [x] Build system prompt with task status, priority, deadline, dependencies
+- [x] Include context in AI chat API request
+- [x] Wire task context from TaskDetailPanel (status, priority, deadline, dependencies, notes, subtasks)
+- [x] Also wire block/section context where available
+- [x] Write vitest tests for context building logic
+- [x] Verify AI receives and uses context in responses

@@ -137,6 +137,27 @@ export function SectionDetailPanel({
     return { totalTasks: tasks.length, completedTasks, inProgressTasks, notStartedTasks, overdueTasks, criticalTasks, highTasks, progress };
   }, [tasks]);
 
+  // Build rich context string for AI chat
+  const sectionContext = useMemo(() => {
+    const parts: string[] = [];
+    parts.push(`Раздел: "${section.title}"`);
+    if (section.description) parts.push(`Описание: ${section.description}`);
+    parts.push(`Блок: "${blockTitle}"`);
+    parts.push(`Прогресс: ${stats.progress}% (${stats.completedTasks} из ${stats.totalTasks} задач)`);
+    parts.push(`В работе: ${stats.inProgressTasks}, Не начато: ${stats.notStartedTasks}, Просрочено: ${stats.overdueTasks}`);
+    if (stats.criticalTasks > 0 || stats.highTasks > 0) {
+      parts.push(`Критических задач: ${stats.criticalTasks}, Высокоприоритетных: ${stats.highTasks}`);
+    }
+    if (tasks.length > 0) {
+      const taskList = tasks.slice(0, 15).map(t => {
+        const statusLabel = t.status === 'completed' ? '✅' : t.status === 'in_progress' ? '⏳' : '○';
+        return `${statusLabel} "${t.title}"`;
+      }).join(', ');
+      parts.push(`Задачи: ${taskList}${tasks.length > 15 ? ` и ещё ${tasks.length - 15}...` : ''}`);
+    }
+    return parts.join('\n');
+  }, [section, blockTitle, stats, tasks]);
+
   const breadcrumbs = [
     { type: "project" as const, id: projectId, title: projectName },
     { type: "block" as const, id: blockId, title: blockTitle },
@@ -334,6 +355,7 @@ export function SectionDetailPanel({
         entityId={section.id}
         entityTitle={section.title}
         projectId={projectId}
+        entityContext={sectionContext}
         onInsertResult={(content) => {
           navigator.clipboard.writeText(content);
           toast.success("Результат AI скопирован в буфер обмена");

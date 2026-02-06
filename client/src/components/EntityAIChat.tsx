@@ -37,6 +37,8 @@ interface EntityAIChatProps {
   onInsertResult?: (content: string) => void;
   /** Callback when AI generates content to save as document/summary */
   onSaveAsDocument?: (content: string) => void;
+  /** Structured context about the entity (status, priority, deadline, etc.) */
+  entityContext?: string;
 }
 
 const defaultBlockPrompts = (title: string) => [
@@ -70,6 +72,7 @@ export function EntityAIChat({
   defaultExpanded = true,
   onInsertResult,
   onSaveAsDocument,
+  entityContext,
 }: EntityAIChatProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [message, setMessage] = useState('');
@@ -141,6 +144,7 @@ export function EntityAIChat({
               contextType: entityType,
               contextId: entityId,
               content: userMsg,
+              projectContext: entityContext,
             }
           }
         }),
@@ -168,7 +172,7 @@ export function EntityAIChat({
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
-  }, [message, isStreaming, entityType, entityId, refetch]);
+  }, [message, isStreaming, entityType, entityId, entityContext, refetch]);
 
   const handleStop = () => {
     if (abortControllerRef.current) {

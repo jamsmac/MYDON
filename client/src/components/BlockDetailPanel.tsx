@@ -113,6 +113,25 @@ export function BlockDetailPanel({
     });
   };
 
+  // Build rich context string for AI chat
+  const blockContext = useMemo(() => {
+    const parts: string[] = [];
+    parts.push(`Блок: "${block.titleRu || block.title}"`);
+    if (block.description) parts.push(`Описание: ${block.description}`);
+    if (block.duration) parts.push(`Длительность: ${block.duration}`);
+    if (block.deadline) {
+      const deadlineDate = new Date(block.deadline);
+      parts.push(`Дедлайн: ${deadlineDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`);
+    }
+    parts.push(`Прогресс: ${stats.progress}% (${stats.completedTasks} из ${stats.totalTasks} задач)`);
+    parts.push(`В работе: ${stats.inProgressTasks}, Не начато: ${stats.notStartedTasks}, Просрочено: ${stats.overdueTasks}`);
+    if (block.sections && block.sections.length > 0) {
+      const sectionNames = block.sections.map(s => `"${s.title}" (${s.tasks?.length || 0} задач)`).join(', ');
+      parts.push(`Разделы (${block.sections.length}): ${sectionNames}`);
+    }
+    return parts.join('\n');
+  }, [block, stats]);
+
   const breadcrumbs = [
     { type: "project" as const, id: projectId, title: projectName },
     { type: "block" as const, id: block.id, title: block.titleRu || block.title },
@@ -247,6 +266,7 @@ export function BlockDetailPanel({
         entityId={block.id}
         entityTitle={block.titleRu || block.title}
         projectId={projectId}
+        entityContext={blockContext}
         onInsertResult={(content) => {
           navigator.clipboard.writeText(content);
           toast.success("Результат AI скопирован в буфер обмена");
