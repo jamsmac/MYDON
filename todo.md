@@ -1580,3 +1580,64 @@
 - [ ] pricing_plans (id, name, price, creditsPerMonth, maxProjects, maxUsers, features JSON, isActive)
 - [ ] model_pricing (id, modelName, inputCostPer1K, outputCostPer1K, isEnabled, planRestrictions JSON)
 
+
+
+## Phase 74: Admin Panel Overhaul - Stage 3 (Content, UI, Prompts)
+
+### 1. Prompts Library (/admin → AI Configuration → Prompts)
+- [x] List all system prompts as cards
+- [x] For each prompt: Name, Category (analysis/code/translation/creative/custom), Prompt text, Version, Updated date, Linked agents
+- [x] CRUD: create, edit, delete, clone
+- [x] Versioning: prompt change history (Version History button)
+- [x] "Test Prompt" button → mini-chat for testing
+- [x] Prompt templates: ready-made prompts for quick start
+- [x] Variables in prompts: {{project_name}}, {{user_name}}, {{context}} — highlighting
+
+### 2. Projects Management (/admin → Content → Projects)
+- [x] Table of all platform projects: Name, Owner, Status, Tasks, Progress, AI requests, Created date
+- [x] Filters: by owner, status, date
+- [x] Actions: Archive, Restore, Transfer to another user, Delete
+- [x] Project statistics (tasks count, blocks, AI requests)
+- [x] Export list to CSV
+
+### 3. Templates Management (/admin → Content → Templates)
+- [x] List of project templates
+- [ ] Create template from existing project ("Save as Template" button)
+- [x] Edit template: blocks structure, sections, tasks
+- [x] Template categorization (Business, Development, Marketing, Education...)
+- [x] Publish template (available to all users / team only)
+- [x] Template preview
+
+### 4. Branding Settings (/admin → UI Settings → Branding)
+- [ ] Logo upload (replaces standard MYDON)
+- [ ] Platform name (replaces "MYDON Roadmap Hub" with custom)
+- [ ] Primary color (color picker → applies to all buttons, accents)
+- [ ] Dark/Light theme toggle
+- [ ] Favicon upload
+- [ ] Real-time preview of changes (mini-preview on right)
+
+### 5. Navbar Settings (/admin → UI Settings → Navbar)
+- [ ] List of all navbar elements with toggle enable/disable:
+  - [ ] AI Chat button
+  - [ ] Achievements button
+  - [ ] Daily Briefing
+  - [ ] Notifications
+  - [ ] Credits
+  - [ ] Settings
+- [ ] Drag-and-drop to change order
+- [ ] Add custom link to navbar
+
+### 6. Localization (/admin → UI Settings → Localization)
+- [ ] Default interface language selection (Russian, English, Uzbek)
+- [ ] Table of all system text strings with editing capability
+- [ ] Text search
+- [ ] Export/import language files (JSON)
+
+### Database Tables Needed
+- [ ] system_prompts (id, name, slug, category, content, version, linkedAgents, isActive, createdBy, createdAt, updatedAt)
+- [ ] prompt_versions (id, promptId, version, content, changedBy, createdAt)
+- [ ] project_templates (id, name, slug, description, category, structure JSON, isPublic, teamId, createdBy, createdAt, updatedAt)
+- [ ] ui_settings (id, key, value JSON, updatedBy, updatedAt)
+- [ ] navbar_items (id, name, icon, path, isEnabled, order, isCustom, createdAt)
+- [ ] localization_strings (id, key, locale, value, updatedBy, updatedAt)
+

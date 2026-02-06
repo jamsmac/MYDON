@@ -2074,3 +2074,137 @@ export const userActivityLog = mysqlTable("user_activity_log", {
 
 export type UserActivityLog = typeof userActivityLog.$inferSelect;
 export type InsertUserActivityLog = typeof userActivityLog.$inferInsert;
+
+
+// ============================================================================
+// ADMIN PANEL STAGE 3: PROMPTS, UI SETTINGS, LOCALIZATION
+// ============================================================================
+
+/**
+ * System Prompts - Library of AI prompts
+ */
+export const systemPrompts = mysqlTable("system_prompts", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 128 }).notNull().unique(),
+  category: varchar("category", { length: 64, enum: ["analysis", "code", "translation", "creative", "custom"] }).notNull().default("custom"),
+  description: text("description"),
+  content: text("content").notNull(),
+  version: int("version").notNull().default(1),
+  
+  // Variables used in the prompt
+  variables: json("variables").$type<string[]>(),
+  
+  // Linked agents (array of agent IDs)
+  linkedAgents: json("linkedAgents").$type<number[]>(),
+  
+  isActive: boolean("isActive").default(true),
+  isSystem: boolean("isSystem").default(false),
+  
+  createdBy: int("createdBy"),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, (table) => ({
+  slugIdx: index("sp_slug_idx").on(table.slug),
+  categoryIdx: index("sp_category_idx").on(table.category),
+}));
+
+export type SystemPrompt = typeof systemPrompts.$inferSelect;
+export type InsertSystemPrompt = typeof systemPrompts.$inferInsert;
+
+/**
+ * Prompt Versions - History of prompt changes
+ */
+export const promptVersions = mysqlTable("prompt_versions", {
+  id: int("id").autoincrement().primaryKey(),
+  promptId: int("promptId").notNull(),
+  version: int("version").notNull(),
+  content: text("content").notNull(),
+  variables: json("variables").$type<string[]>(),
+  changeNote: text("changeNote"),
+  
+  changedBy: int("changedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  promptIdx: index("pv_prompt_idx").on(table.promptId),
+  versionIdx: index("pv_version_idx").on(table.version),
+}));
+
+export type PromptVersion = typeof promptVersions.$inferSelect;
+export type InsertPromptVersion = typeof promptVersions.$inferInsert;
+
+/**
+ * UI Settings - Platform appearance and behavior settings
+ */
+export const uiSettings = mysqlTable("ui_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 128 }).notNull().unique(),
+  value: json("value").$type<Record<string, unknown>>().notNull(),
+  description: text("description"),
+  
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+});
+
+export type UISetting = typeof uiSettings.$inferSelect;
+export type InsertUISetting = typeof uiSettings.$inferInsert;
+
+/**
+ * Navbar Items - Configurable navigation bar elements
+ */
+export const navbarItems = mysqlTable("navbar_items", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  nameRu: varchar("nameRu", { length: 128 }),
+  icon: varchar("icon", { length: 64 }),
+  path: varchar("path", { length: 255 }),
+  
+  isEnabled: boolean("isEnabled").default(true),
+  isCustom: boolean("isCustom").default(false),
+  displayOrder: int("displayOrder").default(0),
+  
+  // For custom links
+  externalUrl: varchar("externalUrl", { length: 512 }),
+  openInNewTab: boolean("openInNewTab").default(false),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, (table) => ({
+  orderIdx: index("ni_order_idx").on(table.displayOrder),
+}));
+
+export type NavbarItem = typeof navbarItems.$inferSelect;
+export type InsertNavbarItem = typeof navbarItems.$inferInsert;
+
+/**
+ * Localization Strings - Translatable UI text
+ */
+export const localizationStrings = mysqlTable("localization_strings", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 255 }).notNull(),
+  locale: varchar("locale", { length: 10, enum: ["en", "ru", "uz"] }).notNull(),
+  value: text("value").notNull(),
+  context: varchar("context", { length: 128 }), // e.g., "navbar", "dashboard", "admin"
+  
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, (table) => ({
+  keyLocaleIdx: index("ls_key_locale_idx").on(table.key, table.locale),
+  contextIdx: index("ls_context_idx").on(table.context),
+}));
+
+export type LocalizationString = typeof localizationStrings.$inferSelect;
+export type InsertLocalizationString = typeof localizationStrings.$inferInsert;
+
+/**
+ * Branding Settings Type
+ */
+export type BrandingSettings = {
+  logoUrl?: string;
+  faviconUrl?: string;
+  platformName?: string;
+  primaryColor?: string;
+  theme?: "dark" | "light";
+  customCss?: string;
+};

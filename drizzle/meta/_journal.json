@@ -15,6 +15,13 @@
       "when": 1770344341440,
       "tag": "0001_awesome_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1770347952213,
+      "tag": "0002_ambitious_emma_frost",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,11 @@ export async function setupVite(app: Express, server: Server) {
     middlewareMode: true,
     hmr: { server },
     allowedHosts: true as const,
+    watch: {
+      usePolling: true,
+      interval: 1000,
+      ignored: ['**/node_modules/**', '**/.git/**'],
+    },
   };
 
   const vite = await createViteServer({
