@@ -1,5 +1,6 @@
 import { useAuth } from '@/_core/hooks/useAuth';
 import { getLoginUrl } from '@/const';
+import { EntityAIChatStoreProvider } from '@/contexts/EntityAIChatStore';
 import { useSocket } from '@/hooks/useSocket';
 import { PresenceAvatars } from '@/components/PresenceAvatars';
 import { TaskComments } from '@/components/TaskComments';
@@ -1471,6 +1472,7 @@ export default function ProjectView() {
   }
 
   return (
+    <EntityAIChatStoreProvider>
     <div className="min-h-screen bg-slate-900 flex">
       {/* Sidebar */}
       <aside className="w-80 border-r border-slate-800 flex flex-col bg-slate-900/95">
@@ -2371,5 +2373,6 @@ export default function ProjectView() {
         }}
       />
     </div>
+    </EntityAIChatStoreProvider>
   );
 }

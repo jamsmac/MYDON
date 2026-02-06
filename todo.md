@@ -2396,3 +2396,13 @@
 - [x] Skip dialog if no existing document (save directly)
 - [x] Write vitest tests for confirmation dialog logic
 - [x] Verify visually in browser
+
+
+## EntityAIChat History Persistence Per Entity
+- [x] Create a message history store keyed by entityType+entityId
+- [x] Restore messages when switching back to a previously visited entity
+- [x] Clear history for an entity when explicitly requested (clear chat button)
+- [x] Limit stored history to prevent memory bloat (max 50 messages per entity, max 30 entities)
+- [x] Pass conversation history to AI streaming requests for context continuity
+- [x] Write vitest tests for history persistence logic
+- [x] Verify visually that history is preserved when switching entities

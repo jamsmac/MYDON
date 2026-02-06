@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Streamdown } from 'streamdown';
+import { useEntityAIChatStore } from '@/contexts/EntityAIChatStore';
 import {
   Sparkles,
   Loader2,
@@ -16,6 +17,7 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
+  Trash2,
 } from 'lucide-react';
 
 interface Message {
@@ -82,9 +84,13 @@ export function EntityAIChat({
   const [message, setMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
+  const [initialized, setInitialized] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Use the shared store for cross-entity persistence
+  const chatStore = useEntityAIChatStore();
 
   const prompts = quickPrompts || (
     entityType === 'block' 
@@ -99,16 +105,55 @@ export function EntityAIChat({
     { enabled: expanded }
   );
 
-  // Sync history with local messages
+  // Initialize messages: first from store (instant), then merge with DB history
   useEffect(() => {
-    if (history) {
-      setLocalMessages(history.map(msg => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-      })));
+    const storedMessages = chatStore.getMessages(entityType, entityId);
+    if (storedMessages.length > 0) {
+      setLocalMessages(storedMessages);
+      setInitialized(true);
     }
-  }, [history]);
+  }, [entityType, entityId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Merge DB history with stored messages (DB may have older messages not in store)
+  useEffect(() => {
+    if (!history || history.length === 0) {
+      if (!initialized) setInitialized(true);
+      return;
+    }
+    
+    const dbMessages: Message[] = history.map(msg => ({
+      id: msg.id,
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+    }));
+
+    setLocalMessages(prev => {
+      // If we have no local messages yet, use DB history
+      if (prev.length === 0) return dbMessages;
+
+      // Merge: keep DB messages that aren't already in local, then append local-only messages
+      const dbIds = new Set(dbMessages.map(m => String(m.id)));
+      const localIds = new Set(prev.map(m => String(m.id)));
+      
+      // DB messages not in local
+      const newFromDb = dbMessages.filter(m => !localIds.has(String(m.id)));
+      // Local messages not in DB (session-only, e.g. from streaming)
+      const localOnly = prev.filter(m => !dbIds.has(String(m.id)));
+      
+      // Combine: DB history first, then local-only additions
+      if (newFromDb.length === 0) return prev; // No new DB messages
+      
+      return [...dbMessages, ...localOnly];
+    });
+    setInitialized(true);
+  }, [history]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist messages to store whenever they change (debounced via effect)
+  useEffect(() => {
+    if (initialized && localMessages.length > 0) {
+      chatStore.setMessages(entityType, entityId, localMessages);
+    }
+  }, [localMessages, initialized]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll
   useEffect(() => {
@@ -239,7 +284,6 @@ export function EntityAIChat({
                 contextId: entityId,
                 content: userMsg,
                 projectContext: projectContext || undefined,
-                // Pass the AI response to save it in history
                 _streamedResponse: fullContent,
               }
             }
@@ -279,6 +323,12 @@ export function EntityAIChat({
   const handleCopy = (content: string) => {
     navigator.clipboard.writeText(content);
     toast.success('Скопировано');
+  };
+
+  const handleClearChat = () => {
+    setLocalMessages([]);
+    chatStore.clearMessages(entityType, entityId);
+    toast.success('Чат очищен');
   };
 
   const handleQuickPrompt = (prompt: string) => {
@@ -440,6 +490,18 @@ export function EntityAIChat({
               ) : (
                 <Button size="icon" onClick={handleSend} disabled={!message.trim()} className="bg-amber-500 hover:bg-amber-600 text-slate-900 shrink-0">
                   <Send className="w-4 h-4" />
+                </Button>
+              )}
+              {/* Clear chat button - only show when there are messages */}
+              {localMessages.length > 0 && !isStreaming && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleClearChat}
+                  className="text-slate-500 hover:text-red-400 shrink-0"
+                  title="Очистить чат"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </Button>
               )}
             </div>

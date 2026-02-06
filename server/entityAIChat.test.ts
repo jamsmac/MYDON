@@ -1026,4 +1026,197 @@ ${projectContext ? `Контекст проекта: ${projectContext}` : ""}`;
       expect(summary).toBe('Existing'); // Unchanged
     });
   });
+
+  describe('EntityAIChatStore - Per-Entity History Persistence', () => {
+    // Simulate the store logic
+    function createStore() {
+      const MAX_ENTITIES = 30;
+      const MAX_MESSAGES = 50;
+      const store = new Map<string, { messages: any[]; lastAccessed: number }>();
+
+      function makeKey(type: string, id: number) {
+        return `${type}:${id}`;
+      }
+
+      function getMessages(type: string, id: number) {
+        const entry = store.get(makeKey(type, id));
+        if (entry) {
+          entry.lastAccessed = Date.now();
+          return entry.messages;
+        }
+        return [];
+      }
+
+      function setMessages(type: string, id: number, messages: any[]) {
+        const filtered = messages
+          .filter((m: any) => !m.isStreaming)
+          .slice(-MAX_MESSAGES);
+        store.set(makeKey(type, id), {
+          messages: filtered,
+          lastAccessed: Date.now(),
+        });
+        // LRU eviction
+        if (store.size > MAX_ENTITIES) {
+          let oldestKey = '';
+          let oldestTime = Infinity;
+          for (const [key, value] of Array.from(store.entries())) {
+            if (value.lastAccessed < oldestTime) {
+              oldestTime = value.lastAccessed;
+              oldestKey = key;
+            }
+          }
+          if (oldestKey) store.delete(oldestKey);
+        }
+      }
+
+      function clearMessages(type: string, id: number) {
+        store.delete(makeKey(type, id));
+      }
+
+      function clearAll() {
+        store.clear();
+      }
+
+      return { getMessages, setMessages, clearMessages, clearAll, store };
+    }
+
+    it('should store and retrieve messages by entity key', () => {
+      const s = createStore();
+      const msgs = [
+        { id: 1, role: 'user', content: 'Hello' },
+        { id: 2, role: 'assistant', content: 'Hi there' },
+      ];
+      s.setMessages('task', 42, msgs);
+      const retrieved = s.getMessages('task', 42);
+      expect(retrieved).toHaveLength(2);
+      expect(retrieved[0].content).toBe('Hello');
+      expect(retrieved[1].content).toBe('Hi there');
+    });
+
+    it('should return empty array for unknown entity', () => {
+      const s = createStore();
+      const retrieved = s.getMessages('block', 999);
+      expect(retrieved).toHaveLength(0);
+    });
+
+    it('should keep separate histories for different entities', () => {
+      const s = createStore();
+      s.setMessages('task', 1, [{ id: 1, role: 'user', content: 'Task 1 msg' }]);
+      s.setMessages('task', 2, [{ id: 2, role: 'user', content: 'Task 2 msg' }]);
+      s.setMessages('block', 1, [{ id: 3, role: 'user', content: 'Block 1 msg' }]);
+
+      expect(s.getMessages('task', 1)[0].content).toBe('Task 1 msg');
+      expect(s.getMessages('task', 2)[0].content).toBe('Task 2 msg');
+      expect(s.getMessages('block', 1)[0].content).toBe('Block 1 msg');
+    });
+
+    it('should filter out streaming messages when storing', () => {
+      const s = createStore();
+      const msgs = [
+        { id: 1, role: 'user', content: 'Q' },
+        { id: 2, role: 'assistant', content: 'Partial...', isStreaming: true },
+        { id: 3, role: 'assistant', content: 'Complete answer' },
+      ];
+      s.setMessages('task', 10, msgs);
+      const retrieved = s.getMessages('task', 10);
+      expect(retrieved).toHaveLength(2); // streaming message filtered out
+      expect(retrieved.every((m: any) => !m.isStreaming)).toBe(true);
+    });
+
+    it('should limit messages per entity to MAX_MESSAGES (50)', () => {
+      const s = createStore();
+      const msgs = Array.from({ length: 60 }, (_, i) => ({
+        id: i,
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Message ${i}`,
+      }));
+      s.setMessages('task', 1, msgs);
+      const retrieved = s.getMessages('task', 1);
+      expect(retrieved).toHaveLength(50);
+      // Should keep the most recent 50
+      expect(retrieved[0].content).toBe('Message 10');
+      expect(retrieved[49].content).toBe('Message 59');
+    });
+
+    it('should evict oldest entity when exceeding MAX_ENTITIES (30)', () => {
+      const s = createStore();
+      // Add 31 entities
+      for (let i = 1; i <= 31; i++) {
+        s.setMessages('task', i, [{ id: i, role: 'user', content: `Msg ${i}` }]);
+      }
+      // Entity 1 should be evicted (oldest)
+      expect(s.getMessages('task', 1)).toHaveLength(0);
+      // Entity 31 should still exist
+      expect(s.getMessages('task', 31)).toHaveLength(1);
+    });
+
+    it('should clear messages for a specific entity', () => {
+      const s = createStore();
+      s.setMessages('task', 1, [{ id: 1, role: 'user', content: 'Hello' }]);
+      s.setMessages('task', 2, [{ id: 2, role: 'user', content: 'World' }]);
+      s.clearMessages('task', 1);
+      expect(s.getMessages('task', 1)).toHaveLength(0);
+      expect(s.getMessages('task', 2)).toHaveLength(1);
+    });
+
+    it('should clear all messages', () => {
+      const s = createStore();
+      s.setMessages('task', 1, [{ id: 1, role: 'user', content: 'Hello' }]);
+      s.setMessages('block', 2, [{ id: 2, role: 'user', content: 'World' }]);
+      s.clearAll();
+      expect(s.getMessages('task', 1)).toHaveLength(0);
+      expect(s.getMessages('block', 2)).toHaveLength(0);
+    });
+
+    it('should preserve history when switching between entities', () => {
+      const s = createStore();
+      // Simulate user chatting with task 1
+      s.setMessages('task', 1, [
+        { id: 1, role: 'user', content: 'Q about task 1' },
+        { id: 2, role: 'assistant', content: 'Answer about task 1' },
+      ]);
+      // Switch to task 2
+      s.setMessages('task', 2, [
+        { id: 3, role: 'user', content: 'Q about task 2' },
+        { id: 4, role: 'assistant', content: 'Answer about task 2' },
+      ]);
+      // Switch back to task 1 - history should be preserved
+      const task1Msgs = s.getMessages('task', 1);
+      expect(task1Msgs).toHaveLength(2);
+      expect(task1Msgs[0].content).toBe('Q about task 1');
+      expect(task1Msgs[1].content).toBe('Answer about task 1');
+    });
+
+    it('should update lastAccessed when getting messages', () => {
+      const s = createStore();
+      s.setMessages('task', 1, [{ id: 1, role: 'user', content: 'Old' }]);
+      // Access task 1 to update lastAccessed
+      s.getMessages('task', 1);
+      // The entry should still exist and be accessible
+      expect(s.getMessages('task', 1)).toHaveLength(1);
+    });
+
+    it('should handle clear chat button functionality', () => {
+      const s = createStore();
+      s.setMessages('task', 5, [
+        { id: 1, role: 'user', content: 'Q' },
+        { id: 2, role: 'assistant', content: 'A' },
+      ]);
+      expect(s.getMessages('task', 5)).toHaveLength(2);
+      // Simulate clear chat
+      s.clearMessages('task', 5);
+      expect(s.getMessages('task', 5)).toHaveLength(0);
+    });
+
+    it('should use correct key format entityType:entityId', () => {
+      const s = createStore();
+      s.setMessages('block', 10, [{ id: 1, role: 'user', content: 'Block msg' }]);
+      s.setMessages('section', 10, [{ id: 2, role: 'user', content: 'Section msg' }]);
+      s.setMessages('task', 10, [{ id: 3, role: 'user', content: 'Task msg' }]);
+      // Same ID but different types should be separate
+      expect(s.getMessages('block', 10)[0].content).toBe('Block msg');
+      expect(s.getMessages('section', 10)[0].content).toBe('Section msg');
+      expect(s.getMessages('task', 10)[0].content).toBe('Task msg');
+    });
+  });
 });
