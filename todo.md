@@ -2143,3 +2143,7 @@
 - [x] Fix project list popup/modal overflowing beyond viewport (max-w-[calc(100vw-2rem)])
 - [x] Truncate long project description text in popup cards (overflow-hidden on info container)
 - [x] Ensure all modals/dialogs are constrained within the screen
+
+## Bug Fix: Popup overflow (continued)
+
+- [x] Investigate and fix persistent popup overflow issue on project list modal (added w-0 to flex info container, overflow-hidden to ScrollArea content, [&>*]:min-w-0 to DialogContent)
