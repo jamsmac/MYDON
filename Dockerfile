@@ -62,4 +62,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 
 # Start the application (run migrations first)
-CMD ["sh", "-c", "npx drizzle-kit push --force 2>/dev/null || true; node dist/index.js"]
+CMD ["sh", "-c", "pnpm drizzle-kit push --force 2>&1 || true; node dist/index.js"]

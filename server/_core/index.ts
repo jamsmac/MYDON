@@ -70,17 +70,15 @@ async function startServer() {
   // CSRF token endpoint for client-side use
   app.get("/api/csrf-token", getCsrfTokenHandler);
 
-  // Health check endpoint for monitoring
+  // Health check endpoint — always returns 200 for liveness (Railway healthcheck)
+  // DB status is included for observability but does not affect the HTTP status
   app.get("/api/health", async (_req, res) => {
     try {
       const dbHealth = await dbHealthCheck();
       const poolStats = getPoolStats();
 
-      const status = dbHealth.healthy ? "healthy" : "unhealthy";
-      const statusCode = dbHealth.healthy ? 200 : 503;
-
-      res.status(statusCode).json({
-        status,
+      res.status(200).json({
+        status: "ok",
         timestamp: new Date().toISOString(),
         database: {
           healthy: dbHealth.healthy,
@@ -91,10 +89,11 @@ async function startServer() {
         pool: poolStats,
       });
     } catch (error: any) {
-      res.status(503).json({
-        status: "unhealthy",
+      // Still return 200 — server is alive even if DB check throws
+      res.status(200).json({
+        status: "ok",
         timestamp: new Date().toISOString(),
-        error: error.message,
+        database: { healthy: false, error: error.message },
       });
     }
   });
