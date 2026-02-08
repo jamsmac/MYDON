@@ -254,7 +254,7 @@ export default function TagManagement() {
   };
 
   // Group tags by type
-  const groupedTags = tags.reduce((acc, tag) => {
+  const groupedTags = tags.reduce((acc: Record<string, TagData[]>, tag: TagData) => {
     const type = tag.tagType || 'label';
     if (!acc[type]) acc[type] = [];
     acc[type].push(tag);
@@ -334,13 +334,13 @@ export default function TagManagement() {
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{tags.filter(t => !t.isArchived).length}</div>
+                <div className="text-2xl font-bold">{tags.filter((t: TagData) => !t.isArchived).length}</div>
                 <p className="text-sm text-muted-foreground">Активных</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-2xl font-bold">{tags.filter(t => t.isArchived).length}</div>
+                <div className="text-2xl font-bold">{tags.filter((t: TagData) => t.isArchived).length}</div>
                 <p className="text-sm text-muted-foreground">Архивных</p>
               </CardContent>
             </Card>
@@ -368,7 +368,7 @@ export default function TagManagement() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {typeTags.map(tag => (
+                    {typeTags.map((tag: TagData) => (
                       <div
                         key={tag.id}
                         draggable

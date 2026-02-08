@@ -317,26 +317,29 @@ function SortableTaskCard({
       <div className="p-3">
         {/* Drag handle and menu */}
         <div className="flex items-start justify-between gap-2 mb-2">
-          <div
+          <button
             {...attributes}
             {...listeners}
             className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 -ml-1 -mt-1"
+            aria-label={`Перетащить задачу: ${task.title}`}
+            aria-roledescription="draggable"
           >
-            <GripVertical className="w-4 h-4 text-slate-500" />
-          </div>
-          
+            <GripVertical className="w-4 h-4 text-slate-500" aria-hidden="true" />
+          </button>
+
           <div className="flex-1 min-w-0" onClick={onClick}>
             <h4 className="text-sm font-medium text-white line-clamp-2">{task.title}</h4>
           </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label={`Действия с задачей: ${task.title}`}
               >
-                <MoreHorizontal className="w-4 h-4 text-slate-400" />
+                <MoreHorizontal className="w-4 h-4 text-slate-400" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">

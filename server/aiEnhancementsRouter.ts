@@ -2,15 +2,19 @@ import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
-import { 
-  aiChatHistory, 
-  aiSuggestions, 
-  projectRisks, 
+import {
+  aiChatHistory,
+  aiSuggestions,
+  projectRisks,
   executiveSummaries,
   tasks,
   blocks,
   sections,
   projects,
+  Task,
+  Block,
+  Section,
+  Project,
 } from "../drizzle/schema";
 import { eq, and, desc, sql, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -71,7 +75,7 @@ Block: ${sectionInfo?.blockTitle || 'Unknown'}
 Section: ${sectionInfo?.sectionTitle || 'Unknown'}
 
 Existing tasks:
-${existingTasks.map(t => `- ${t.title}`).join('\n') || 'No tasks yet'}
+${existingTasks.map((t: { title: string }) => `- ${t.title}`).join('\n') || 'No tasks yet'}
 
 ${input.partialTitle ? `User is typing: "${input.partialTitle}"` : ''}
 ${input.context ? `Additional context: ${input.context}` : ''}
@@ -195,14 +199,14 @@ Return JSON array: [{"title": "...", "description": "...", "priority": "medium|h
       
       const inputWords = input.title.toLowerCase().split(/\s+/);
       const similar = projectTasks
-        .map(task => {
+        .map((task: { id: number; title: string; status: string | null; sectionId: number | null }) => {
           const taskWords = task.title.toLowerCase().split(/\s+/);
-          const intersection = inputWords.filter(w => taskWords.includes(w));
+          const intersection = inputWords.filter((w: string) => taskWords.includes(w));
           const similarity = (intersection.length * 2 / (inputWords.length + taskWords.length)) * 100;
           return { ...task, similarity: Math.round(similarity) };
         })
-        .filter(t => t.similarity >= input.threshold)
-        .sort((a, b) => b.similarity - a.similarity)
+        .filter((t: { similarity: number }) => t.similarity >= input.threshold)
+        .sort((a: { similarity: number }, b: { similarity: number }) => b.similarity - a.similarity)
         .slice(0, 5);
       
       return { similarTasks: similar };
@@ -243,7 +247,8 @@ Return JSON array: [{"title": "...", "description": "...", "priority": "medium|h
         .where(eq(blocks.projectId, input.projectId));
       
       const now = new Date();
-      const taskMap = new Map(projectTasks.map(t => [t.id, t]));
+      type ProjectTask = { id: number; title: string; status: string | null; deadline: Date | null; dependencies: number[] | null; sectionId: number | null; blockId: number | null };
+      const taskMap = new Map(projectTasks.map((t: ProjectTask) => [t.id, t]));
       
       for (const task of projectTasks) {
         if (task.deadline && task.status !== "completed") {
@@ -272,8 +277,8 @@ Return JSON array: [{"title": "...", "description": "...", "priority": "medium|h
         }
         
         if (task.dependencies && task.dependencies.length > 0 && task.status !== "completed") {
-          const blockedBy = task.dependencies.filter(depId => {
-            const dep = taskMap.get(depId);
+          const blockedBy = task.dependencies.filter((depId: number) => {
+            const dep = taskMap.get(depId) as ProjectTask | undefined;
             return dep && dep.status !== "completed";
           });
           
@@ -291,7 +296,7 @@ Return JSON array: [{"title": "...", "description": "...", "priority": "medium|h
         }
       }
       
-      const inProgressTasks = projectTasks.filter(t => t.status === "in_progress");
+      const inProgressTasks = projectTasks.filter((t: ProjectTask) => t.status === "in_progress");
       if (inProgressTasks.length > 10) {
         detectedRisks.push({
           type: "scope",
@@ -422,18 +427,19 @@ Return JSON array: [{"title": "...", "description": "...", "priority": "medium|h
           eq(projectRisks.status, "open")
         ));
       
+      type SummaryTask = { id: number; title: string; status: string | null; priority: string | null; deadline: Date | null; updatedAt: Date | null };
       const totalTasks = projectTasks.length;
-      const completedTasks = projectTasks.filter(t => t.status === "completed").length;
-      const inProgressTasks = projectTasks.filter(t => t.status === "in_progress").length;
-      const overdueTasks = projectTasks.filter(t => 
+      const completedTasks = projectTasks.filter((t: SummaryTask) => t.status === "completed").length;
+      const inProgressTasks = projectTasks.filter((t: SummaryTask) => t.status === "in_progress").length;
+      const overdueTasks = projectTasks.filter((t: SummaryTask) =>
         t.deadline && t.status !== "completed" && new Date(t.deadline) < new Date()
       ).length;
       const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-      
+
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      const recentlyCompleted = projectTasks.filter(t => 
-        t.status === "completed" && new Date(t.updatedAt) > weekAgo
+      const recentlyCompleted = projectTasks.filter((t: SummaryTask) =>
+        t.status === "completed" && t.updatedAt && new Date(t.updatedAt) > weekAgo
       );
       
       const keyMetrics = {
@@ -459,10 +465,10 @@ Key Metrics:
 - Open risks: ${risks.length}
 
 Recent achievements (last 7 days):
-${recentlyCompleted.map(t => `- ${t.title}`).join('\n') || "None"}
+${recentlyCompleted.map((t: SummaryTask) => `- ${t.title}`).join('\n') || "None"}
 
 Open risks:
-${risks.map(r => `- [${r.severity}] ${r.title}`).join('\n') || "None"}
+${risks.map((r: { title: string; severity: string | null }) => `- [${r.severity}] ${r.title}`).join('\n') || "None"}
 
 Generate a professional executive summary in Russian with:
 1. Brief overview (2-3 sentences)
@@ -494,8 +500,8 @@ Return JSON: {"summary": "...", "achievements": [...], "challenges": [...], "rec
           title: `Отчёт: ${project.name}`,
           summary: aiResult.summary || "Отчёт недоступен",
           keyMetrics,
-          risks: risks.map(r => ({ title: r.title, severity: r.severity })),
-          achievements: aiResult.achievements || recentlyCompleted.map(t => t.title),
+          risks: risks.map((r: { title: string; severity: string | null }) => ({ title: r.title, severity: r.severity })),
+          achievements: aiResult.achievements || recentlyCompleted.map((t: SummaryTask) => t.title),
           recommendations: aiResult.recommendations || [],
         });
         
@@ -545,8 +551,14 @@ Return JSON: {"summary": "...", "achievements": [...], "challenges": [...], "rec
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
       
-      let contextData: any = {};
-      
+      type ContextData =
+        | { type: "task"; data: Task | undefined }
+        | { type: "section"; data: Section | undefined; tasks: Task[] }
+        | { type: "block"; data: Block | undefined }
+        | { type: "project"; data: Project | undefined };
+
+      let contextData: ContextData;
+
       if (input.taskId) {
         const taskResult = await db.select().from(tasks).where(eq(tasks.id, input.taskId));
         contextData = { type: "task", data: taskResult[0] };
@@ -834,10 +846,16 @@ Return JSON:
         const result = JSON.parse(content);
         
         // Validate that suggested taskIds actually exist in our candidates
+        interface AISuggestion {
+          taskId: number;
+          reason: string;
+          confidence: number;
+        }
+
         const validTaskIds = new Set(candidateTasks.map((t: typeof projectBlocks[number]) => t.taskId));
-        const validSuggestions = (result.suggestions || []).filter(
-          (s: any) => validTaskIds.has(s.taskId) && s.confidence >= 30
-        ).map((s: any) => {
+        const validSuggestions = ((result.suggestions || []) as AISuggestion[]).filter(
+          (s) => validTaskIds.has(s.taskId) && s.confidence >= 30
+        ).map((s) => {
           const taskInfo = candidateTasks.find((t: typeof projectBlocks[number]) => t.taskId === s.taskId);
           return {
             taskId: s.taskId,

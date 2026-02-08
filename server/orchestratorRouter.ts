@@ -15,6 +15,7 @@ import {
 } from "../drizzle/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { invokeLLM } from "./_core/llm";
+import { seedAgentsAndSkills } from "./utils/seedAgentsSkills";
 
 // ============ AGENTS ROUTER ============
 export const agentsRouter = router({
@@ -22,11 +23,27 @@ export const agentsRouter = router({
   list: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
-    const agents = await db
+
+    let agents = await db
       .select()
       .from(aiAgents)
       .where(eq(aiAgents.isActive, true))
       .orderBy(desc(aiAgents.priority));
+
+    // Auto-seed if no agents exist
+    if (agents.length === 0) {
+      try {
+        await seedAgentsAndSkills();
+        agents = await db
+          .select()
+          .from(aiAgents)
+          .where(eq(aiAgents.isActive, true))
+          .orderBy(desc(aiAgents.priority));
+      } catch {
+        // Ignore seeding errors, return empty list
+      }
+    }
+
     return agents;
   }),
 
@@ -143,11 +160,27 @@ export const skillsRouter = router({
   list: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
-    const skills = await db
+
+    let skills = await db
       .select()
       .from(aiSkills)
       .where(eq(aiSkills.isActive, true))
       .orderBy(aiSkills.name);
+
+    // Auto-seed if no skills exist
+    if (skills.length === 0) {
+      try {
+        await seedAgentsAndSkills();
+        skills = await db
+          .select()
+          .from(aiSkills)
+          .where(eq(aiSkills.isActive, true))
+          .orderBy(aiSkills.name);
+      } catch {
+        // Ignore seeding errors, return empty list
+      }
+    }
+
     return skills;
   }),
 
@@ -525,7 +558,7 @@ export const orchestratorRouter = router({
 
       // Use fallback if no match
       if (!selectedAgent && agents.length > 0) {
-        selectedAgent = agents.find(a => a.type === "general") || agents[0];
+        selectedAgent = agents.find((a: { type: string }) => a.type === "general") || agents[0];
       }
 
       // Build system prompt
@@ -535,6 +568,8 @@ export const orchestratorRouter = router({
       // Call LLM with selected agent's configuration
       const startTime = Date.now();
       const response = await invokeLLM({
+        model: selectedAgent?.modelPreference || undefined,
+        maxTokens: selectedAgent?.maxTokens || undefined,
         messages: [
           { role: "system", content: systemPrompt },
           ...(input.context?.content ? [{ role: "user" as const, content: `Context: ${input.context.content}` }] : []),

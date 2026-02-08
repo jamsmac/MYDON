@@ -285,7 +285,7 @@ export default function AdminTariffs() {
               </Card>
             ))
           ) : (
-            plans?.map((plan) => (
+            plans?.map((plan: NonNullable<typeof plans>[number]) => (
               <Card 
                 key={plan.id} 
                 className={`relative ${plan.isPopular ? "border-amber-500 border-2" : ""}`}
@@ -392,7 +392,7 @@ export default function AdminTariffs() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Функция</TableHead>
-                  {plans?.map((plan) => (
+                  {plans?.map((plan: NonNullable<typeof plans>[number]) => (
                     <TableHead key={plan.id} className="text-center">
                       {plan.nameRu || plan.name}
                     </TableHead>
@@ -402,7 +402,7 @@ export default function AdminTariffs() {
               <TableBody>
                 <TableRow>
                   <TableCell className="font-medium">Цена</TableCell>
-                  {plans?.map((plan) => (
+                  {plans?.map((plan: NonNullable<typeof plans>[number]) => (
                     <TableCell key={plan.id} className="text-center">
                       ${plan.priceMonthly || 0}/мес
                     </TableCell>
@@ -410,7 +410,7 @@ export default function AdminTariffs() {
                 </TableRow>
                 <TableRow>
                   <TableCell className="font-medium">Кредиты/месяц</TableCell>
-                  {plans?.map((plan) => (
+                  {plans?.map((plan: NonNullable<typeof plans>[number]) => (
                     <TableCell key={plan.id} className="text-center">
                       {(plan.features as PlanFeatures)?.creditsPerMonth?.toLocaleString() || 0}
                     </TableCell>
@@ -418,7 +418,7 @@ export default function AdminTariffs() {
                 </TableRow>
                 <TableRow>
                   <TableCell className="font-medium">Проекты</TableCell>
-                  {plans?.map((plan) => (
+                  {plans?.map((plan: NonNullable<typeof plans>[number]) => (
                     <TableCell key={plan.id} className="text-center">
                       {(plan.features as PlanFeatures)?.maxProjects === -1 
                         ? "∞" 
@@ -429,7 +429,7 @@ export default function AdminTariffs() {
                 </TableRow>
                 <TableRow>
                   <TableCell className="font-medium">Пользователи</TableCell>
-                  {plans?.map((plan) => (
+                  {plans?.map((plan: NonNullable<typeof plans>[number]) => (
                     <TableCell key={plan.id} className="text-center">
                       {(plan.features as PlanFeatures)?.maxUsers === -1 
                         ? "∞" 
@@ -440,7 +440,7 @@ export default function AdminTariffs() {
                 </TableRow>
                 <TableRow>
                   <TableCell className="font-medium">AI модели</TableCell>
-                  {plans?.map((plan) => (
+                  {plans?.map((plan: NonNullable<typeof plans>[number]) => (
                     <TableCell key={plan.id} className="text-center">
                       {(plan.features as PlanFeatures)?.aiModels?.length || 0}
                     </TableCell>
@@ -448,7 +448,7 @@ export default function AdminTariffs() {
                 </TableRow>
                 <TableRow>
                   <TableCell className="font-medium">Приоритетная поддержка</TableCell>
-                  {plans?.map((plan) => (
+                  {plans?.map((plan: NonNullable<typeof plans>[number]) => (
                     <TableCell key={plan.id} className="text-center">
                       {(plan.features as PlanFeatures)?.prioritySupport 
                         ? <Check className="w-5 h-5 text-emerald-500 mx-auto" />

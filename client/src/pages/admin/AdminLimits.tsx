@@ -26,7 +26,10 @@ import {
   FolderKanban,
   Zap,
   Shield,
+  Paperclip,
+  X,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 export default function AdminLimits() {
   const [hasChanges, setHasChanges] = useState(false);
@@ -46,16 +49,36 @@ export default function AdminLimits() {
     viewer: 10,
   });
 
+  // Attachment limits
+  const [maxFileSizeMB, setMaxFileSizeMB] = useState(100);
+  const [maxTotalStorageMB, setMaxTotalStorageMB] = useState(10000);
+  const [maxFilesPerEntity, setMaxFilesPerEntity] = useState(50);
+  const [maxFilesPerMessage, setMaxFilesPerMessage] = useState(10);
+  const [maxFileContentForAI_KB, setMaxFileContentForAI_KB] = useState(100);
+  const [allowedMimeTypes, setAllowedMimeTypes] = useState<string[]>([]);
+  const [attachmentPlanOverrides, setAttachmentPlanOverrides] = useState<Record<string, { maxFileSizeMB?: number; maxTotalStorageMB?: number; maxFilesPerEntity?: number }>>({});
+  const [hasAttachmentChanges, setHasAttachmentChanges] = useState(false);
+
   // Queries
   const { data: settings, isLoading, refetch } = trpc.adminCredits.getLimitSettings.useQuery();
   const { data: roles } = trpc.adminUsers.getRoles.useQuery();
+  const { data: attachmentSettings, isLoading: isLoadingAttachments, refetch: refetchAttachments } = trpc.attachments.getAdminSettings.useQuery();
 
-  // Mutation
+  // Mutations
   const saveMutation = trpc.adminCredits.updateLimitSettings.useMutation({
     onSuccess: () => {
       toast.success("Настройки сохранены");
       setHasChanges(false);
       refetch();
+    },
+    onError: (error: { message: string }) => toast.error(error.message),
+  });
+
+  const saveAttachmentsMutation = trpc.attachments.updateAdminSettings.useMutation({
+    onSuccess: () => {
+      toast.success("Настройки вложений сохранены");
+      setHasAttachmentChanges(false);
+      refetchAttachments();
     },
     onError: (error: { message: string }) => toast.error(error.message),
   });
@@ -74,6 +97,19 @@ export default function AdminLimits() {
     }
   }, [settings]);
 
+  // Load attachment settings
+  useEffect(() => {
+    if (attachmentSettings) {
+      setMaxFileSizeMB(attachmentSettings.maxFileSizeMB ?? 100);
+      setMaxTotalStorageMB(attachmentSettings.maxTotalStorageMB ?? 10000);
+      setMaxFilesPerEntity(attachmentSettings.maxFilesPerEntity ?? 50);
+      setMaxFilesPerMessage(attachmentSettings.maxFilesPerMessage ?? 10);
+      setMaxFileContentForAI_KB(attachmentSettings.maxFileContentForAI_KB ?? 100);
+      setAllowedMimeTypes(attachmentSettings.allowedMimeTypes ?? []);
+      setAttachmentPlanOverrides(attachmentSettings.planOverrides ?? {});
+    }
+  }, [attachmentSettings]);
+
   const handleSave = () => {
     saveMutation.mutate({
       globalDailyLimit,
@@ -91,6 +127,58 @@ export default function AdminLimits() {
   };
 
   const markChanged = () => setHasChanges(true);
+  const markAttachmentChanged = () => setHasAttachmentChanges(true);
+
+  const handleSaveAttachments = () => {
+    saveAttachmentsMutation.mutate({
+      maxFileSizeMB,
+      maxTotalStorageMB,
+      maxFilesPerEntity,
+      maxFilesPerMessage,
+      maxFileContentForAI_KB,
+      allowedMimeTypes,
+      planOverrides: attachmentPlanOverrides,
+    });
+  };
+
+  const handlePlanOverrideChange = (plan: string, field: string, value: number) => {
+    setAttachmentPlanOverrides(prev => ({
+      ...prev,
+      [plan]: { ...prev[plan], [field]: value },
+    }));
+    markAttachmentChanged();
+  };
+
+  // MIME type categories for easier selection
+  const mimeTypeCategories = {
+    "PDF": ["application/pdf"],
+    "Word": ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    "Excel": ["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    "PowerPoint": ["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+    "Изображения": ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"],
+    "Текст/Markdown": ["text/plain", "text/markdown", "text/csv"],
+    "JSON": ["application/json"],
+    "Архивы": ["application/zip", "application/x-rar-compressed"],
+    "Видео": ["video/mp4"],
+    "Аудио": ["audio/mpeg", "audio/wav"],
+  };
+
+  const toggleMimeCategory = (category: string) => {
+    const types = mimeTypeCategories[category as keyof typeof mimeTypeCategories];
+    const allIncluded = types.every(t => allowedMimeTypes.includes(t));
+
+    if (allIncluded) {
+      setAllowedMimeTypes(prev => prev.filter(t => !types.includes(t)));
+    } else {
+      setAllowedMimeTypes(prev => Array.from(new Set<string>([...prev, ...types])));
+    }
+    markAttachmentChanged();
+  };
+
+  const isCategoryEnabled = (category: string): boolean => {
+    const types = mimeTypeCategories[category as keyof typeof mimeTypeCategories];
+    return types.every(t => allowedMimeTypes.includes(t));
+  };
 
   return (
     <AdminLayout>
@@ -202,7 +290,7 @@ export default function AdminLimits() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {roles?.map((role) => (
+                  {roles?.map((role: { id: number; name: string; nameRu: string | null; description: string | null; color: string | null }) => (
                     <div key={role.id} className="flex items-center justify-between p-4 rounded-lg border">
                       <div className="flex items-center gap-3">
                         <div
@@ -249,6 +337,262 @@ export default function AdminLimits() {
                     </div>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Attachment Limits */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Paperclip className="w-5 h-5" />
+                      Лимиты вложений
+                    </CardTitle>
+                    <CardDescription>
+                      Настройки файловых вложений и хранилища
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => refetchAttachments()}>
+                      <RefreshCw className="w-4 h-4 mr-1" />
+                      Сброс
+                    </Button>
+                    <Button size="sm" onClick={handleSaveAttachments} disabled={!hasAttachmentChanges || saveAttachmentsMutation.isPending}>
+                      <Save className="w-4 h-4 mr-1" />
+                      {saveAttachmentsMutation.isPending ? "..." : "Сохранить"}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {isLoadingAttachments ? (
+                  <Skeleton className="h-[200px]" />
+                ) : (
+                  <>
+                    {/* File Size Limit */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-base">Макс. размер файла</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Максимальный размер одного файла
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Slider
+                          value={[maxFileSizeMB]}
+                          onValueChange={([v]) => { setMaxFileSizeMB(v); markAttachmentChanged(); }}
+                          min={1}
+                          max={2000}
+                          step={10}
+                          className="w-[200px]"
+                        />
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            value={maxFileSizeMB}
+                            onChange={(e) => { setMaxFileSizeMB(parseInt(e.target.value) || 1); markAttachmentChanged(); }}
+                            className="w-[80px]"
+                          />
+                          <span className="text-muted-foreground text-sm">MB</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Total Storage Limit */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-base">Макс. хранилище на проект</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Общий объём файлов в проекте
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Slider
+                          value={[maxTotalStorageMB]}
+                          onValueChange={([v]) => { setMaxTotalStorageMB(v); markAttachmentChanged(); }}
+                          min={100}
+                          max={100000}
+                          step={100}
+                          className="w-[200px]"
+                        />
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            value={maxTotalStorageMB}
+                            onChange={(e) => { setMaxTotalStorageMB(parseInt(e.target.value) || 100); markAttachmentChanged(); }}
+                            className="w-[100px]"
+                          />
+                          <span className="text-muted-foreground text-sm">MB</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Files Per Entity */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-base">Макс. файлов на сущность</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Блок, секция, задача
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Slider
+                          value={[maxFilesPerEntity]}
+                          onValueChange={([v]) => { setMaxFilesPerEntity(v); markAttachmentChanged(); }}
+                          min={1}
+                          max={1000}
+                          step={5}
+                          className="w-[200px]"
+                        />
+                        <Input
+                          type="number"
+                          value={maxFilesPerEntity}
+                          onChange={(e) => { setMaxFilesPerEntity(parseInt(e.target.value) || 1); markAttachmentChanged(); }}
+                          className="w-[80px]"
+                        />
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Files Per Message */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-base">Макс. файлов в сообщении</Label>
+                        <p className="text-sm text-muted-foreground">
+                          В обсуждениях и комментариях
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Slider
+                          value={[maxFilesPerMessage]}
+                          onValueChange={([v]) => { setMaxFilesPerMessage(v); markAttachmentChanged(); }}
+                          min={1}
+                          max={100}
+                          step={1}
+                          className="w-[200px]"
+                        />
+                        <Input
+                          type="number"
+                          value={maxFilesPerMessage}
+                          onChange={(e) => { setMaxFilesPerMessage(parseInt(e.target.value) || 1); markAttachmentChanged(); }}
+                          className="w-[80px]"
+                        />
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* AI Content Limit */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-base">Макс. размер для AI-контекста</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Текстовые файлы для анализа AI
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Slider
+                          value={[maxFileContentForAI_KB]}
+                          onValueChange={([v]) => { setMaxFileContentForAI_KB(v); markAttachmentChanged(); }}
+                          min={1}
+                          max={5000}
+                          step={10}
+                          className="w-[200px]"
+                        />
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            value={maxFileContentForAI_KB}
+                            onChange={(e) => { setMaxFileContentForAI_KB(parseInt(e.target.value) || 1); markAttachmentChanged(); }}
+                            className="w-[80px]"
+                          />
+                          <span className="text-muted-foreground text-sm">KB</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Allowed MIME Types */}
+                    <div className="space-y-3">
+                      <div>
+                        <Label className="text-base">Разрешённые типы файлов</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Выберите категории разрешённых файлов
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.keys(mimeTypeCategories).map((category) => (
+                          <Badge
+                            key={category}
+                            variant={isCategoryEnabled(category) ? "default" : "outline"}
+                            className="cursor-pointer select-none"
+                            onClick={() => toggleMimeCategory(category)}
+                          >
+                            {isCategoryEnabled(category) ? "✓" : ""} {category}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Plan Overrides */}
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="text-base">Переопределения по планам</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Индивидуальные лимиты для тарифных планов
+                        </p>
+                      </div>
+                      {["free", "pro", "enterprise"].map((plan) => (
+                        <div key={plan} className="flex items-center gap-4 p-3 rounded-lg border">
+                          <div className="w-24 font-medium capitalize">
+                            {plan === "free" ? "Free" : plan === "pro" ? "Pro" : "Enterprise"}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">Файл:</span>
+                            <Input
+                              type="number"
+                              value={attachmentPlanOverrides[plan]?.maxFileSizeMB ?? ""}
+                              placeholder={String(maxFileSizeMB)}
+                              onChange={(e) => handlePlanOverrideChange(plan, "maxFileSizeMB", parseInt(e.target.value) || 0)}
+                              className="w-[70px]"
+                            />
+                            <span className="text-xs text-muted-foreground">MB</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">Хранилище:</span>
+                            <Input
+                              type="number"
+                              value={attachmentPlanOverrides[plan]?.maxTotalStorageMB ?? ""}
+                              placeholder={String(maxTotalStorageMB)}
+                              onChange={(e) => handlePlanOverrideChange(plan, "maxTotalStorageMB", parseInt(e.target.value) || 0)}
+                              className="w-[80px]"
+                            />
+                            <span className="text-xs text-muted-foreground">MB</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">Файлов:</span>
+                            <Input
+                              type="number"
+                              value={attachmentPlanOverrides[plan]?.maxFilesPerEntity ?? ""}
+                              placeholder={String(maxFilesPerEntity)}
+                              onChange={(e) => handlePlanOverrideChange(plan, "maxFilesPerEntity", parseInt(e.target.value) || 0)}
+                              className="w-[60px]"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
 

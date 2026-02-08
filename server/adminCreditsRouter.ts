@@ -109,21 +109,22 @@ export const adminCreditsRouter = router({
         .orderBy(sql`DATE(${creditTransactions.createdAt})`);
 
       // Fill in missing days
-      const result = [];
+      type DayData = { date: string; spent: number; earned: number; transactions: number };
+      const result: DayData[] = [];
       const currentDate = new Date(startDate);
-      const dataMap = new Map(data.map(d => [d.date, d]));
+      const dataMap: Map<string, DayData> = new Map(data.map((d: DayData) => [d.date, d]));
 
       while (currentDate <= new Date()) {
         const dateStr = currentDate.toISOString().split("T")[0];
         const dayData = dataMap.get(dateStr);
-        
+
         result.push({
           date: dateStr,
           spent: dayData?.spent || 0,
           earned: dayData?.earned || 0,
           transactions: dayData?.transactions || 0,
         });
-        
+
         currentDate.setDate(currentDate.getDate() + 1);
       }
 
@@ -237,7 +238,7 @@ export const adminCreditsRouter = router({
 
       // Generate CSV
       const headers = ["ID", "User ID", "User Name", "Email", "Amount", "Balance", "Type", "Description", "Model", "Tokens", "Date"];
-      const rows = transactions.map(t => [
+      const rows = transactions.map((t: { id: number; userId: number; userName: string | null; userEmail: string | null; amount: number; balance: number; type: string; description: string | null; model: string | null; tokensUsed: number | null; createdAt: Date | null }) => [
         t.id,
         t.userId,
         t.userName || "",
@@ -251,7 +252,7 @@ export const adminCreditsRouter = router({
         t.createdAt?.toISOString() || "",
       ]);
 
-      const csv = [headers.join(","), ...rows.map(r => r.map(v => `"${v}"`).join(","))].join("\n");
+      const csv = [headers.join(","), ...rows.map((r: (string | number)[]) => r.map((v: string | number) => `"${v}"`).join(","))].join("\n");
 
       return { csv, count: transactions.length };
     }),

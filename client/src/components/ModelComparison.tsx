@@ -163,7 +163,7 @@ export function ModelComparison({ onClose, initialPrompt = "" }: ModelComparison
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-              {models?.map((model) => (
+              {models?.map((model: { id: number; modelName: string; provider: string; modelDisplayName?: string | null; inputCostPer1K?: number | null }) => (
                 <div
                   key={model.id}
                   className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${

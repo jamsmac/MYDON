@@ -4,6 +4,7 @@ import { sdk } from "../_core/sdk";
 import * as db from "../db";
 import { parse as parseCookieHeader } from "cookie";
 import { COOKIE_NAME } from "@shared/const";
+import { logger } from "../utils/logger";
 
 // Types for real-time events
 export interface PresenceUser {
@@ -99,14 +100,14 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
       next();
     } catch (error) {
-      console.error("[Socket] Auth error:", error);
+      logger.socket.error("Auth error", error as Error);
       next(new Error("Authentication failed"));
     }
   });
 
   io.on("connection", (socket: Socket) => {
     const user = (socket as any).user;
-    console.log(`[Socket] User connected: ${user.name} (${user.id})`);
+    logger.socket.info("User connected", { userName: user.name, userId: user.id });
     
     socketToUser.set(socket.id, { userId: user.id, userName: user.name });
 
@@ -148,9 +149,9 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           users: uniqueUsers,
         });
 
-        console.log(`[Socket] ${user.name} joined project ${projectId}`);
+        logger.socket.info("User joined project", { userName: user.name, projectId });
       } catch (error) {
-        console.error("[Socket] Join project error:", error);
+        logger.socket.error("Join project error", error as Error, { projectId });
         socket.emit("error", { message: "Failed to join project" });
       }
     });
@@ -176,7 +177,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         });
       }
 
-      console.log(`[Socket] ${user.name} left project ${projectId}`);
+      logger.socket.info("User left project", { userName: user.name, projectId });
     });
 
     // Task editing started
@@ -334,7 +335,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
     // Handle disconnect
     socket.on("disconnect", () => {
-      console.log(`[Socket] User disconnected: ${user.name}`);
+      logger.socket.info("User disconnected", { userName: user.name, userId: user.id });
       
       // Remove from all project presence
       projectPresence.forEach((presence, projectId) => {
@@ -367,7 +368,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
   });
 
   setIO(io);
-  console.log("[Socket] Real-time server initialized");
+  logger.socket.info("Real-time server initialized");
   return io;
 }
 

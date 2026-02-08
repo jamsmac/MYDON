@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 
+// Connection status for UI display
+export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "reconnecting";
+
+// Reconnection configuration
+const RECONNECTION_CONFIG = {
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1000,      // Start with 1s delay
+  reconnectionDelayMax: 30000,  // Max 30s between attempts
+  randomizationFactor: 0.5,     // Add randomness to prevent thundering herd
+  timeout: 20000,               // Connection timeout
+};
+
 export interface PresenceUser {
   id: number;
   name: string;
@@ -53,6 +66,9 @@ interface UseSocketOptions {
   onTaskEditingConflict?: (info: { taskId: number; editingBy: string }) => void;
   onCommentTypingStarted?: (info: TypingUser) => void;
   onCommentTypingStopped?: (info: { taskId: number; userId: number }) => void;
+  onConnectionStatusChange?: (status: ConnectionStatus) => void;
+  onReconnectAttempt?: (attempt: number, maxAttempts: number) => void;
+  onReconnectFailed?: () => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}) {
@@ -67,21 +83,33 @@ export function useSocket(options: UseSocketOptions = {}) {
     onTaskEditingConflict,
     onCommentTypingStarted,
     onCommentTypingStopped,
+    onConnectionStatusChange,
+    onReconnectAttempt,
+    onReconnectFailed,
   } = options;
 
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
   const [editingTasks, setEditingTasks] = useState<Map<number, TaskEditingInfo>>(new Map());
   const [typingUsers, setTypingUsers] = useState<Map<number, Map<number, TypingUser>>>(new Map()); // taskId -> userId -> user
 
+  // Update connection status and notify
+  const updateConnectionStatus = useCallback((status: ConnectionStatus) => {
+    setConnectionStatus(status);
+    onConnectionStatusChange?.(status);
+  }, [onConnectionStatusChange]);
+
   // Initialize socket connection
   useEffect(() => {
-    // Create socket connection
+    // Create socket connection with reconnection config
     const socket = io({
       path: "/socket.io",
       withCredentials: true,
       transports: ["websocket", "polling"],
+      ...RECONNECTION_CONFIG,
     });
 
     socketRef.current = socket;
@@ -89,17 +117,51 @@ export function useSocket(options: UseSocketOptions = {}) {
     socket.on("connect", () => {
       console.log("[Socket] Connected");
       setIsConnected(true);
+      setReconnectAttempt(0);
+      updateConnectionStatus("connected");
     });
 
-    socket.on("disconnect", () => {
-      console.log("[Socket] Disconnected");
+    socket.on("disconnect", (reason) => {
+      console.log("[Socket] Disconnected:", reason);
       setIsConnected(false);
       setPresenceUsers([]);
       setEditingTasks(new Map());
+
+      // If server disconnected, we'll try to reconnect automatically
+      if (reason === "io server disconnect") {
+        // Server initiated disconnect, manually reconnect
+        socket.connect();
+      }
+      updateConnectionStatus("disconnected");
     });
 
     socket.on("connect_error", (error) => {
       console.error("[Socket] Connection error:", error.message);
+      updateConnectionStatus("reconnecting");
+    });
+
+    // Reconnection events
+    socket.io.on("reconnect_attempt", (attempt) => {
+      console.log(`[Socket] Reconnection attempt ${attempt}/${RECONNECTION_CONFIG.reconnectionAttempts}`);
+      setReconnectAttempt(attempt);
+      updateConnectionStatus("reconnecting");
+      onReconnectAttempt?.(attempt, RECONNECTION_CONFIG.reconnectionAttempts);
+    });
+
+    socket.io.on("reconnect", (attempt) => {
+      console.log(`[Socket] Reconnected after ${attempt} attempts`);
+      setReconnectAttempt(0);
+      updateConnectionStatus("connected");
+    });
+
+    socket.io.on("reconnect_failed", () => {
+      console.error("[Socket] Reconnection failed after max attempts");
+      updateConnectionStatus("disconnected");
+      onReconnectFailed?.();
+    });
+
+    socket.io.on("reconnect_error", (error) => {
+      console.error("[Socket] Reconnection error:", error.message);
     });
 
     // Presence updates
@@ -286,8 +348,20 @@ export function useSocket(options: UseSocketOptions = {}) {
     return editInfo;
   }, [editingTasks]);
 
+  // Manual reconnect function for UI retry button
+  const reconnect = useCallback(() => {
+    const socket = socketRef.current;
+    if (socket && !socket.connected) {
+      console.log("[Socket] Manual reconnect triggered");
+      updateConnectionStatus("connecting");
+      socket.connect();
+    }
+  }, [updateConnectionStatus]);
+
   return {
     isConnected,
+    connectionStatus,
+    reconnectAttempt,
     presenceUsers,
     editingTasks,
     startEditingTask,
@@ -302,5 +376,6 @@ export function useSocket(options: UseSocketOptions = {}) {
     startTypingComment,
     stopTypingComment,
     getTypingUsersForTask,
+    reconnect,
   };
 }

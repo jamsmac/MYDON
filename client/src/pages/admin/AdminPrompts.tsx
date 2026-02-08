@@ -261,7 +261,7 @@ export default function AdminPrompts() {
 
       {/* Prompts Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {prompts?.map((prompt) => {
+        {prompts?.map((prompt: Prompt) => {
           const CategoryIcon = getCategoryIcon(prompt.category);
           return (
             <Card key={prompt.id} className={`${!prompt.isActive ? "opacity-60" : ""}`}>
@@ -471,7 +471,7 @@ export default function AdminPrompts() {
 
           <ScrollArea className="max-h-96">
             <div className="space-y-3">
-              {versions?.map((version) => (
+              {versions?.map((version: PromptVersion) => (
                 <Card key={version.id} className="p-3">
                   <div className="flex items-center justify-between mb-2">
                     <Badge>v{version.version}</Badge>

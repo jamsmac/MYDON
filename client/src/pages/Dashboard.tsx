@@ -77,16 +77,18 @@ function NavItem({
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
+          aria-label={label}
+          aria-current={isActive ? 'page' : undefined}
           className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-            isActive 
-              ? `bg-white/5 ring-1 ring-white/10` 
+            isActive
+              ? `bg-white/5 ring-1 ring-white/10`
               : `${hoverBgClass}`
           }`}
         >
-          <Icon className={`w-6 h-6 transition-colors ${colorClass}`} />
+          <Icon className={`w-6 h-6 transition-colors ${colorClass}`} aria-hidden="true" />
           <span className={`text-[10px] font-medium leading-tight transition-colors ${
             isActive ? 'text-slate-200' : 'text-slate-400'
-          }`}>
+          }`} aria-hidden="true">
             {label}
           </span>
         </button>
@@ -131,14 +133,25 @@ export default function Dashboard() {
     onSearch: () => searchInputRef.current?.focus(),
   });
 
-  const { data: projects, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
+  const { data: projectsData, isLoading: projectsLoading, refetch } = trpc.project.list.useQuery(
     undefined,
     { enabled: isAuthenticated }
   );
 
+  // Normalize projects data - handle both array and paginated response formats
+  const projects = useMemo(() => {
+    if (!projectsData) return [];
+    // Check if it's a paginated response with items array
+    if ('items' in projectsData && Array.isArray(projectsData.items)) {
+      return projectsData.items;
+    }
+    // Otherwise it's already an array
+    return Array.isArray(projectsData) ? projectsData : [];
+  }, [projectsData]);
+
   // Filter projects based on selected status and search query
   const filteredProjects = useMemo(() => {
-    if (!projects) return [];
+    if (!projects || projects.length === 0) return [];
     
     // First filter by status
     let filtered = projects;
@@ -365,7 +378,7 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <PullToRefresh onRefresh={handlePullRefresh} className="flex-1">
-      <main className="container py-4 md:py-8">
+      <main id="main-content" tabIndex={-1} className="container py-4 md:py-8 outline-none">
         {/* Stats Overview */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-4 mb-6 md:mb-8">
           <Card 

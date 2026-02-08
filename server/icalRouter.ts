@@ -173,7 +173,7 @@ export const icalRouter = router({
         .from(blocks)
         .where(eq(blocks.projectId, input.projectId));
       
-      const blockIds = projectBlocks.map(b => b.id);
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
       if (blockIds.length === 0) {
         return {
           content: generateVCalendar([], project.name),
@@ -181,14 +181,14 @@ export const icalRouter = router({
           taskCount: 0,
         };
       }
-      
+
       // Get all sections for these blocks
       const projectSections = await db
         .select()
         .from(sections)
         .where(eq(sections.blockId, blockIds[0])); // Simplified - would need IN clause
-      
-      const sectionIds = projectSections.map(s => s.id);
+
+      const sectionIds = projectSections.map((s: { id: number }) => s.id);
       if (sectionIds.length === 0) {
         return {
           content: generateVCalendar([], project.name),
@@ -196,25 +196,27 @@ export const icalRouter = router({
           taskCount: 0,
         };
       }
-      
+
       // Get tasks
       const taskResults = await db
         .select()
         .from(tasks)
         .where(eq(tasks.sectionId, sectionIds[0])); // Simplified
-      
+
       let filteredTasks = taskResults;
       if (!input.includeCompleted) {
-        filteredTasks = filteredTasks.filter(t => t.status !== "completed");
+        filteredTasks = filteredTasks.filter((t: { status: string | null }) => t.status !== "completed");
       }
-      
+
       // Create block and section maps
-      const blockMap = new Map(projectBlocks.map(b => [b.id, b]));
-      const sectionMap = new Map(projectSections.map(s => [s.id, s]));
-      
-      const taskEvents: TaskEvent[] = filteredTasks.map(t => {
-        const section = sectionMap.get(t.sectionId);
-        const block = section ? blockMap.get(section.blockId) : null;
+      type BlockType = { id: number; title: string; projectId: number; sortOrder: number | null };
+      type SectionType = { id: number; title: string; blockId: number; sortOrder: number | null };
+      const blockMap = new Map(projectBlocks.map((b: BlockType) => [b.id, b]));
+      const sectionMap = new Map(projectSections.map((s: SectionType) => [s.id, s]));
+
+      const taskEvents: TaskEvent[] = filteredTasks.map((t: { id: number; title: string; description: string | null; deadline: Date | null; dueDate: Date | null; priority: string | null; status: string | null; sectionId: number }) => {
+        const section = sectionMap.get(t.sectionId) as SectionType | undefined;
+        const block = section ? blockMap.get(section.blockId) as BlockType | undefined : null;
         
         return {
           id: t.id,
@@ -285,7 +287,7 @@ export const icalRouter = router({
             
             let filteredTasks = sectionTasks;
             if (!input.includeCompleted) {
-              filteredTasks = filteredTasks.filter(t => t.status !== "completed");
+              filteredTasks = filteredTasks.filter((t: { status: string | null }) => t.status !== "completed");
             }
             
             for (const task of filteredTasks) {

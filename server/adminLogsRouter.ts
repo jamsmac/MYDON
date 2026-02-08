@@ -318,7 +318,7 @@ export const adminLogsRouter = router({
       
       // Generate CSV
       const headers = ["ID", "User ID", "Model", "Request Type", "Tokens Used", "Credits Cost", "Response Time (ms)", "Status", "Created At"];
-      const rows = logs.map(log => [
+      const rows = logs.map((log: { id: number; userId: number; model: string | null; requestType: string | null; tokensUsed: number | null; creditsCost: number | null; responseTimeMs: number | null; status: string | null; createdAt: Date | null }) => [
         log.id,
         log.userId,
         log.model || "",
@@ -483,7 +483,7 @@ export const adminLogsRouter = router({
         .groupBy(sql`DATE_FORMAT(${schema.aiRequestLogs.createdAt}, '%Y-%m-%d %H:00')`)
         .orderBy(asc(sql`DATE_FORMAT(${schema.aiRequestLogs.createdAt}, '%Y-%m-%d %H:00')`));
       
-      return errorRates.map(r => ({
+      return errorRates.map((r: { hour: string; totalRequests: number; errorCount: number }) => ({
         ...r,
         errorRate: r.totalRequests > 0 ? ((r.errorCount || 0) / r.totalRequests * 100).toFixed(2) : "0",
       }));

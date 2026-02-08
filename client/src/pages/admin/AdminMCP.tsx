@@ -306,7 +306,7 @@ export default function AdminMCP() {
 
       {/* Servers Grid */}
       <div className="grid gap-4 md:grid-cols-2">
-        {servers?.map((server) => (
+        {servers?.map((server: NonNullable<typeof servers>[number]) => (
           <Card key={server.id} className={server.status !== "active" ? "opacity-60" : ""}>
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between">

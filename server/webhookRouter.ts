@@ -168,7 +168,7 @@ export async function triggerWebhooks(
     );
 
   // Filter by project and event
-  const webhooksToTrigger = matchingWebhooks.filter(webhook => {
+  const webhooksToTrigger = matchingWebhooks.filter((webhook: { projectId: number | null; events: string[] | null }) => {
     // Check project match (null means all projects)
     if (webhook.projectId !== null && webhook.projectId !== projectId) {
       return false;
@@ -181,7 +181,7 @@ export async function triggerWebhooks(
 
   // Deliver to all matching webhooks in parallel
   await Promise.allSettled(
-    webhooksToTrigger.map(webhook =>
+    webhooksToTrigger.map((webhook: { id: number; url: string; secret: string | null; headers: Record<string, string> | null }) =>
       deliverWebhook(webhook, event, {
         event,
         timestamp: new Date().toISOString(),

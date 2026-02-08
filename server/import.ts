@@ -3,6 +3,143 @@
  * Supports Markdown and JSON formats
  */
 
+// Import limits to prevent DoS attacks
+export const IMPORT_LIMITS = {
+  MAX_FILE_SIZE_BYTES: 5 * 1024 * 1024, // 5MB
+  MAX_BLOCKS: 50,
+  MAX_SECTIONS_PER_BLOCK: 30,
+  MAX_TASKS_PER_SECTION: 100,
+  MAX_SUBTASKS_PER_TASK: 50,
+  MAX_TOTAL_SECTIONS: 500,
+  MAX_TOTAL_TASKS: 2000,
+  MAX_TOTAL_SUBTASKS: 5000,
+  MAX_TITLE_LENGTH: 500,
+  MAX_DESCRIPTION_LENGTH: 10000,
+};
+
+export class ImportLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ImportLimitError';
+  }
+}
+
+/**
+ * Validate imported project against limits
+ */
+export function validateImportLimits(project: ImportedProject): void {
+  // Check blocks count
+  if (project.blocks.length > IMPORT_LIMITS.MAX_BLOCKS) {
+    throw new ImportLimitError(
+      `Слишком много блоков: ${project.blocks.length}. Максимум: ${IMPORT_LIMITS.MAX_BLOCKS}`
+    );
+  }
+
+  let totalSections = 0;
+  let totalTasks = 0;
+  let totalSubtasks = 0;
+
+  for (const block of project.blocks) {
+    // Validate block title length
+    if (block.title.length > IMPORT_LIMITS.MAX_TITLE_LENGTH) {
+      throw new ImportLimitError(
+        `Название блока слишком длинное: "${block.title.substring(0, 50)}...". Максимум: ${IMPORT_LIMITS.MAX_TITLE_LENGTH} символов`
+      );
+    }
+
+    const sections = block.sections || [];
+    if (sections.length > IMPORT_LIMITS.MAX_SECTIONS_PER_BLOCK) {
+      throw new ImportLimitError(
+        `Блок "${block.title}" содержит слишком много разделов: ${sections.length}. Максимум: ${IMPORT_LIMITS.MAX_SECTIONS_PER_BLOCK}`
+      );
+    }
+
+    totalSections += sections.length;
+
+    for (const section of sections) {
+      // Validate section title length
+      if (section.title.length > IMPORT_LIMITS.MAX_TITLE_LENGTH) {
+        throw new ImportLimitError(
+          `Название раздела слишком длинное: "${section.title.substring(0, 50)}...". Максимум: ${IMPORT_LIMITS.MAX_TITLE_LENGTH} символов`
+        );
+      }
+
+      const tasks = section.tasks || [];
+      if (tasks.length > IMPORT_LIMITS.MAX_TASKS_PER_SECTION) {
+        throw new ImportLimitError(
+          `Раздел "${section.title}" содержит слишком много задач: ${tasks.length}. Максимум: ${IMPORT_LIMITS.MAX_TASKS_PER_SECTION}`
+        );
+      }
+
+      totalTasks += tasks.length;
+
+      for (const task of tasks) {
+        // Validate task title and description length
+        if (task.title.length > IMPORT_LIMITS.MAX_TITLE_LENGTH) {
+          throw new ImportLimitError(
+            `Название задачи слишком длинное: "${task.title.substring(0, 50)}...". Максимум: ${IMPORT_LIMITS.MAX_TITLE_LENGTH} символов`
+          );
+        }
+        if (task.description && task.description.length > IMPORT_LIMITS.MAX_DESCRIPTION_LENGTH) {
+          throw new ImportLimitError(
+            `Описание задачи "${task.title}" слишком длинное. Максимум: ${IMPORT_LIMITS.MAX_DESCRIPTION_LENGTH} символов`
+          );
+        }
+
+        const subtasks = task.subtasks || [];
+        if (subtasks.length > IMPORT_LIMITS.MAX_SUBTASKS_PER_TASK) {
+          throw new ImportLimitError(
+            `Задача "${task.title}" содержит слишком много подзадач: ${subtasks.length}. Максимум: ${IMPORT_LIMITS.MAX_SUBTASKS_PER_TASK}`
+          );
+        }
+
+        totalSubtasks += subtasks.length;
+
+        for (const subtask of subtasks) {
+          if (subtask.title.length > IMPORT_LIMITS.MAX_TITLE_LENGTH) {
+            throw new ImportLimitError(
+              `Название подзадачи слишком длинное: "${subtask.title.substring(0, 50)}...". Максимум: ${IMPORT_LIMITS.MAX_TITLE_LENGTH} символов`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Check total counts
+  if (totalSections > IMPORT_LIMITS.MAX_TOTAL_SECTIONS) {
+    throw new ImportLimitError(
+      `Слишком много разделов в проекте: ${totalSections}. Максимум: ${IMPORT_LIMITS.MAX_TOTAL_SECTIONS}`
+    );
+  }
+
+  if (totalTasks > IMPORT_LIMITS.MAX_TOTAL_TASKS) {
+    throw new ImportLimitError(
+      `Слишком много задач в проекте: ${totalTasks}. Максимум: ${IMPORT_LIMITS.MAX_TOTAL_TASKS}`
+    );
+  }
+
+  if (totalSubtasks > IMPORT_LIMITS.MAX_TOTAL_SUBTASKS) {
+    throw new ImportLimitError(
+      `Слишком много подзадач в проекте: ${totalSubtasks}. Максимум: ${IMPORT_LIMITS.MAX_TOTAL_SUBTASKS}`
+    );
+  }
+}
+
+/**
+ * Validate file size before parsing
+ */
+export function validateFileSize(content: string): void {
+  const sizeInBytes = new TextEncoder().encode(content).length;
+  if (sizeInBytes > IMPORT_LIMITS.MAX_FILE_SIZE_BYTES) {
+    const sizeMB = (sizeInBytes / (1024 * 1024)).toFixed(2);
+    const maxMB = (IMPORT_LIMITS.MAX_FILE_SIZE_BYTES / (1024 * 1024)).toFixed(0);
+    throw new ImportLimitError(
+      `Файл слишком большой: ${sizeMB}MB. Максимум: ${maxMB}MB`
+    );
+  }
+}
+
 export interface ImportedSubtask {
   title: string;
   completed?: boolean;
@@ -311,19 +448,39 @@ export function parseJsonRoadmap(content: string): ImportedProject {
 
 /**
  * Auto-detect format and parse roadmap
+ * Validates file size and import limits
  */
 export function parseRoadmap(content: string, filename?: string): ImportedProject {
+  // Validate file size first
+  validateFileSize(content);
+
+  let project: ImportedProject;
+
   // Try to detect format from filename
   if (filename) {
     if (filename.endsWith('.json')) {
-      return parseJsonRoadmap(content);
+      project = parseJsonRoadmap(content);
+    } else if (filename.endsWith('.md') || filename.endsWith('.markdown')) {
+      project = parseMarkdownRoadmap(content);
+    } else {
+      // Try content-based detection
+      project = parseByContent(content);
     }
-    if (filename.endsWith('.md') || filename.endsWith('.markdown')) {
-      return parseMarkdownRoadmap(content);
-    }
+  } else {
+    // Try content-based detection
+    project = parseByContent(content);
   }
 
-  // Try to detect format from content
+  // Validate import limits
+  validateImportLimits(project);
+
+  return project;
+}
+
+/**
+ * Parse content by detecting format from content
+ */
+function parseByContent(content: string): ImportedProject {
   const trimmedContent = content.trim();
   if (trimmedContent.startsWith('{')) {
     try {
@@ -332,7 +489,6 @@ export function parseRoadmap(content: string, filename?: string): ImportedProjec
       // Fall through to Markdown
     }
   }
-
   return parseMarkdownRoadmap(content);
 }
 

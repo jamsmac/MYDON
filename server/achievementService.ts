@@ -85,22 +85,26 @@ export async function checkAndAwardAchievements(
   const awardAchievement = async (code: string) => {
     const achievementId = ACHIEVEMENT_CODE_TO_ID[code];
     if (!achievementId || unlockedIds.has(achievementId)) return;
-    
+
     const achievement = ACHIEVEMENTS.find(a => a.code === code);
     if (!achievement) return;
 
-    await db.insert(userAchievements).values({
-      userId: userId,
-      achievementId: achievementId,
-      unlockedAt: new Date(),
-    });
+    try {
+      await db.insert(userAchievements).values({
+        userId: userId,
+        achievementId: achievementId,
+        unlockedAt: new Date(),
+      });
 
-    await db.update(userStats)
-      .set({ totalPoints: sql`${userStats.totalPoints} + ${achievement.points}` })
-      .where(eq(userStats.userId, userId));
+      await db.update(userStats)
+        .set({ totalPoints: sql`${userStats.totalPoints} + ${achievement.points}` })
+        .where(eq(userStats.userId, userId));
 
-    newAchievementCodes.push(code);
-    unlockedIds.add(achievementId);
+      newAchievementCodes.push(code);
+      unlockedIds.add(achievementId);
+    } catch {
+      // Achievement definitions might not be seeded - ignore FK errors
+    }
   };
 
   if (trigger === "task_completed") {

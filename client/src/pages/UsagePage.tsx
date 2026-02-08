@@ -327,7 +327,7 @@ export default function UsagePage() {
                       </TableCell>
                     </TableRow>
                   ) : recentRequests && recentRequests.length > 0 ? (
-                    recentRequests.map((request) => (
+                    recentRequests.map((request: { id: number; createdAt: Date | string; model?: string | null; tokens?: number | null; tokensUsed?: number | null; cost?: number | null; creditsCost?: number | null; cached?: boolean | null; requestType?: string | null }) => (
                       <TableRow key={request.id}>
                         <TableCell className="whitespace-nowrap">
                           <div className="flex flex-col">

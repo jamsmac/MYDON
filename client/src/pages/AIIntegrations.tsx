@@ -100,7 +100,7 @@ export default function AIIntegrations() {
   }
 
   // Check which providers are already connected
-  const connectedProviderIds = integrations?.map(i => i.provider) || [];
+  const connectedProviderIds = integrations?.map((i: { provider: string }) => i.provider) || [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -149,7 +149,7 @@ export default function AIIntegrations() {
           <section className="space-y-4">
             <h2 className="text-xl font-semibold">Подключённые интеграции</h2>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {integrations.map((integration) => (
+              {integrations.map((integration: { id: number; provider: string; displayName?: string | null; isEnabled: boolean; apiKey?: string | null; isActive?: boolean | null; totalRequests?: number | null; totalTokens?: number | null; lastUsedAt?: Date | null }) => (
                 <Card key={integration.id} className="relative group">
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between">

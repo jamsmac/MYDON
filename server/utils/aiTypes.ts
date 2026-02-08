@@ -65,14 +65,15 @@ export interface AIRouterConfig {
 }
 
 // Default model mapping based on task type
+// Uses OpenRouter model identifiers
 export const DEFAULT_TASK_MODEL_MAPPING: Record<TaskType, { provider: AIProvider; model: string }> = {
-  reasoning: { provider: 'builtin', model: 'default' },
-  coding: { provider: 'builtin', model: 'default' },
-  vision: { provider: 'builtin', model: 'default' },
-  chat: { provider: 'builtin', model: 'default' },
-  translation: { provider: 'builtin', model: 'default' },
-  summarization: { provider: 'builtin', model: 'default' },
-  creative: { provider: 'builtin', model: 'default' },
+  reasoning: { provider: 'builtin', model: 'google/gemini-2.0-flash-001' },
+  coding: { provider: 'builtin', model: 'google/gemini-2.0-flash-001' },
+  vision: { provider: 'builtin', model: 'google/gemini-2.0-flash-001' },
+  chat: { provider: 'builtin', model: 'google/gemini-2.0-flash-001' },
+  translation: { provider: 'builtin', model: 'google/gemini-2.0-flash-001' },
+  summarization: { provider: 'builtin', model: 'google/gemini-2.0-flash-001' },
+  creative: { provider: 'builtin', model: 'google/gemini-2.0-flash-001' },
 };
 
 // Cost per 1k tokens (approximate)

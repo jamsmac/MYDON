@@ -205,11 +205,11 @@ export const relationsRouter = router({
       // Filter: project-specific + global tags
       let filtered = allTags;
       if (input.projectId) {
-        filtered = allTags.filter(t => t.projectId === null || t.projectId === input.projectId);
+        filtered = allTags.filter((t: { projectId: number | null }) => t.projectId === null || t.projectId === input.projectId);
       }
 
       if (input.tagType) {
-        filtered = filtered.filter(t => t.tagType === input.tagType);
+        filtered = filtered.filter((t: { tagType: string | null }) => t.tagType === input.tagType);
       }
 
       return filtered;
@@ -316,12 +316,12 @@ export const relationsRouter = router({
       const allTags = await query;
 
       // Filter archived if needed
-      const filtered = input.includeArchived 
-        ? allTags 
-        : allTags.filter(t => !t.isArchived);
+      const filtered = input.includeArchived
+        ? allTags
+        : allTags.filter((t: { isArchived: boolean }) => !t.isArchived);
 
       // Sort by sortOrder, then by name
-      return filtered.sort((a, b) => {
+      return filtered.sort((a: { sortOrder: number | null; name: string }, b: { sortOrder: number | null; name: string }) => {
         const aOrder = a.sortOrder ?? 0;
         const bOrder = b.sortOrder ?? 0;
         if (aOrder !== bOrder) return aOrder - bOrder;
@@ -408,13 +408,13 @@ export const relationsRouter = router({
 
       if (taskTagRecords.length === 0) return [];
 
-      const tagIds = taskTagRecords.map(tt => tt.tagId);
+      const tagIds = taskTagRecords.map((tt: { tagId: number }) => tt.tagId);
       const tags = await db
         .select()
         .from(schema.tags)
         .where(eq(schema.tags.isArchived, false));
 
-      return tags.filter(t => tagIds.includes(t.id));
+      return tags.filter((t: { id: number }) => tagIds.includes(t.id));
     }),
 
   // ============================================================================
@@ -589,12 +589,13 @@ export const relationsRouter = router({
         .where(eq(schema.tags.isArchived, false));
 
       // Create a map of tag id to tag data
-      const tagMap = new Map(tags.map(t => [t.id, t]));
+      type TagType = typeof tags[number];
+      const tagMap = new Map(tags.map((t: TagType) => [t.id, t]));
 
       // Return task tags with full tag data
       return taskTags
-        .filter(tt => tagMap.has(tt.tagId))
-        .map(tt => ({
+        .filter((tt: { tagId: number }) => tagMap.has(tt.tagId))
+        .map((tt: { taskId: number; tagId: number }) => ({
           taskId: tt.taskId,
           tag: tagMap.get(tt.tagId)!,
         }));
@@ -625,7 +626,7 @@ export const relationsRouter = router({
         .from(schema.tags)
         .where(eq(schema.tags.projectId, input.projectId));
 
-      const existingNames = new Set(existingTags.map(t => t.name.toLowerCase()));
+      const existingNames = new Set(existingTags.map((t: { name: string }) => t.name.toLowerCase()));
 
       // Filter out tags that already exist
       const tagsToCreate = defaultTags.filter(

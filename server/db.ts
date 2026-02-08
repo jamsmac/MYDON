@@ -1,6 +1,6 @@
-import { eq, and, desc, asc, inArray, lt, not, isNotNull } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, lt, not, isNotNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { 
+import {
   InsertUser, users,
   projects, InsertProject, Project,
   blocks, InsertBlock, Block,
@@ -26,16 +26,29 @@ import {
   savedViews, InsertSavedView, SavedView, SavedViewConfig
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { getPool, initPool, registerShutdownHandlers } from './utils/dbPool';
 
-let _db: ReturnType<typeof drizzle> | null = null;
+// Use explicit any to handle mysql2 Pool type mismatch between promise/non-promise versions
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _db: any = null;
+
+// Initialize pool and register shutdown handlers on module load
+initPool().then(() => {
+  registerShutdownHandlers();
+}).catch(err => {
+  console.error("[Database] Failed to initialize pool on startup:", err);
+});
 
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
+  if (!_db) {
+    const pool = await getPool();
+    if (pool) {
+      try {
+        _db = drizzle(pool);
+      } catch (error) {
+        console.warn("[Database] Failed to create drizzle instance:", error);
+        _db = null;
+      }
     }
   }
   return _db;
@@ -130,6 +143,32 @@ export async function getProjectsByUser(userId: number): Promise<Project[]> {
   return db.select().from(projects)
     .where(eq(projects.userId, userId))
     .orderBy(desc(projects.updatedAt));
+}
+
+export async function getProjectsByUserPaginated(
+  userId: number,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<{ data: Project[]; total: number }> {
+  const db = await getDb();
+  if (!db) return { data: [], total: 0 };
+
+  const offset = (page - 1) * pageSize;
+
+  // Get total count
+  const countResult = await db.select({ count: sql<number>`COUNT(*)` })
+    .from(projects)
+    .where(eq(projects.userId, userId));
+  const total = Number(countResult[0]?.count ?? 0);
+
+  // Get paginated data
+  const data = await db.select().from(projects)
+    .where(eq(projects.userId, userId))
+    .orderBy(desc(projects.updatedAt))
+    .limit(pageSize)
+    .offset(offset);
+
+  return { data, total };
 }
 
 export async function getProjectById(id: number, userId: number): Promise<Project | undefined> {
@@ -266,6 +305,32 @@ export async function getTasksBySection(sectionId: number): Promise<Task[]> {
     .orderBy(asc(tasks.sortOrder));
 }
 
+export async function getTasksBySectionPaginated(
+  sectionId: number,
+  page: number = 1,
+  pageSize: number = 50
+): Promise<{ data: Task[]; total: number }> {
+  const db = await getDb();
+  if (!db) return { data: [], total: 0 };
+
+  const offset = (page - 1) * pageSize;
+
+  // Get total count
+  const countResult = await db.select({ count: sql<number>`COUNT(*)` })
+    .from(tasks)
+    .where(eq(tasks.sectionId, sectionId));
+  const total = Number(countResult[0]?.count ?? 0);
+
+  // Get paginated data
+  const data = await db.select().from(tasks)
+    .where(eq(tasks.sectionId, sectionId))
+    .orderBy(asc(tasks.sortOrder))
+    .limit(pageSize)
+    .offset(offset);
+
+  return { data, total };
+}
+
 export async function updateTask(id: number, data: Partial<InsertTask>): Promise<Task | undefined> {
   const db = await getDb();
   if (!db) return undefined;
@@ -388,7 +453,7 @@ export async function getSubtaskTemplatesByUser(userId: number): Promise<(Subtas
     .orderBy(desc(subtaskTemplates.usageCount));
 
   const templatesWithItems = await Promise.all(
-    templates.map(async (template) => {
+    templates.map(async (template: SubtaskTemplate) => {
       const items = await db.select().from(subtaskTemplateItems)
         .where(eq(subtaskTemplateItems.templateId, template.id))
         .orderBy(asc(subtaskTemplateItems.sortOrder));
@@ -630,37 +695,93 @@ export async function clearChatHistory(
 
 // ============ FULL PROJECT WITH HIERARCHY ============
 
+/**
+ * Get full project with all blocks, sections, tasks, and subtasks
+ * Optimized to use batch queries instead of N+1 pattern
+ */
 export async function getFullProject(projectId: number, userId: number) {
   const db = await getDb();
   if (!db) return null;
 
+  // 1. Get project (with ownership check)
   const project = await getProjectById(projectId, userId);
   if (!project) return null;
 
-  const projectBlocks = await getBlocksByProject(projectId);
-  
-  const blocksWithSections = await Promise.all(
-    projectBlocks.map(async (block) => {
-      const blockSections = await getSectionsByBlock(block.id);
-      
-      const sectionsWithTasks = await Promise.all(
-        blockSections.map(async (section) => {
-          const sectionTasks = await getTasksBySection(section.id);
-          
-          const tasksWithSubtasks = await Promise.all(
-            sectionTasks.map(async (task) => {
-              const taskSubtasks = await getSubtasksByTask(task.id);
-              return { ...task, subtasks: taskSubtasks };
-            })
-          );
-          
-          return { ...section, tasks: tasksWithSubtasks };
-        })
-      );
-      
-      return { ...block, sections: sectionsWithTasks };
-    })
-  );
+  // 2. Get all blocks for project (1 query)
+  const projectBlocks = await db.select().from(blocks)
+    .where(eq(blocks.projectId, projectId))
+    .orderBy(asc(blocks.sortOrder), asc(blocks.number));
+
+  if (projectBlocks.length === 0) {
+    return { ...project, blocks: [] };
+  }
+
+  // 3. Get all sections for all blocks (1 query)
+  const blockIds = projectBlocks.map((b: Block) => b.id);
+  const allSections = await db.select().from(sections)
+    .where(inArray(sections.blockId, blockIds))
+    .orderBy(asc(sections.sortOrder));
+
+  if (allSections.length === 0) {
+    return {
+      ...project,
+      blocks: projectBlocks.map((block: Block) => ({ ...block, sections: [] }))
+    };
+  }
+
+  // 4. Get all tasks for all sections (1 query)
+  const sectionIds = allSections.map((s: Section) => s.id);
+  const allTasks = await db.select().from(tasks)
+    .where(inArray(tasks.sectionId, sectionIds))
+    .orderBy(asc(tasks.sortOrder));
+
+  // 5. Get all subtasks for all tasks (1 query)
+  let allSubtasks: Subtask[] = [];
+  if (allTasks.length > 0) {
+    const taskIds = allTasks.map((t: Task) => t.id);
+    allSubtasks = await db.select().from(subtasks)
+      .where(inArray(subtasks.taskId, taskIds))
+      .orderBy(asc(subtasks.sortOrder));
+  }
+
+  // 6. Group data in memory
+  // Group subtasks by taskId
+  const subtasksByTaskId = new Map<number, Subtask[]>();
+  for (const subtask of allSubtasks) {
+    const list = subtasksByTaskId.get(subtask.taskId) || [];
+    list.push(subtask);
+    subtasksByTaskId.set(subtask.taskId, list);
+  }
+
+  // Group tasks by sectionId and attach subtasks
+  const tasksBySectionId = new Map<number, (Task & { subtasks: Subtask[] })[]>();
+  for (const task of allTasks) {
+    const taskWithSubtasks = {
+      ...task,
+      subtasks: subtasksByTaskId.get(task.id) || []
+    };
+    const list = tasksBySectionId.get(task.sectionId) || [];
+    list.push(taskWithSubtasks);
+    tasksBySectionId.set(task.sectionId, list);
+  }
+
+  // Group sections by blockId and attach tasks
+  const sectionsByBlockId = new Map<number, (Section & { tasks: (Task & { subtasks: Subtask[] })[] })[]>();
+  for (const section of allSections) {
+    const sectionWithTasks = {
+      ...section,
+      tasks: tasksBySectionId.get(section.id) || []
+    };
+    const list = sectionsByBlockId.get(section.blockId) || [];
+    list.push(sectionWithTasks);
+    sectionsByBlockId.set(section.blockId, list);
+  }
+
+  // Attach sections to blocks
+  const blocksWithSections = projectBlocks.map((block: Block) => ({
+    ...block,
+    sections: sectionsByBlockId.get(block.id) || []
+  }));
 
   return { ...project, blocks: blocksWithSections };
 }
@@ -719,26 +840,32 @@ export async function deductCredits(
   const db = await getDb();
   if (!db) return { success: false, newBalance: 0, error: "Database not available" };
 
-  // Get current credits
-  const credits = await getUserCredits(userId);
-  if (!credits) {
-    return { success: false, newBalance: 0, error: "Кредиты не найдены" };
-  }
+  // Atomic update: only deduct if credits >= amount
+  // This prevents race conditions where two concurrent requests could both pass the check
+  const result = await db.update(userCredits)
+    .set({
+      credits: sql`credits - ${amount}`,
+      totalSpent: sql`total_spent + ${amount}`,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(userCredits.userId, userId),
+      sql`credits >= ${amount}`
+    ));
 
-  if (credits.credits < amount) {
+  // Check if the update actually happened (affected rows > 0)
+  if (result[0].affectedRows === 0) {
+    // Either user doesn't exist or has insufficient credits
+    const credits = await getUserCredits(userId);
+    if (!credits) {
+      return { success: false, newBalance: 0, error: "Кредиты не найдены" };
+    }
     return { success: false, newBalance: credits.credits, error: "Недостаточно кредитов" };
   }
 
-  const newBalance = credits.credits - amount;
-
-  // Update credits
-  await db.update(userCredits)
-    .set({
-      credits: newBalance,
-      totalSpent: credits.totalSpent + amount,
-      updatedAt: new Date(),
-    })
-    .where(eq(userCredits.userId, userId));
+  // Get the new balance after atomic update
+  const updatedCredits = await getUserCredits(userId);
+  const newBalance = updatedCredits?.credits ?? 0;
 
   // Record transaction
   await db.insert(creditTransactions).values({
@@ -828,7 +955,7 @@ export async function getTemplates(userId: number): Promise<ProjectTemplate[]> {
     .orderBy(desc(projectTemplates.usageCount), desc(projectTemplates.createdAt));
   
   // Filter: public templates OR user's own templates
-  return results.filter(t => t.isPublic || t.authorId === userId);
+  return results.filter((t: ProjectTemplate) => t.isPublic || t.authorId === userId);
 }
 
 export async function getPublicTemplates(): Promise<ProjectTemplate[]> {
@@ -935,15 +1062,18 @@ export async function saveProjectAsTemplate(
   if (!project) return null;
 
   // Convert project to template structure
+  type ProjectBlock = { title: string; description: string | null; duration: number | null; sections: Array<{ title: string; description: string | null; tasks: Array<{ title: string; description: string | null }> }> };
+  type ProjectSection = { title: string; description: string | null; tasks: Array<{ title: string; description: string | null }> };
+  type ProjectTask = { title: string; description: string | null };
   const structure: TemplateStructure = {
-    blocks: project.blocks.map(block => ({
+    blocks: project.blocks.map((block: ProjectBlock) => ({
       title: block.title,
       description: block.description || undefined,
       duration: block.duration || undefined,
-      sections: block.sections.map(section => ({
+      sections: block.sections.map((section: ProjectSection) => ({
         title: section.title,
         description: section.description || undefined,
-        tasks: section.tasks.map(task => ({
+        tasks: section.tasks.map((task: ProjectTask) => ({
           title: task.title,
           description: task.description || undefined,
         })),
@@ -952,7 +1082,7 @@ export async function saveProjectAsTemplate(
   };
 
   // Calculate estimated duration from blocks
-  const durations = project.blocks.map(b => b.duration).filter(Boolean);
+  const durations = project.blocks.map((b: { duration: string | null }) => b.duration).filter(Boolean);
   const estimatedDuration = durations.length > 0 ? durations.join(' + ') : undefined;
 
   return createTemplate({
@@ -1363,12 +1493,12 @@ export async function mergeTasks(
   
   // Combine descriptions
   const combinedDescription = tasksToMerge
-    .map(t => `**${t.title}**\n${t.description || ''}`)
+    .map((t: { title: string; description: string | null }) => `**${t.title}**\n${t.description || ''}`)
     .join('\n\n---\n\n');
   
   // Get max sort order in section
   const existingTasks = await db.select().from(tasks).where(eq(tasks.sectionId, sectionId));
-  const maxSortOrder = Math.max(...existingTasks.map(t => t.sortOrder || 0), 0);
+  const maxSortOrder = Math.max(...existingTasks.map((t: { sortOrder: number | null }) => t.sortOrder || 0), 0);
   
   // Create new merged task
   const result = await db.insert(tasks).values({
@@ -1410,7 +1540,7 @@ export async function convertTaskToSection(
   
   // Get max sort order for sections in this block
   const existingSections = await db.select().from(sections).where(eq(sections.blockId, oldSection.blockId));
-  const maxSortOrder = Math.max(...existingSections.map(s => s.sortOrder || 0), 0);
+  const maxSortOrder = Math.max(...existingSections.map((s: { sortOrder: number | null }) => s.sortOrder || 0), 0);
   
   // Create new section from task
   const result = await db.insert(sections).values({
@@ -1456,7 +1586,7 @@ export async function convertSectionToTask(
   
   // Get max sort order in target section
   const existingTasks = await db.select().from(tasks).where(eq(tasks.sectionId, targetSectionId));
-  const maxSortOrder = Math.max(...existingTasks.map(t => t.sortOrder || 0), 0);
+  const maxSortOrder = Math.max(...existingTasks.map((t: { sortOrder: number | null }) => t.sortOrder || 0), 0);
   
   // Create new task from section
   const result = await db.insert(tasks).values({
@@ -1559,7 +1689,7 @@ export async function duplicateTask(taskId: number): Promise<Task> {
   
   // Get max sort order
   const existingTasks = await db.select().from(tasks).where(eq(tasks.sectionId, task.sectionId));
-  const maxSortOrder = Math.max(...existingTasks.map(t => t.sortOrder || 0), 0);
+  const maxSortOrder = Math.max(...existingTasks.map((t: { sortOrder: number | null }) => t.sortOrder || 0), 0);
   
   // Create duplicate
   const result = await db.insert(tasks).values({
@@ -1732,7 +1862,7 @@ export async function getProjectMembers(projectId: number): Promise<(ProjectMemb
     .orderBy(asc(projectMembers.createdAt));
   
   // Join with users table to get user info
-  const membersWithUsers = await Promise.all(members.map(async (member) => {
+  const membersWithUsers = await Promise.all(members.map(async (member: { userId: number; id: number; projectId: number; role: string; status: string; createdAt: Date | null }) => {
     const [user] = await db.select({
       id: users.id,
       name: users.name,
@@ -1907,7 +2037,7 @@ export async function getProjectActivity(
   const activities = await query;
   
   // Join with users table to get user info
-  const activitiesWithUsers = await Promise.all(activities.map(async (activity) => {
+  const activitiesWithUsers = await Promise.all(activities.map(async (activity: { id: number; userId: number; projectId: number | null; actionType: string; entityType: string; entityId: number | null; details: unknown; createdAt: Date | null }) => {
     const [user] = await db.select({
       id: users.id,
       name: users.name,
@@ -1915,7 +2045,7 @@ export async function getProjectActivity(
     }).from(users).where(eq(users.id, activity.userId));
     return { ...activity, user: user || null };
   }));
-  
+
   return activitiesWithUsers;
 }
 
@@ -1958,8 +2088,8 @@ export async function getDashboardActivity(
     .where(eq(projects.userId, userId));
   
   const projectIds = Array.from(new Set([
-    ...memberProjects.map(p => p.projectId),
-    ...ownedProjects.map(p => p.id)
+    ...memberProjects.map((p: { projectId: number }) => p.projectId),
+    ...ownedProjects.map((p: { id: number }) => p.id)
   ]));
   
   if (projectIds.length === 0) return [];
@@ -1970,13 +2100,13 @@ export async function getDashboardActivity(
     .limit(limit);
   
   // Join with users and projects
-  const activitiesWithDetails = await Promise.all(activities.map(async (activity) => {
+  const activitiesWithDetails = await Promise.all(activities.map(async (activity: { id: number; userId: number; projectId: number | null; actionType: string; entityType: string; entityId: number | null; details: unknown; createdAt: Date | null }) => {
     const [user] = await db.select({
       id: users.id,
       name: users.name,
       avatar: users.avatar
     }).from(users).where(eq(users.id, activity.userId));
-    
+
     const [project] = activity.projectId 
       ? await db.select({
           id: projects.id,
@@ -2011,16 +2141,16 @@ export async function getTasksAssignedToUser(userId: number, projectId?: number)
     // Get all sections in project
     const projectBlocks = await db.select({ id: blocks.id }).from(blocks)
       .where(eq(blocks.projectId, projectId));
-    
+
     if (projectBlocks.length === 0) return [];
-    
-    const blockIds = projectBlocks.map(b => b.id);
+
+    const blockIds = projectBlocks.map((b: { id: number }) => b.id);
     const projectSections = await db.select({ id: sections.id }).from(sections)
       .where(inArray(sections.blockId, blockIds));
-    
+
     if (projectSections.length === 0) return [];
-    
-    const sectionIds = projectSections.map(s => s.id);
+
+    const sectionIds = projectSections.map((s: { id: number }) => s.id);
     
     return db.select().from(tasks)
       .where(and(
@@ -2119,17 +2249,17 @@ export async function getProjectDependencies(projectId: number): Promise<TaskDep
   
   // Get all task IDs for the project
   const projectBlocks = await db.select().from(blocks).where(eq(blocks.projectId, projectId));
-  const blockIds = projectBlocks.map(b => b.id);
-  
+  const blockIds = projectBlocks.map((b: { id: number }) => b.id);
+
   if (blockIds.length === 0) return [];
-  
+
   const projectSections = await db.select().from(sections).where(inArray(sections.blockId, blockIds));
-  const sectionIds = projectSections.map(s => s.id);
-  
+  const sectionIds = projectSections.map((s: { id: number }) => s.id);
+
   if (sectionIds.length === 0) return [];
-  
+
   const projectTasks = await db.select().from(tasks).where(inArray(tasks.sectionId, sectionIds));
-  const taskIds = projectTasks.map(t => t.id);
+  const taskIds = projectTasks.map((t: { id: number }) => t.id);
   
   if (taskIds.length === 0) return [];
   

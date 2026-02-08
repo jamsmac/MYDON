@@ -15,7 +15,7 @@ export const usageRouter = router({
   getBalance: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error('Database not available');
-    const credits = await db.select().from(userCredits).where(eq(userCredits.userId, ctx.user.id)).limit(1).then(r => r[0]);
+    const credits = await db.select().from(userCredits).where(eq(userCredits.userId, ctx.user.id)).limit(1).then((r: schema.UserCredits[]) => r[0]);
 
     if (!credits) {
       // Create default credits for new user
@@ -178,7 +178,7 @@ export const usageRouter = router({
     const db = await getDb();
     if (!db) throw new Error('Database not available');
     // Check if user is in BYOK mode
-    const credits = await db.select().from(userCredits).where(eq(userCredits.userId, ctx.user.id)).limit(1).then(r => r[0]);
+    const credits = await db.select().from(userCredits).where(eq(userCredits.userId, ctx.user.id)).limit(1).then((r: schema.UserCredits[]) => r[0]);
     const useBYOK = credits?.useBYOK || false;
 
     // Get all enabled models with pricing
@@ -203,9 +203,9 @@ export const usageRouter = router({
       const userProviderSet = new Set(userProviders.map((p: { provider: string }) => p.provider));
       
       // Filter models to only those with user's configured providers
-      return models.filter((m) => {
+      return models.filter((m: schema.ModelPricing) => {
         const providerLower = m.provider.toLowerCase();
-        return userProviderSet.has(providerLower) || 
+        return userProviderSet.has(providerLower) ||
                userProviderSet.has("openai") && providerLower.includes("gpt") ||
                userProviderSet.has("anthropic") && providerLower.includes("claude") ||
                userProviderSet.has("google") && providerLower.includes("gemini");
@@ -225,7 +225,7 @@ export const usageRouter = router({
       }
       
       // Filter models to only those with platform keys
-      return models.filter((m) => {
+      return models.filter((m: schema.ModelPricing) => {
         const providerLower = m.provider.toLowerCase();
         return platformProviderSet.has(providerLower) ||
                platformProviderSet.has("openai") && providerLower.includes("gpt") ||
@@ -313,8 +313,8 @@ export const usageRouter = router({
       }
 
       // Check user credits
-      const credits = await db.select().from(userCredits).where(eq(userCredits.userId, ctx.user.id)).limit(1).then(r => r[0]);
-      const totalEstimatedCost = models.reduce((sum, m) => sum + (parseFloat(m.inputCostPer1K) || 1), 0);
+      const credits = await db.select().from(userCredits).where(eq(userCredits.userId, ctx.user.id)).limit(1).then((r: schema.UserCredits[]) => r[0]);
+      const totalEstimatedCost = models.reduce((sum: number, m: schema.ModelPricing) => sum + (parseFloat(m.inputCostPer1K) || 1), 0);
       
       if (!credits?.useBYOK && (credits?.credits || 0) < totalEstimatedCost) {
         throw new Error(`Insufficient credits. Need ${totalEstimatedCost}, have ${credits?.credits || 0}`);
@@ -322,7 +322,7 @@ export const usageRouter = router({
 
       // Call all models in parallel
       const results = await Promise.allSettled(
-        models.map(async (model) => {
+        models.map(async (model: schema.ModelPricing) => {
           const startTime = Date.now();
           try {
             // Use the built-in LLM API with model specification
@@ -429,7 +429,7 @@ export const usageRouter = router({
         entityType: 'ai' as any,
         entityTitle: `Compared ${models.length} models`,
         metadata: {
-          models: models.map(m => m.modelName),
+          models: models.map((m: schema.ModelPricing) => m.modelName),
           prompt: input.prompt.substring(0, 100),
         },
       });
@@ -463,10 +463,10 @@ export const usageRouter = router({
           sql`${modelPricing.id} IN (${sql.join(input.modelIds.map(id => sql`${id}`), sql`, `)})`
         );
 
-      const totalCost = models.reduce((sum, m) => sum + (parseFloat(m.inputCostPer1K) || 1), 0);
+      const totalCost = models.reduce((sum: number, m: { id: number; modelName: string; provider: string; inputCostPer1K: string }) => sum + (parseFloat(m.inputCostPer1K) || 1), 0);
 
       return {
-        models: models.map(m => ({
+        models: models.map((m: { id: number; modelName: string; provider: string; inputCostPer1K: string }) => ({
           id: m.id,
           name: m.modelName,
           provider: m.provider,
@@ -562,7 +562,7 @@ export const usageRouter = router({
         .where(eq(modelComparisons.userId, ctx.user.id));
       
       return {
-        comparisons: comparisons.map(c => ({
+        comparisons: comparisons.map((c: schema.ModelComparison) => ({
           id: c.id,
           title: c.title,
           prompt: c.prompt,

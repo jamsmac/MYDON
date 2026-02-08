@@ -114,7 +114,7 @@ export const aiTrpcRouter = router({
         return [];
       }
 
-      return messages.reverse().map(m => ({
+      return messages.reverse().map((m: { id: number; prompt: string | null; response: string | null; model: string | null; taskType: string | null; tokens: number | null; cost: number | null; fromCache: boolean | null; executionTime: number | null; createdAt: Date | null }) => ({
         id: m.id,
         prompt: m.prompt,
         response: m.response,

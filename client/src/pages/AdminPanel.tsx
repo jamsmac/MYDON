@@ -308,7 +308,7 @@ function AgentsSection() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {agents?.map((agent) => (
+        {agents?.map((agent: { id: number; name: string; description: string | null; type: string; modelPreference: string | null; totalRequests: number; isActive: boolean; isSystem: boolean }) => (
           <Card key={agent.id} className="relative group">
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between">
@@ -392,7 +392,7 @@ function SkillsSection() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {skills?.map((skill) => (
+        {skills?.map((skill: { id: number; name: string; description: string | null; handlerType: string; totalInvocations: number; isActive: boolean }) => (
           <Card key={skill.id}>
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between">
@@ -468,7 +468,7 @@ function MCPServersSection() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {servers?.map((server) => (
+        {servers?.map((server: { id: number; name: string; description: string | null; endpoint: string; protocol: string; authType: string; status: string | null; tools: unknown[] | null }) => (
           <Card key={server.id}>
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between">
@@ -691,7 +691,7 @@ function LogsSection() {
                 </tr>
               </thead>
               <tbody>
-                {logs?.map((log) => (
+                {logs?.map((log: { id: number; createdAt: string; requestType: string; model: string | null; tokensUsed: number | null; responseTimeMs: number | null; status: string | null }) => (
                   <tr key={log.id} className="border-b last:border-0 hover:bg-muted/50">
                     <td className="p-4 text-sm">
                       {new Date(log.createdAt).toLocaleString("ru-RU")}

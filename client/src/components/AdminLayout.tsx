@@ -58,7 +58,8 @@ import {
   ChevronRight,
   Star,
   GripVertical,
-  LucideIcon
+  LucideIcon,
+  Trophy,
 } from "lucide-react";
 import { CSSProperties, useState, ReactNode, useCallback, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -138,6 +139,7 @@ const menuGroups: MenuGroup[] = [
       { icon: TrendingUp, label: "Лимиты", path: "/admin/limits" },
       { icon: Receipt, label: "Тарифы", path: "/admin/tariffs" },
       { icon: Bot, label: "Стоимость моделей", path: "/admin/model-costs" },
+      { icon: Trophy, label: "Рейтинги моделей", path: "/admin/model-ratings" },
     ],
   },
   {

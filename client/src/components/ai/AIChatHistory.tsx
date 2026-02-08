@@ -114,7 +114,7 @@ export function AIChatHistory({
                 <Loader2 className="h-6 w-6 animate-spin text-amber-500" />
               </div>
             ) : messages && messages.length > 0 ? (
-              messages.map((msg) => (
+              messages.map((msg: { id: number; role: string; content: string; provider?: string | null; createdAt: Date }) => (
                 <Card
                   key={msg.id}
                   className={cn(

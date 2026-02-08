@@ -1,10 +1,15 @@
 import { relations } from "drizzle-orm";
-import { 
-  users, 
+import {
+  users,
   projects,
+  blocks,
+  sections,
   tasks,
-  aiRequests, 
-  aiSessions, 
+  subtasks,
+  projectMembers,
+  taskComments,
+  aiRequests,
+  aiSessions,
   aiUsageStats,
   tags,
   taskTags,
@@ -14,6 +19,106 @@ import {
   lookupFields,
   rollupFields,
 } from "./schema";
+
+// ============================================================================
+// CORE ENTITY RELATIONS
+// ============================================================================
+
+// Projects relations
+export const projectsRelations = relations(projects, ({ one, many }) => ({
+  owner: one(users, {
+    fields: [projects.userId],
+    references: [users.id],
+  }),
+  blocks: many(blocks),
+  members: many(projectMembers),
+  tags: many(tags),
+  viewConfigs: many(viewConfigs),
+}));
+
+// Blocks relations
+export const blocksRelations = relations(blocks, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [blocks.projectId],
+    references: [projects.id],
+  }),
+  sections: many(sections),
+}));
+
+// Sections relations
+export const sectionsRelations = relations(sections, ({ one, many }) => ({
+  block: one(blocks, {
+    fields: [sections.blockId],
+    references: [blocks.id],
+  }),
+  tasks: many(tasks),
+}));
+
+// Tasks relations
+export const tasksRelations = relations(tasks, ({ one, many }) => ({
+  section: one(sections, {
+    fields: [tasks.sectionId],
+    references: [sections.id],
+  }),
+  assignee: one(users, {
+    fields: [tasks.assignedTo],
+    references: [users.id],
+  }),
+  subtasks: many(subtasks),
+  comments: many(taskComments),
+  taskTags: many(taskTags),
+}));
+
+// Subtasks relations
+export const subtasksRelations = relations(subtasks, ({ one }) => ({
+  task: one(tasks, {
+    fields: [subtasks.taskId],
+    references: [tasks.id],
+  }),
+}));
+
+// Project Members relations
+export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectMembers.projectId],
+    references: [projects.id],
+  }),
+  user: one(users, {
+    fields: [projectMembers.userId],
+    references: [users.id],
+  }),
+  invitedByUser: one(users, {
+    fields: [projectMembers.invitedBy],
+    references: [users.id],
+    relationName: "invitedMembers",
+  }),
+}));
+
+// Task Comments relations
+export const taskCommentsRelations = relations(taskComments, ({ one }) => ({
+  task: one(tasks, {
+    fields: [taskComments.taskId],
+    references: [tasks.id],
+  }),
+  author: one(users, {
+    fields: [taskComments.userId],
+    references: [users.id],
+  }),
+}));
+
+// Users relations (core)
+export const usersRelations = relations(users, ({ many }) => ({
+  ownedProjects: many(projects),
+  assignedTasks: many(tasks),
+  memberships: many(projectMembers),
+  comments: many(taskComments),
+  createdTags: many(tags),
+  addedTaskTags: many(taskTags),
+  createdEntityRelations: many(entityRelations),
+  viewConfigs: many(viewConfigs),
+  lookupFields: many(lookupFields),
+  rollupFields: many(rollupFields),
+}));
 
 // AI Requests relations
 export const aiRequestsRelations = relations(aiRequests, ({ one }) => ({
@@ -126,23 +231,5 @@ export const rollupFieldsRelations = relations(rollupFields, ({ one }) => ({
   }),
 }));
 
-// Extended user relations for new tables
-export const usersRelationsExtended = relations(users, ({ many }) => ({
-  createdTags: many(tags),
-  addedTaskTags: many(taskTags),
-  createdEntityRelations: many(entityRelations),
-  viewConfigs: many(viewConfigs),
-  lookupFields: many(lookupFields),
-  rollupFields: many(rollupFields),
-}));
-
-// Extended project relations for new tables
-export const projectsRelationsExtended = relations(projects, ({ many }) => ({
-  tags: many(tags),
-  viewConfigs: many(viewConfigs),
-}));
-
-// Extended task relations for tags
-export const tasksRelationsExtended = relations(tasks, ({ many }) => ({
-  taskTags: many(taskTags),
-}));
+// Note: Core relations for users, projects, and tasks are defined above
+// and include all relationships including tags, viewConfigs, etc.

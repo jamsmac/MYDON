@@ -389,10 +389,10 @@ export class RollupCalculator {
       .from(schema.rollupFields)
       .where(eq(schema.rollupFields.isVisible, true));
 
-    const filtered = results.filter((f) => f.entityType === entityType);
+    const filtered = results.filter((f: { entityType: string }) => f.entityType === entityType);
 
     if (entityId) {
-      return filtered.filter((f) => f.entityId === null || f.entityId === entityId);
+      return filtered.filter((f: { entityId: number | null }) => f.entityId === null || f.entityId === entityId);
     }
 
     return filtered;

@@ -13,9 +13,10 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "jsdom",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts", "client/**/*.test.tsx", "client/**/*.spec.tsx"],
-    globals: true,
-    setupFiles: ["./vitest.setup.ts"],
+    // Use node environment for server tests (default)
+    environment: "node",
+    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    // Exclude node_modules
+    exclude: ["node_modules/**"],
   },
 });

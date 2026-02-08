@@ -29,6 +29,7 @@ import {
   Loader2,
   ArrowRight,
   X,
+  Paperclip,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -40,8 +41,31 @@ import {
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { FileUploadZone, AttachmentChip } from "@/components/attachments";
 
 type EntityType = "project" | "block" | "section" | "task";
+
+interface Comment {
+  id: number;
+  content: string;
+  userId: number;
+  isSummary?: boolean;
+  parentId?: number | null;
+  userName?: string | null;
+  createdAt: Date;
+  mentions?: number[] | null;
+  attachmentIds?: number[] | null;
+  reactions?: Array<{ emoji: string; userId: number }>;
+  isEdited?: boolean;
+}
+
+interface PendingAttachment {
+  id: number;
+  fileName: string;
+  fileUrl: string | null;
+  mimeType: string;
+  fileSize: number;
+}
 
 interface DiscussionPanelProps {
   entityType: EntityType;
@@ -77,6 +101,31 @@ const entityColors: Record<EntityType, string> = {
   section: "text-emerald-400",
   task: "text-blue-400",
 };
+
+// Helper component to display attachments in comments
+function CommentAttachments({ attachmentIds }: { attachmentIds: number[] }) {
+  const { data: attachments } = trpc.attachments.getMany.useQuery(
+    { attachmentIds },
+    { enabled: attachmentIds.length > 0 }
+  );
+
+  if (!attachments || attachments.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-1.5">
+      {attachments.map((attachment: { id: number; fileName: string; fileUrl: string | null; mimeType: string; fileSize: number }) => (
+        <AttachmentChip
+          key={attachment.id}
+          id={attachment.id}
+          fileName={attachment.fileName}
+          fileUrl={attachment.fileUrl}
+          mimeType={attachment.mimeType}
+          fileSize={attachment.fileSize}
+        />
+      ))}
+    </div>
+  );
+}
 
 // Distribute dialog for selecting which tasks to create
 function DistributeDialog({
@@ -260,6 +309,7 @@ export function DiscussionPanel({
   const [distributeOpen, setDistributeOpen] = useState(false);
   const [suggestedTasks, setSuggestedTasks] = useState<Array<{ title: string; description: string; sectionId: number | null; priority: string }>>([]);
   const [availableSections, setAvailableSections] = useState<Array<{ id: number; title: string; blockTitle: string }>>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -272,6 +322,7 @@ export function DiscussionPanel({
     onSuccess: () => {
       setNewComment("");
       setReplyingTo(null);
+      setPendingAttachments([]);
       refetch();
       setTimeout(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -334,14 +385,25 @@ export function DiscussionPanel({
   });
 
   const handleSubmit = useCallback(() => {
-    if (!newComment.trim()) return;
+    if (!newComment.trim() && pendingAttachments.length === 0) return;
     addDiscussion.mutate({
       entityType,
       entityId,
-      content: newComment.trim(),
+      content: newComment.trim() || "(файлы)",
       parentId: replyingTo ?? undefined,
+      attachmentIds: pendingAttachments.length > 0 ? pendingAttachments.map(a => a.id) : undefined,
     });
-  }, [newComment, entityType, entityId, replyingTo, addDiscussion]);
+  }, [newComment, entityType, entityId, replyingTo, addDiscussion, pendingAttachments]);
+
+  // Handle attachment upload complete
+  const handleAttachmentUpload = useCallback((attachment: { id: number; fileName: string; fileUrl: string | null }) => {
+    setPendingAttachments(prev => [...prev, { ...attachment, mimeType: '', fileSize: 0 }]);
+  }, []);
+
+  // Remove pending attachment
+  const removePendingAttachment = useCallback((id: number) => {
+    setPendingAttachments(prev => prev.filter(a => a.id !== id));
+  }, []);
 
   const handleAIFinalize = useCallback(() => {
     finalizeMutation.mutate({
@@ -380,8 +442,8 @@ export function DiscussionPanel({
 
   const commonEmojis = ["👍", "❤️", "😊", "🎉", "🤔", "👀"];
   const EntityIcon = entityIcons[entityType];
-  const summaryMessages = comments?.filter((c) => c.isSummary) || [];
-  const regularMessages = comments?.filter((c) => !c.isSummary) || [];
+  const summaryMessages = comments?.filter((c: Comment) => c.isSummary) || [];
+  const regularMessages = comments?.filter((c: Comment) => !c.isSummary) || [];
 
   return (
     <div className={cn("flex flex-col", compact ? "h-full" : "h-full max-h-[600px]", className)}>
@@ -462,7 +524,7 @@ export function DiscussionPanel({
       {/* Pinned Summaries */}
       {summaryMessages.length > 0 && (
         <div className="px-3 py-2 border-b border-slate-700/30 bg-amber-500/5 max-h-[200px] overflow-y-auto">
-          {summaryMessages.map((summary) => (
+          {summaryMessages.map((summary: Comment) => (
             <div key={summary.id} className="flex items-start gap-2 py-1.5">
               <Pin className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
               <div className="text-xs text-slate-300 prose prose-invert prose-xs max-w-none">
@@ -477,7 +539,7 @@ export function DiscussionPanel({
       <ScrollArea className="flex-1 min-h-0" ref={scrollRef}>
         <div className="p-3 space-y-2">
           {regularMessages.length > 0 ? (
-            regularMessages.map((comment) => (
+            regularMessages.map((comment: Comment) => (
               <div
                 key={comment.id}
                 className={cn(
@@ -487,7 +549,7 @@ export function DiscussionPanel({
               >
                 <Avatar className="w-7 h-7 flex-shrink-0">
                   <AvatarFallback className={cn("text-white text-[10px]", getUserColor(comment.userId))}>
-                    {getInitials(comment.userName)}
+                    {getInitials(comment.userName || null)}
                   </AvatarFallback>
                 </Avatar>
 
@@ -539,15 +601,20 @@ export function DiscussionPanel({
                     </p>
                   )}
 
+                  {/* Attachments */}
+                  {comment.attachmentIds && comment.attachmentIds.length > 0 && (
+                    <CommentAttachments attachmentIds={comment.attachmentIds} />
+                  )}
+
                   {/* Reactions */}
                   {comment.reactions && comment.reactions.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {Object.entries(
-                        comment.reactions.reduce((acc: Record<string, number>, r: any) => {
+                        comment.reactions.reduce((acc: Record<string, number>, r: { emoji: string; userId: number }) => {
                           acc[r.emoji] = (acc[r.emoji] || 0) + 1;
                           return acc;
                         }, {} as Record<string, number>)
-                      ).map(([emoji, count]) => (
+                      ).map(([emoji, count]: [string, number]) => (
                         <button
                           key={emoji}
                           onClick={() => addReaction.mutate({ commentId: comment.id, emoji })}
@@ -662,6 +729,24 @@ export function DiscussionPanel({
         </div>
       )}
 
+      {/* Pending attachments */}
+      {pendingAttachments.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-3 py-2 border-t border-slate-700/50 bg-slate-800/10">
+          {pendingAttachments.map((attachment) => (
+            <AttachmentChip
+              key={attachment.id}
+              id={attachment.id}
+              fileName={attachment.fileName}
+              fileUrl={attachment.fileUrl}
+              mimeType={attachment.mimeType}
+              fileSize={attachment.fileSize}
+              canDelete
+              onDelete={removePendingAttachment}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Input */}
       <div className="flex gap-2 p-3 border-t border-slate-700/50 bg-slate-800/20">
         <Avatar className="w-7 h-7 flex-shrink-0">
@@ -669,7 +754,7 @@ export function DiscussionPanel({
             {getInitials(user?.name || null)}
           </AvatarFallback>
         </Avatar>
-        <div className="flex-1 flex gap-1.5">
+        <div className="flex-1 flex gap-1.5 items-start">
           <Textarea
             ref={textareaRef}
             value={newComment}
@@ -683,10 +768,18 @@ export function DiscussionPanel({
               }
             }}
           />
+          <FileUploadZone
+            projectId={projectId}
+            entityType={entityType}
+            entityId={entityId}
+            mode="compact"
+            onUploadComplete={handleAttachmentUpload}
+            onUploadError={(error) => toast.error(error)}
+          />
           <Button
             size="icon"
             onClick={handleSubmit}
-            disabled={!newComment.trim() || addDiscussion.isPending}
+            disabled={(!newComment.trim() && pendingAttachments.length === 0) || addDiscussion.isPending}
             className="bg-amber-500 hover:bg-amber-600 text-slate-900 h-9 w-9 flex-shrink-0"
           >
             <Send className="w-3.5 h-3.5" />

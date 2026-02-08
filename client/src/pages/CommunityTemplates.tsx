@@ -220,7 +220,7 @@ export default function CommunityTemplates() {
                   >
                     Все категории
                   </button>
-                  {categories.map((category) => (
+                  {categories.map((category: { id: number; name: string; nameRu?: string | null }) => (
                     <button
                       key={category.id}
                       onClick={() => {
@@ -245,7 +245,7 @@ export default function CommunityTemplates() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-300">Теги</label>
                 <div className="flex flex-wrap gap-2">
-                  {tags.slice(0, 15).map((tag) => (
+                  {tags.slice(0, 15).map((tag: { id: number; name: string }) => (
                     <Badge
                       key={tag.id}
                       variant={selectedTagIds.includes(tag.id) ? 'default' : 'outline'}
@@ -307,7 +307,7 @@ export default function CommunityTemplates() {
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {templates.map((template) => (
+                  {templates.map((template: any) => (
                     <TemplateCard
                       key={template.id}
                       template={template}

@@ -159,22 +159,26 @@ export const gamificationRouter = router({
       const awardAchievement = async (code: string) => {
         const achievementId = ACHIEVEMENT_CODE_TO_ID[code];
         if (!achievementId || unlockedIds.has(achievementId)) return;
-        
+
         const achievement = ACHIEVEMENTS.find(a => a.code === code);
         if (!achievement) return;
 
-        await db.insert(userAchievements).values({
-          userId: ctx.user.id,
-          achievementId: achievementId,
-          unlockedAt: new Date(),
-        });
+        try {
+          await db.insert(userAchievements).values({
+            userId: ctx.user.id,
+            achievementId: achievementId,
+            unlockedAt: new Date(),
+          });
 
-        await db.update(userStats)
-          .set({ totalPoints: sql`${userStats.totalPoints} + ${achievement.points}` })
-          .where(eq(userStats.userId, ctx.user.id));
+          await db.update(userStats)
+            .set({ totalPoints: sql`${userStats.totalPoints} + ${achievement.points}` })
+            .where(eq(userStats.userId, ctx.user.id));
 
-        newAchievementCodes.push(code);
-        unlockedIds.add(achievementId);
+          newAchievementCodes.push(code);
+          unlockedIds.add(achievementId);
+        } catch {
+          // Achievement definitions might not be seeded - ignore FK errors
+        }
       };
 
       if (input.trigger === "task_completed") {

@@ -112,6 +112,17 @@ function getColorClass(color: string | null | undefined): string {
   return COLOR_OPTIONS.find(c => c.value === color)?.class || 'bg-slate-500';
 }
 
+interface SavedView {
+  id: number;
+  name: string;
+  viewType: string;
+  isDefault: boolean;
+  config: SavedViewConfig;
+  color?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface SavedViewState {
   // Table view state
   sortField?: string | null;
@@ -332,7 +343,7 @@ export function SavedViewsManager({
             )} />
             <span className="text-sm text-slate-300">
               {activeViewId
-                ? savedViews.find(v => v.id === activeViewId)?.name || 'Виды'
+                ? savedViews.find((v: SavedView) => v.id === activeViewId)?.name || 'Виды'
                 : 'Виды'
               }
             </span>
@@ -390,7 +401,7 @@ export function SavedViewsManager({
                 </p>
               </div>
             ) : (
-              savedViews.map((view) => {
+              savedViews.map((view: SavedView) => {
                 const ViewIcon = VIEW_TYPE_ICONS[view.viewType] || Globe;
                 const isActive = activeViewId === view.id;
                 const isEditing = editingId === view.id;

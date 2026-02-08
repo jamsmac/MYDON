@@ -327,7 +327,7 @@ export default function AdminLocalization() {
                     </td>
                   </tr>
                 ) : (
-                  stringsData?.strings.map((str) => (
+                  stringsData?.strings.map((str: { id: number; key: string; value: string; context: string | null }) => (
                     <tr key={str.id} className="border-t hover:bg-muted/30">
                       <td className="p-3">
                         <code className="text-xs bg-muted px-1.5 py-0.5 rounded">

@@ -34,6 +34,14 @@ const PROVIDER_NAMES: Record<string, string> = {
   mistral: 'Mistral',
 };
 
+interface AIModel {
+  modelName: string;
+  modelDisplayName: string | null;
+  provider: string;
+  capabilities?: string[] | null;
+  inputCostPer1K?: number | null;
+}
+
 interface ModelSelectorProps {
   value: string;
   onChange: (model: string) => void;
@@ -55,7 +63,7 @@ export function ModelSelector({
   useEffect(() => {
     if (!value && models && models.length > 0) {
       const savedModel = localStorage.getItem('selectedAIModel');
-      if (savedModel && models.some(m => m.modelName === savedModel)) {
+      if (savedModel && models.some((m: AIModel) => m.modelName === savedModel)) {
         onChange(savedModel);
       } else {
         // Default to first model
@@ -87,7 +95,7 @@ export function ModelSelector({
     );
   }
 
-  const selectedModel = models.find(m => m.modelName === value);
+  const selectedModel = models.find((m: AIModel) => m.modelName === value);
 
   return (
     <Select value={value} onValueChange={handleChange} disabled={disabled}>
@@ -107,20 +115,20 @@ export function ModelSelector({
       </SelectTrigger>
       <SelectContent className="max-h-[300px]">
         {/* Group models by provider */}
-        {Object.entries(
-          models.reduce((acc, model) => {
+        {(Object.entries(
+          models.reduce((acc: Record<string, AIModel[]>, model: AIModel) => {
             const provider = model.provider.toLowerCase();
             if (!acc[provider]) acc[provider] = [];
             acc[provider].push(model);
             return acc;
-          }, {} as Record<string, typeof models>)
-        ).map(([provider, providerModels]) => (
+          }, {} as Record<string, AIModel[]>)
+        ) as [string, AIModel[]][]).map(([provider, providerModels]) => (
           <div key={provider}>
             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
               <span>{PROVIDER_ICONS[provider] || '🤖'}</span>
               <span>{PROVIDER_NAMES[provider] || provider}</span>
             </div>
-            {providerModels.map((model) => (
+            {providerModels.map((model: AIModel) => (
               <SelectItem 
                 key={model.modelName} 
                 value={model.modelName}

@@ -57,6 +57,7 @@ export type ToolChoice =
 
 export type InvokeParams = {
   messages: Message[];
+  model?: string;
   tools?: Tool[];
   toolChoice?: ToolChoice;
   tool_choice?: ToolChoice;
@@ -209,15 +210,40 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
+// Check if using OpenRouter API
+const isOpenRouter = () =>
+  ENV.forgeApiUrl?.includes("openrouter.ai") ?? false;
+
 const resolveApiUrl = () =>
   ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
     ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+    : "https://openrouter.ai/api/v1/chat/completions";
+
+// Default model for OpenRouter (fast and cheap)
+const DEFAULT_MODEL = isOpenRouter()
+  ? "google/gemini-2.0-flash-001"
+  : "gemini-2.5-flash";
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+    throw new Error("AI API key is not configured. Set BUILT_IN_FORGE_API_KEY or OPENROUTER_API_KEY");
   }
+};
+
+// Build headers for API request
+const buildHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "authorization": `Bearer ${ENV.forgeApiKey}`,
+  };
+
+  // OpenRouter-specific headers
+  if (isOpenRouter()) {
+    headers["HTTP-Referer"] = process.env.VITE_APP_URL || "http://localhost:3000";
+    headers["X-Title"] = "MYDON Roadmap";
+  }
+
+  return headers;
 };
 
 const normalizeResponseFormat = ({
@@ -270,9 +296,12 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   const {
     messages,
+    model,
     tools,
     toolChoice,
     tool_choice,
+    maxTokens,
+    max_tokens,
     outputSchema,
     output_schema,
     responseFormat,
@@ -280,7 +309,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: model || DEFAULT_MODEL,
     messages: messages.map(normalizeMessage),
   };
 
@@ -296,10 +325,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
-  }
+  payload.max_tokens = maxTokens || max_tokens || 4096;
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
@@ -314,10 +340,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   const response = await fetch(resolveApiUrl(), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
+    headers: buildHeaders(),
     body: JSON.stringify(payload),
   });
 

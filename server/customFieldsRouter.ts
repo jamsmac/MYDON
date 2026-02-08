@@ -8,6 +8,11 @@ import { router, protectedProcedure } from "./_core/trpc";
 import * as db from "./db";
 import { evaluateFormula, evaluateRollup, validateFormula, extractFieldRefs, getAvailableFunctions } from "../shared/lib/formulaEngine";
 import type { FormulaContext } from "../shared/lib/formulaEngine";
+import {
+  checkProjectAccess,
+  checkTaskAccess,
+  requireAccessOrNotFound,
+} from "./utils/authorization";
 
 // Field type enum
 const fieldTypeEnum = z.enum([
@@ -62,7 +67,9 @@ export const customFieldsRouter = router({
   // Get all fields for a project
   getByProject: protectedProcedure
     .input(z.object({ projectId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const access = await checkProjectAccess(ctx.user.id, input.projectId);
+      requireAccessOrNotFound(access, "проект");
       return db.getCustomFieldsByProject(input.projectId);
     }),
   
@@ -76,7 +83,10 @@ export const customFieldsRouter = router({
   // Create field
   create: protectedProcedure
     .input(customFieldInputSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkProjectAccess(ctx.user.id, input.projectId, "editor");
+      requireAccessOrNotFound(access, "проект");
+
       // Validate formula if provided
       if (input.type === "formula" && input.formula) {
         const validation = validateFormula(input.formula);
@@ -84,7 +94,7 @@ export const customFieldsRouter = router({
           throw new Error(`Invalid formula: ${validation.error}`);
         }
       }
-      
+
       return db.createCustomField(input);
     }),
   

@@ -6,6 +6,14 @@ interface TopLongestTasksProps {
   projectId: number;
 }
 
+interface TaskData {
+  id: number;
+  title: string;
+  status: string | null;
+  days: number;
+  sectionTitle?: string;
+}
+
 export function TopLongestTasks({ projectId }: TopLongestTasksProps) {
   const { data, isLoading } = trpc.analytics.getTopLongestTasks.useQuery(
     { projectId },
@@ -55,8 +63,8 @@ export function TopLongestTasks({ projectId }: TopLongestTasksProps) {
     return `${Math.floor(days / 30)} мес`;
   };
   
-  const maxDays = Math.max(...data.map(t => t.days));
-  
+  const maxDays = Math.max(...data.map((t: TaskData) => t.days));
+
   return (
     <Card className="bg-slate-800/50 border-slate-700">
       <CardHeader>
@@ -66,7 +74,7 @@ export function TopLongestTasks({ projectId }: TopLongestTasksProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {data.map((task, index) => (
+        {data.map((task: TaskData, index: number) => (
           <div key={task.id} className="flex items-center gap-3">
             {/* Rank */}
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${

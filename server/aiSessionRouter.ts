@@ -592,7 +592,7 @@ export const aiSessionRouter = router({
 
       // Build conversation context for title generation
       const conversationContext = messages
-        .map(m => `${m.role === "user" ? "Пользователь" : "AI"}: ${m.content.substring(0, 200)}`)
+        .map((m: { role: string; content: string }) => `${m.role === "user" ? "Пользователь" : "AI"}: ${m.content.substring(0, 200)}`)
         .join("\n");
 
       try {

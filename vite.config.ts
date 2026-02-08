@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { visualizer } from "rollup-plugin-visualizer";
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -150,7 +151,28 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+// Build plugins array
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
+];
+
+// Add bundle analyzer when ANALYZE env var is set
+// Usage: ANALYZE=true pnpm build
+if (process.env.ANALYZE) {
+  plugins.push(
+    visualizer({
+      filename: "dist/bundle-stats.html",
+      open: true,
+      gzipSize: true,
+      brotliSize: true,
+      template: "treemap", // or "sunburst", "network"
+    }) as Plugin
+  );
+}
 
 export default defineConfig({
   plugins,

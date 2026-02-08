@@ -134,8 +134,8 @@ export class RelationResolver {
 
     // Fetch actual entity data based on target type
     const entityData = await Promise.all(
-      relations.map(async (rel) => {
-        const entity = await this.fetchEntity(rel.targetType, rel.targetId);
+      relations.map(async (rel: { targetType: string; targetId: number }) => {
+        const entity = await this.fetchEntity(rel.targetType as EntityType, rel.targetId);
         return {
           relation: rel,
           entity,

@@ -1,9 +1,12 @@
 import { ENV } from "./env";
-import { Message, Tool, ToolChoice, ToolChoiceExplicit } from "./llm";
+import { Message, MessageContent, TextContent, ImageContent, FileContent, Tool, ToolChoice, ToolChoiceExplicit } from "./llm";
 
-const ensureArray = (value: any): any[] => (Array.isArray(value) ? value : [value]);
+// Normalized content part (what we send to the API)
+type NormalizedContentPart = TextContent | ImageContent | FileContent;
 
-const normalizeContentPart = (part: any): any => {
+const ensureArray = <T>(value: T | T[]): T[] => (Array.isArray(value) ? value : [value]);
+
+const normalizeContentPart = (part: MessageContent): NormalizedContentPart => {
   if (typeof part === "string") {
     return { type: "text", text: part };
   }
@@ -51,28 +54,56 @@ const normalizeToolChoice = (
   }
 
   if ("name" in toolChoice) {
-    return { type: "function", function: { name: (toolChoice as any).name } };
+    return { type: "function", function: { name: (toolChoice as { name: string }).name } };
   }
 
   return toolChoice as ToolChoiceExplicit;
 };
 
+// Check if using OpenRouter API
+const isOpenRouter = () =>
+  ENV.forgeApiUrl?.includes("openrouter.ai") ?? false;
+
 const resolveApiUrl = () =>
   ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
     ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+    : "https://openrouter.ai/api/v1/chat/completions";
+
+// Default model for OpenRouter (fast and cheap)
+const DEFAULT_MODEL = isOpenRouter()
+  ? "google/gemini-2.0-flash-001"
+  : "gemini-2.5-flash";
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+    throw new Error("AI API key is not configured. Set BUILT_IN_FORGE_API_KEY or OPENROUTER_API_KEY");
   }
+};
+
+// Build headers for API request
+const buildHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "authorization": `Bearer ${ENV.forgeApiKey}`,
+  };
+
+  // OpenRouter-specific headers
+  if (isOpenRouter()) {
+    headers["HTTP-Referer"] = process.env.VITE_APP_URL || "http://localhost:3000";
+    headers["X-Title"] = "MYDON Roadmap";
+  }
+
+  return headers;
 };
 
 export type StreamParams = {
   messages: Message[];
+  model?: string;
   tools?: Tool[];
   toolChoice?: ToolChoice;
   tool_choice?: ToolChoice;
+  maxTokens?: number;
+  max_tokens?: number;
 };
 
 /**
@@ -82,10 +113,10 @@ export type StreamParams = {
 export async function streamLLM(params: StreamParams): Promise<ReadableStream<Uint8Array>> {
   assertApiKey();
 
-  const { messages, tools, toolChoice, tool_choice } = params;
+  const { messages, model, tools, toolChoice, tool_choice, maxTokens, max_tokens } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: model || DEFAULT_MODEL,
     messages: messages.map(normalizeMessage),
     stream: true,
   };
@@ -99,15 +130,11 @@ export async function streamLLM(params: StreamParams): Promise<ReadableStream<Ui
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768;
-  payload.thinking = { budget_tokens: 128 };
+  payload.max_tokens = maxTokens || max_tokens || 4096;
 
   const response = await fetch(resolveApiUrl(), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
+    headers: buildHeaders(),
     body: JSON.stringify(payload),
   });
 

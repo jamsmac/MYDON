@@ -221,11 +221,11 @@ export class LookupCalculator {
       .where(eq(schema.lookupFields.isVisible, true));
     
     // Filter by entity type
-    const filtered = results.filter(f => f.entityType === entityType);
-    
+    const filtered = results.filter((f: { entityType: string }) => f.entityType === entityType);
+
     if (entityId) {
       // Get fields specific to this entity or templates (entityId = null)
-      return filtered.filter(f => f.entityId === null || f.entityId === entityId);
+      return filtered.filter((f: { entityId: number | null }) => f.entityId === null || f.entityId === entityId);
     }
 
     return filtered;

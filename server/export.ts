@@ -2,6 +2,8 @@
  * Export utilities for generating project reports in Markdown and PDF formats
  */
 
+import { escapeHtml, sanitizeText, textToHtml, truncateText } from './utils/sanitize';
+
 interface Subtask {
   id: number;
   title: string;
@@ -239,13 +241,17 @@ export function generateHtmlReport(project: Project): string {
     minute: '2-digit'
   });
 
+  // Sanitize project name for safe HTML output
+  const safeName = escapeHtml(project.name);
+  const safeDescription = escapeHtml(project.description);
+
   let html = `
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${project.name} - Отчёт</title>
+  <title>${safeName} - Отчёт</title>
   <style>
     * {
       margin: 0;
@@ -476,8 +482,8 @@ export function generateHtmlReport(project: Project): string {
   </style>
 </head>
 <body>
-  <h1>${project.name}</h1>
-  ${project.description ? `<p class="description">${project.description}</p>` : ''}
+  <h1>${safeName}</h1>
+  ${safeDescription ? `<p class="description">${safeDescription}</p>` : ''}
   
   <div class="metadata">
     <div class="metadata-item">
@@ -528,11 +534,12 @@ export function generateHtmlReport(project: Project): string {
 
   for (const block of project.blocks) {
     const blockIcon = block.icon || '📁';
-    const blockTitle = block.titleRu || block.title;
-    
+    const blockTitle = escapeHtml(block.titleRu || block.title);
+    const blockDescription = escapeHtml(block.description);
+
     html += `
   <h3>${blockIcon} Блок ${String(block.number).padStart(2, '0')}: ${blockTitle}</h3>
-  ${block.description ? `<p style="color: #64748b; margin: 10px 0;">${block.description}</p>` : ''}
+  ${blockDescription ? `<p style="color: #64748b; margin: 10px 0;">${blockDescription}</p>` : ''}
   ${block.deadline ? `<p style="font-size: 12px; color: #f59e0b;"><strong>Дедлайн:</strong> ${formatDate(block.deadline)}</p>` : ''}
 `;
 
@@ -542,9 +549,12 @@ export function generateHtmlReport(project: Project): string {
     }
 
     for (const section of block.sections) {
+      const sectionTitle = escapeHtml(section.title);
+      const sectionDescription = escapeHtml(section.description);
+
       html += `
-  <h4>${section.title}</h4>
-  ${section.description ? `<p style="color: #64748b; font-size: 13px; margin-bottom: 10px;">${section.description}</p>` : ''}
+  <h4>${sectionTitle}</h4>
+  ${sectionDescription ? `<p style="color: #64748b; font-size: 13px; margin-bottom: 10px;">${sectionDescription}</p>` : ''}
 `;
 
       if (section.tasks.length === 0) {
@@ -566,13 +576,14 @@ export function generateHtmlReport(project: Project): string {
 
       for (const task of section.tasks) {
         const statusClass = `status-${task.status || 'not_started'}`;
-        const description = task.description ? task.description.substring(0, 100) + (task.description.length > 100 ? '...' : '') : '-';
-        
+        const taskTitle = escapeHtml(task.title);
+        const taskDescription = escapeHtml(truncateText(task.description, 100))?.replace(/\n/g, ' ') || '-';
+
         html += `
       <tr>
         <td><span class="status-badge ${statusClass}">${getStatusEmoji(task.status)} ${getStatusText(task.status)}</span></td>
-        <td><strong>${task.title}</strong></td>
-        <td>${description.replace(/\n/g, ' ')}</td>
+        <td><strong>${taskTitle}</strong></td>
+        <td>${taskDescription}</td>
       </tr>
 `;
       }
@@ -585,10 +596,13 @@ export function generateHtmlReport(project: Project): string {
       // Task details
       for (const task of section.tasks) {
         if (task.notes || task.summary || task.subtasks.length > 0) {
+          const detailTitle = escapeHtml(task.title);
+          const detailDescription = escapeHtml(task.description);
+
           html += `
   <div class="task-details">
-    <h5>${getStatusEmoji(task.status)} ${task.title}</h5>
-    ${task.description ? `<p>${task.description}</p>` : ''}
+    <h5>${getStatusEmoji(task.status)} ${detailTitle}</h5>
+    ${detailDescription ? `<p>${detailDescription}</p>` : ''}
 `;
 
           if (task.subtasks.length > 0) {
@@ -597,7 +611,8 @@ export function generateHtmlReport(project: Project): string {
 `;
             for (const subtask of task.subtasks) {
               const checkbox = subtask.status === 'completed' ? '☑' : '☐';
-              html += `      <li>${checkbox} ${subtask.title}</li>\n`;
+              const subtaskTitle = escapeHtml(subtask.title);
+              html += `      <li>${checkbox} ${subtaskTitle}</li>\n`;
             }
             html += `    </ul>`;
           }
@@ -606,7 +621,7 @@ export function generateHtmlReport(project: Project): string {
             html += `
     <div class="notes-section">
       <div class="section-label">Заметки</div>
-      ${task.notes.replace(/\n/g, '<br>')}
+      ${textToHtml(task.notes)}
     </div>
 `;
           }
@@ -615,7 +630,7 @@ export function generateHtmlReport(project: Project): string {
             html += `
     <div class="summary-section">
       <div class="section-label">Итоговый документ</div>
-      ${task.summary.replace(/\n/g, '<br>')}
+      ${textToHtml(task.summary)}
     </div>
 `;
           }

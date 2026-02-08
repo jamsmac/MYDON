@@ -47,7 +47,7 @@ export const analyticsRouter = router({
         .from(blocks)
         .where(eq(blocks.projectId, input.projectId));
       
-      const blockIds = projectBlocks.map(b => b.id);
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
       
       if (blockIds.length === 0) {
         return { data: [], totalScope: 0 };
@@ -55,9 +55,9 @@ export const analyticsRouter = router({
       
       const projectSections = await db.select({ id: sections.id })
         .from(sections)
-        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
-      
-      const sectionIds = projectSections.map(s => s.id);
+        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
+      const sectionIds = projectSections.map((s: { id: number }) => s.id);
       
       if (sectionIds.length === 0) {
         return { data: [], totalScope: 0 };
@@ -70,10 +70,10 @@ export const analyticsRouter = router({
         createdAt: tasks.createdAt,
         updatedAt: tasks.updatedAt,
       }).from(tasks)
-        .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
-      
+        .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
       const totalScope = allTasks.length;
-      const completedTasks = allTasks.filter(t => t.status === "completed");
+      const completedTasks = allTasks.filter((t: { status: string | null }) => t.status === "completed");
       
       // Generate weekly data points
       const now = new Date();
@@ -85,13 +85,13 @@ export const analyticsRouter = router({
         weekEnd.setHours(23, 59, 59, 999);
         
         // Count tasks completed by this date
-        const completedByDate = completedTasks.filter(t => {
+        const completedByDate = completedTasks.filter((t: { updatedAt: Date | null }) => {
           const updatedAt = t.updatedAt ? new Date(t.updatedAt) : null;
           return updatedAt && updatedAt <= weekEnd;
         }).length;
-        
+
         // Count tasks created by this date (scope)
-        const scopeByDate = allTasks.filter(t => {
+        const scopeByDate = allTasks.filter((t: { createdAt: Date | null }) => {
           const createdAt = t.createdAt ? new Date(t.createdAt) : null;
           return createdAt && createdAt <= weekEnd;
         }).length;
@@ -142,7 +142,7 @@ export const analyticsRouter = router({
         weekEnd.setDate(weekEnd.getDate() - (i * 7));
         weekEnd.setHours(23, 59, 59, 999);
         
-        const weekCompleted = activities.filter(a => {
+        const weekCompleted = activities.filter((a: { createdAt: Date }) => {
           const date = new Date(a.createdAt);
           return date >= weekStart && date <= weekEnd;
         }).length;
@@ -198,8 +198,8 @@ export const analyticsRouter = router({
           .from(sections)
           .where(eq(sections.blockId, block.id));
         
-        const sectionIds = blockSections.map(s => s.id);
-        
+        const sectionIds = blockSections.map((s: { id: number }) => s.id);
+
         if (sectionIds.length === 0) {
           data.push({
             id: block.id,
@@ -213,17 +213,17 @@ export const analyticsRouter = router({
           });
           continue;
         }
-        
+
         // Get tasks for these sections
         const blockTasks = await db.select({
           status: tasks.status,
         }).from(tasks)
-          .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
-        
+          .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
         const total = blockTasks.length;
-        const completed = blockTasks.filter(t => t.status === "completed").length;
-        const inProgress = blockTasks.filter(t => t.status === "in_progress").length;
-        const notStarted = blockTasks.filter(t => t.status === "not_started").length;
+        const completed = blockTasks.filter((t: { status: string | null }) => t.status === "completed").length;
+        const inProgress = blockTasks.filter((t: { status: string | null }) => t.status === "in_progress").length;
+        const notStarted = blockTasks.filter((t: { status: string | null }) => t.status === "not_started").length;
         
         data.push({
           id: block.id,
@@ -260,7 +260,7 @@ export const analyticsRouter = router({
         .from(blocks)
         .where(eq(blocks.projectId, input.projectId));
       
-      const blockIds = projectBlocks.map(b => b.id);
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
       
       if (blockIds.length === 0) {
         return { 
@@ -275,9 +275,9 @@ export const analyticsRouter = router({
       
       const projectSections = await db.select({ id: sections.id })
         .from(sections)
-        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
-      
-      const sectionIds = projectSections.map(s => s.id);
+        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
+      const sectionIds = projectSections.map((s: { id: number }) => s.id);
       
       if (sectionIds.length === 0) {
         return { 
@@ -292,9 +292,9 @@ export const analyticsRouter = router({
       
       const allTasks = await db.select({ status: tasks.status })
         .from(tasks)
-        .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
-      
-      const remainingTasks = allTasks.filter(t => t.status !== "completed").length;
+        .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
+      const remainingTasks = allTasks.filter((t: { status: string | null }) => t.status !== "completed").length;
       
       // Calculate velocity from last 4 weeks
       const fourWeeksAgo = new Date();
@@ -347,7 +347,7 @@ export const analyticsRouter = router({
         .from(blocks)
         .where(eq(blocks.projectId, input.projectId));
       
-      const blockIds = projectBlocks.map(b => b.id);
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
       
       if (blockIds.length === 0) {
         return [
@@ -360,9 +360,9 @@ export const analyticsRouter = router({
       
       const projectSections = await db.select({ id: sections.id })
         .from(sections)
-        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
-      
-      const sectionIds = projectSections.map(s => s.id);
+        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
+      const sectionIds = projectSections.map((s: { id: number }) => s.id);
       
       if (sectionIds.length === 0) {
         return [
@@ -375,16 +375,16 @@ export const analyticsRouter = router({
       
       const allTasks = await db.select({ priority: tasks.priority })
         .from(tasks)
-        .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
-      
+        .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
       const priorityCounts = {
         critical: 0,
         high: 0,
         medium: 0,
         low: 0,
       };
-      
-      allTasks.forEach(t => {
+
+      allTasks.forEach((t: { priority: string | null }) => {
         const p = t.priority || "medium";
         if (p in priorityCounts) {
           priorityCounts[p as keyof typeof priorityCounts]++;
@@ -411,7 +411,7 @@ export const analyticsRouter = router({
         .from(blocks)
         .where(eq(blocks.projectId, input.projectId));
       
-      const blockIds = projectBlocks.map(b => b.id);
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
       
       if (blockIds.length === 0) {
         return { data: [], avgDays: 0 };
@@ -419,9 +419,9 @@ export const analyticsRouter = router({
       
       const projectSections = await db.select({ id: sections.id })
         .from(sections)
-        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
-      
-      const sectionIds = projectSections.map(s => s.id);
+        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
+      const sectionIds = projectSections.map((s: { id: number }) => s.id);
       
       if (sectionIds.length === 0) {
         return { data: [], avgDays: 0 };
@@ -432,14 +432,14 @@ export const analyticsRouter = router({
         updatedAt: tasks.updatedAt,
       }).from(tasks)
         .where(and(
-          sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`,
+          sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`,
           eq(tasks.status, "completed")
         ));
-      
+
       // Calculate completion times in days
       const completionTimes: number[] = [];
-      
-      completedTasks.forEach(t => {
+
+      completedTasks.forEach((t: { createdAt: Date | null; updatedAt: Date | null }) => {
         if (t.createdAt && t.updatedAt) {
           const created = new Date(t.createdAt);
           const updated = new Date(t.updatedAt);
@@ -512,28 +512,28 @@ export const analyticsRouter = router({
           .from(sections)
           .where(eq(sections.blockId, block.id));
         
-        const sectionIds = blockSections.map(s => s.id);
-        
+        const sectionIds = blockSections.map((s: { id: number }) => s.id);
+
         let allCompleted = false;
         let lastCompletedDate: Date | null = null;
-        
+
         if (sectionIds.length > 0) {
           const blockTasks = await db.select({
             status: tasks.status,
             updatedAt: tasks.updatedAt,
           }).from(tasks)
-            .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
-          
-          allCompleted = blockTasks.length > 0 && blockTasks.every(t => t.status === "completed");
-          
+            .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
+          allCompleted = blockTasks.length > 0 && blockTasks.every((t: { status: string | null }) => t.status === "completed");
+
           if (allCompleted) {
             // Find the latest completion date
             const completedDates = blockTasks
-              .filter(t => t.updatedAt)
-              .map(t => new Date(t.updatedAt!));
+              .filter((t: { updatedAt: Date | null }) => t.updatedAt)
+              .map((t: { updatedAt: Date | null }) => new Date(t.updatedAt!));
             
             if (completedDates.length > 0) {
-              lastCompletedDate = new Date(Math.max(...completedDates.map(d => d.getTime())));
+              lastCompletedDate = new Date(Math.max(...completedDates.map((d: Date) => d.getTime())));
             }
           }
         }
@@ -583,7 +583,7 @@ export const analyticsRouter = router({
         .from(blocks)
         .where(eq(blocks.projectId, input.projectId));
       
-      const blockIds = projectBlocks.map(b => b.id);
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
       
       if (blockIds.length === 0) {
         return [];
@@ -591,9 +591,9 @@ export const analyticsRouter = router({
       
       const projectSections = await db.select({ id: sections.id })
         .from(sections)
-        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
-      
-      const sectionIds = projectSections.map(s => s.id);
+        .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
+      const sectionIds = projectSections.map((s: { id: number }) => s.id);
       
       if (sectionIds.length === 0) {
         return [];
@@ -606,26 +606,26 @@ export const analyticsRouter = router({
         createdAt: tasks.createdAt,
         updatedAt: tasks.updatedAt,
       }).from(tasks)
-        .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
-      
+        .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
       // Calculate duration for each task
-      const tasksWithDuration = allTasks.map(t => {
+      const tasksWithDuration = allTasks.map((t: { id: number; title: string; status: string | null; createdAt: Date | null; updatedAt: Date | null }) => {
         let days = 0;
         if (t.createdAt) {
           const created = new Date(t.createdAt);
-          const end = t.status === "completed" && t.updatedAt 
-            ? new Date(t.updatedAt) 
+          const end = t.status === "completed" && t.updatedAt
+            ? new Date(t.updatedAt)
             : new Date();
           days = Math.ceil((end.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
         }
         return { ...t, days };
       });
-      
+
       // Sort by duration and take top 5
       return tasksWithDuration
-        .sort((a, b) => b.days - a.days)
+        .sort((a: { days: number }, b: { days: number }) => b.days - a.days)
         .slice(0, 5)
-        .map(t => ({
+        .map((t: { id: number; title: string; status: string | null; days: number }) => ({
           id: t.id,
           title: t.title,
           status: t.status,
@@ -654,32 +654,32 @@ export const analyticsRouter = router({
         .orderBy(blocks.sortOrder);
       
       // Get all sections
-      const blockIds = projectBlocks.map(b => b.id);
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
       let allSections: any[] = [];
       let allTasks: any[] = [];
       
       if (blockIds.length > 0) {
         allSections = await db.select().from(sections)
-          .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
-        
-        const sectionIds = allSections.map(s => s.id);
-        
+          .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
+        const sectionIds = allSections.map((s: { id: number }) => s.id);
+
         if (sectionIds.length > 0) {
           allTasks = await db.select().from(tasks)
-            .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
+            .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
         }
       }
-      
+
       // Calculate summary stats
       const totalTasks = allTasks.length;
-      const completedTasks = allTasks.filter(t => t.status === "completed").length;
-      const inProgressTasks = allTasks.filter(t => t.status === "in_progress").length;
-      const notStartedTasks = allTasks.filter(t => t.status === "not_started").length;
-      const overdueTasks = allTasks.filter(t => {
+      const completedTasks = allTasks.filter((t: { status: string | null }) => t.status === "completed").length;
+      const inProgressTasks = allTasks.filter((t: { status: string | null }) => t.status === "in_progress").length;
+      const notStartedTasks = allTasks.filter((t: { status: string | null }) => t.status === "not_started").length;
+      const overdueTasks = allTasks.filter((t: { deadline: Date | null; status: string | null }) => {
         if (!t.deadline) return false;
         return new Date(t.deadline) < new Date() && t.status !== "completed";
       }).length;
-      
+
       return {
         project: {
           id: project.id,
@@ -698,7 +698,7 @@ export const analyticsRouter = router({
           overdueTasks,
           completionRate: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
         },
-        blocks: projectBlocks.map(b => ({
+        blocks: projectBlocks.map((b: { id: number; number: number; title: string; deadline: Date | null }) => ({
           id: b.id,
           number: b.number,
           title: b.title,

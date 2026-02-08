@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "./db";
 import { projects, blocks, sections, tasks, activityLog } from "../drizzle/schema";
 import { eq, sql, and, gte } from "drizzle-orm";
+import { sanitizeForCsv } from "./utils/sanitize";
 
 // Helper to format date
 const formatDate = (date: Date | string | null): string => {
@@ -62,13 +63,13 @@ export const analyticsExportRouter = router({
         .where(eq(blocks.projectId, input.projectId))
         .orderBy(blocks.sortOrder);
       
-      const blockIds = projectBlocks.map(b => b.id);
-      
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
+
       // Get all sections
       let allSections: any[] = [];
       if (blockIds.length > 0) {
         allSections = await db.select().from(sections)
-          .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
+          .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
       }
       
       const sectionIds = allSections.map(s => s.id);
@@ -99,19 +100,19 @@ export const analyticsExportRouter = router({
       };
       
       // Block details
-      const blockDetails = await Promise.all(projectBlocks.map(async (block) => {
-        const blockSections = allSections.filter(s => s.blockId === block.id);
-        const blockSectionIds = blockSections.map(s => s.id);
-        const blockTasks = allTasks.filter(t => blockSectionIds.includes(t.sectionId));
-        
+      const blockDetails = await Promise.all(projectBlocks.map(async (block: { id: number; number: number | null; title: string; deadline: Date | null }) => {
+        const blockSections = allSections.filter((s: { blockId: number }) => s.blockId === block.id);
+        const blockSectionIds = blockSections.map((s: { id: number }) => s.id);
+        const blockTasks = allTasks.filter((t: { sectionId: number }) => blockSectionIds.includes(t.sectionId));
+
         return {
           number: block.number,
           title: block.title,
           deadline: formatDate(block.deadline),
           totalTasks: blockTasks.length,
-          completedTasks: blockTasks.filter(t => t.status === "completed").length,
-          completionRate: blockTasks.length > 0 
-            ? Math.round((blockTasks.filter(t => t.status === "completed").length / blockTasks.length) * 100)
+          completedTasks: blockTasks.filter((t: { status: string | null }) => t.status === "completed").length,
+          completionRate: blockTasks.length > 0
+            ? Math.round((blockTasks.filter((t: { status: string | null }) => t.status === "completed").length / blockTasks.length) * 100)
             : 0,
         };
       }));
@@ -217,13 +218,13 @@ export const analyticsExportRouter = router({
         .where(eq(blocks.projectId, input.projectId))
         .orderBy(blocks.sortOrder);
       
-      const blockIds = projectBlocks.map(b => b.id);
-      
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
+
       // Get all sections
       let allSections: any[] = [];
       if (blockIds.length > 0) {
         allSections = await db.select().from(sections)
-          .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
+          .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
       }
       
       const sectionIds = allSections.map(s => s.id);
@@ -278,10 +279,10 @@ export const analyticsExportRouter = router({
       rows.forEach(row => {
         const values = [
           row.blockNumber,
-          `"${row.blockTitle.replace(/"/g, '""')}"`,
+          `"${sanitizeForCsv(row.blockTitle)}"`,
           row.blockDeadline,
-          `"${row.sectionTitle.replace(/"/g, '""')}"`,
-          `"${row.taskTitle.replace(/"/g, '""')}"`,
+          `"${sanitizeForCsv(row.sectionTitle)}"`,
+          `"${sanitizeForCsv(row.taskTitle)}"`,
           row.taskStatus,
           row.taskPriority,
           row.taskDeadline,

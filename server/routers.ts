@@ -37,21 +37,51 @@ import { adminPromptsRouter } from './adminPromptsRouter';
 import { adminContentRouter } from './adminContentRouter';
 import { adminUIRouter } from './adminUIRouter';
 import { adminIntegrationsRouter } from './adminIntegrationsRouter';
+import { adminModelRatingsRouter } from './adminModelRatingsRouter';
+import { skillExecutionRouter } from './skillExecutionRouter';
 import { adminLogsRouter } from './adminLogsRouter';
 import { usageRouter } from './usageRouter';
 import { customFieldsRouter } from './customFieldsRouter';
 import { savedViewsRouter } from './savedViewsRouter';
+import { openclawRouter } from './openclawRouter';
+import { attachmentsRouter } from './attachmentsRouter';
 import { getDefaultTags } from './utils/defaultTags';
+import { getNotificationTriggers } from './integrations/openclaw';
 import { checkAndAwardAchievements, type AchievementResult } from "./achievementService";
 import * as schema from '../drizzle/schema';
 import { getDb } from './db';
 import { TRPCError } from "@trpc/server";
+import {
+  checkProjectAccess,
+  checkBlockAccess,
+  checkSectionAccess,
+  checkTaskAccess,
+  checkSubtaskAccess,
+  checkEntityAccess,
+  requireAccessOrNotFound,
+} from './utils/authorization';
+import {
+  paginationInputSchema,
+  optionalPaginationInputSchema,
+  applyPaginationDefaults,
+  createPaginatedResponse,
+  calculateOffset,
+} from './utils/pagination';
 
 // ============ PROJECT ROUTER ============
 const projectRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    return db.getProjectsByUser(ctx.user.id);
-  }),
+  list: protectedProcedure
+    .input(optionalPaginationInputSchema.optional())
+    .query(async ({ ctx, input }) => {
+      // Support both paginated and non-paginated requests for backward compatibility
+      if (input?.page !== undefined || input?.pageSize !== undefined) {
+        const { page, pageSize } = applyPaginationDefaults(input);
+        const { data, total } = await db.getProjectsByUserPaginated(ctx.user.id, page, pageSize);
+        return createPaginatedResponse(data, page, pageSize, total);
+      }
+      // Non-paginated fallback for existing clients
+      return db.getProjectsByUser(ctx.user.id);
+    }),
 
   get: protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -229,7 +259,9 @@ const projectRouter = router({
 const blockRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const access = await checkProjectAccess(ctx.user.id, input.projectId);
+      requireAccessOrNotFound(access, "проект");
       return db.getBlocksByProject(input.projectId);
     }),
 
@@ -246,7 +278,9 @@ const blockRouter = router({
       reminderDays: z.number().optional(),
       sortOrder: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkProjectAccess(ctx.user.id, input.projectId, "editor");
+      requireAccessOrNotFound(access, "проект");
       return db.createBlock(input);
     }),
 
@@ -262,14 +296,18 @@ const blockRouter = router({
       reminderDays: z.number().optional(),
       sortOrder: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkBlockAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(access, "блок");
       const { id, ...data } = input;
       return db.updateBlock(id, data);
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkBlockAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(access, "блок");
       return db.deleteBlock(input.id);
     }),
 
@@ -278,7 +316,9 @@ const blockRouter = router({
       projectId: z.number(),
       blockIds: z.array(z.number()),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkProjectAccess(ctx.user.id, input.projectId, "editor");
+      requireAccessOrNotFound(access, "проект");
       return db.reorderBlocks(input.projectId, input.blockIds);
     }),
 });
@@ -287,7 +327,9 @@ const blockRouter = router({
 const sectionRouter = router({
   list: protectedProcedure
     .input(z.object({ blockId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const access = await checkBlockAccess(ctx.user.id, input.blockId);
+      requireAccessOrNotFound(access, "блок");
       return db.getSectionsByBlock(input.blockId);
     }),
 
@@ -298,7 +340,9 @@ const sectionRouter = router({
       description: z.string().optional(),
       sortOrder: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkBlockAccess(ctx.user.id, input.blockId, "editor");
+      requireAccessOrNotFound(access, "блок");
       return db.createSection(input);
     }),
 
@@ -309,14 +353,18 @@ const sectionRouter = router({
       description: z.string().optional(),
       sortOrder: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkSectionAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(access, "раздел");
       const { id, ...data } = input;
       return db.updateSection(id, data);
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkSectionAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(access, "раздел");
       return db.deleteSection(input.id);
     }),
 
@@ -326,7 +374,12 @@ const sectionRouter = router({
       blockId: z.number(),
       sortOrder: z.number(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check access to both source section and target block
+      const sourceAccess = await checkSectionAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(sourceAccess, "раздел");
+      const targetAccess = await checkBlockAccess(ctx.user.id, input.blockId, "editor");
+      requireAccessOrNotFound(targetAccess, "блок");
       return db.moveSection(input.id, input.blockId, input.sortOrder);
     }),
 
@@ -336,7 +389,11 @@ const sectionRouter = router({
       sectionId: z.number(),
       targetSectionId: z.number(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const sourceAccess = await checkSectionAccess(ctx.user.id, input.sectionId, "editor");
+      requireAccessOrNotFound(sourceAccess, "раздел");
+      const targetAccess = await checkSectionAccess(ctx.user.id, input.targetSectionId, "editor");
+      requireAccessOrNotFound(targetAccess, "целевой раздел");
       return db.convertSectionToTask(input.sectionId, input.targetSectionId);
     }),
 
@@ -346,7 +403,9 @@ const sectionRouter = router({
       blockId: z.number(),
       sectionIds: z.array(z.number()),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkBlockAccess(ctx.user.id, input.blockId, "editor");
+      requireAccessOrNotFound(access, "блок");
       return db.reorderSections(input.blockId, input.sectionIds);
     }),
 });
@@ -354,8 +413,23 @@ const sectionRouter = router({
 // ============ TASK ROUTER ============
 const taskRouter = router({
   list: protectedProcedure
-    .input(z.object({ sectionId: z.number() }))
-    .query(async ({ input }) => {
+    .input(z.object({
+      sectionId: z.number(),
+      page: z.number().int().min(1).optional(),
+      pageSize: z.number().int().min(1).max(100).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await checkSectionAccess(ctx.user.id, input.sectionId);
+      requireAccessOrNotFound(access, "раздел");
+
+      // Support both paginated and non-paginated requests
+      if (input.page !== undefined || input.pageSize !== undefined) {
+        const page = input.page ?? 1;
+        const pageSize = input.pageSize ?? 50;
+        const { data, total } = await db.getTasksBySectionPaginated(input.sectionId, page, pageSize);
+        return createPaginatedResponse(data, page, pageSize, total);
+      }
+      // Non-paginated fallback
       return db.getTasksBySection(input.sectionId);
     }),
 
@@ -372,7 +446,9 @@ const taskRouter = router({
       dependencies: z.array(z.number()).optional(),
       sortOrder: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkSectionAccess(ctx.user.id, input.sectionId, "editor");
+      requireAccessOrNotFound(access, "раздел");
       const { deadline, ...rest } = input;
       return db.createTask({
         ...rest,
@@ -395,12 +471,15 @@ const taskRouter = router({
       sortOrder: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(access, "задача");
+
       const { id, dueDate, deadline, status, ...rest } = input;
-      
+
       // Get current task to check if status is changing to completed
       const currentTask = await db.getTaskById(id);
       const isCompletingTask = status === "completed" && currentTask?.status !== "completed";
-      
+
       const data = {
         ...rest,
         ...(status !== undefined && { status }),
@@ -408,13 +487,54 @@ const taskRouter = router({
         ...(deadline !== undefined && { deadline: deadline ? new Date(deadline) : null }),
       };
       const updatedTask = await db.updateTask(id, data);
-      
+
       // Check achievements if task was completed
       let achievements: AchievementResult | null = null;
       if (isCompletingTask) {
         achievements = await checkAndAwardAchievements(ctx.user.id, "task_completed");
       }
-      
+
+      // Send OpenClaw notifications (fire and forget)
+      try {
+        const triggers = getNotificationTriggers();
+        const taskTitle = updatedTask?.title || currentTask?.title || "Задача";
+
+        if (isCompletingTask && currentTask) {
+          // Notify relevant users about task completion
+          const notifyUserIds: number[] = [];
+          // Add project owner/creator (would need to fetch from project)
+          if (currentTask.assignedTo && currentTask.assignedTo !== ctx.user.id) {
+            notifyUserIds.push(currentTask.assignedTo);
+          }
+          if (notifyUserIds.length > 0) {
+            triggers.onTaskCompleted(
+              id,
+              taskTitle,
+              ctx.user.id,
+              ctx.user.name || ctx.user.email || "Пользователь",
+              notifyUserIds
+            ).catch(() => {});
+          }
+        } else if (status && currentTask && status !== currentTask.status) {
+          // Status changed (but not to completed) - notify assignee
+          const notifyUserIds = currentTask.assignedTo && currentTask.assignedTo !== ctx.user.id
+            ? [currentTask.assignedTo]
+            : [];
+          if (notifyUserIds.length > 0 && currentTask.status) {
+            triggers.onStatusChanged(
+              id,
+              taskTitle,
+              currentTask.status,
+              status,
+              ctx.user.id,
+              notifyUserIds
+            ).catch(() => {});
+          }
+        }
+      } catch {
+        // Silently ignore notification errors
+      }
+
       return {
         ...updatedTask,
         achievements,
@@ -423,7 +543,9 @@ const taskRouter = router({
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(access, "задача");
       return db.deleteTask(input.id);
     }),
 
@@ -433,7 +555,11 @@ const taskRouter = router({
       sectionId: z.number(),
       sortOrder: z.number(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const sourceAccess = await checkTaskAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(sourceAccess, "задача");
+      const targetAccess = await checkSectionAccess(ctx.user.id, input.sectionId, "editor");
+      requireAccessOrNotFound(targetAccess, "раздел");
       return db.moveTask(input.id, input.sectionId, input.sortOrder);
     }),
 
@@ -443,7 +569,9 @@ const taskRouter = router({
       taskId: z.number(),
       subtaskTitles: z.array(z.string().min(1)).min(1),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
       return db.splitTaskIntoSubtasks(input.taskId, input.subtaskTitles);
     }),
 
@@ -454,14 +582,23 @@ const taskRouter = router({
       newTitle: z.string().min(1),
       sectionId: z.number(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check access to all tasks being merged
+      for (const taskId of input.taskIds) {
+        const access = await checkTaskAccess(ctx.user.id, taskId, "editor");
+        requireAccessOrNotFound(access, "задача");
+      }
+      const targetAccess = await checkSectionAccess(ctx.user.id, input.sectionId, "editor");
+      requireAccessOrNotFound(targetAccess, "раздел");
       return db.mergeTasks(input.taskIds, input.newTitle, input.sectionId);
     }),
 
   // Convert task to section
   convertToSection: protectedProcedure
     .input(z.object({ taskId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
       return db.convertTaskToSection(input.taskId);
     }),
 
@@ -471,7 +608,12 @@ const taskRouter = router({
       taskIds: z.array(z.number()).min(1),
       status: z.enum(["not_started", "in_progress", "completed"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check access to first task to verify project access
+      if (input.taskIds.length > 0) {
+        const access = await checkTaskAccess(ctx.user.id, input.taskIds[0], "editor");
+        requireAccessOrNotFound(access, "задача");
+      }
       const count = await db.bulkUpdateTaskStatus(input.taskIds, input.status);
       return { updated: count };
     }),
@@ -482,7 +624,11 @@ const taskRouter = router({
       taskIds: z.array(z.number()).min(1),
       priority: z.enum(["low", "medium", "high", "critical"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      if (input.taskIds.length > 0) {
+        const access = await checkTaskAccess(ctx.user.id, input.taskIds[0], "editor");
+        requireAccessOrNotFound(access, "задача");
+      }
       const count = await db.bulkUpdateTaskPriority(input.taskIds, input.priority);
       return { updated: count };
     }),
@@ -493,8 +639,34 @@ const taskRouter = router({
       taskIds: z.array(z.number()).min(1),
       assigneeId: z.number().nullable(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      if (input.taskIds.length > 0) {
+        const access = await checkTaskAccess(ctx.user.id, input.taskIds[0], "editor");
+        requireAccessOrNotFound(access, "задача");
+      }
       const count = await db.bulkUpdateTaskAssignee(input.taskIds, input.assigneeId);
+
+      // Send OpenClaw notifications for task assignments (fire and forget)
+      if (input.assigneeId && input.assigneeId !== ctx.user.id) {
+        try {
+          const triggers = getNotificationTriggers();
+          // Get task details for notifications
+          for (const taskId of input.taskIds.slice(0, 5)) { // Limit to first 5 to avoid spam
+            const task = await db.getTaskById(taskId);
+            if (task) {
+              triggers.onTaskAssigned(
+                taskId,
+                task.title,
+                input.assigneeId,
+                task.deadline
+              ).catch(() => {});
+            }
+          }
+        } catch {
+          // Silently ignore notification errors
+        }
+      }
+
       return { updated: count };
     }),
 
@@ -503,7 +675,12 @@ const taskRouter = router({
     .input(z.object({
       taskIds: z.array(z.number()).min(1),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check access to all tasks
+      for (const taskId of input.taskIds) {
+        const access = await checkTaskAccess(ctx.user.id, taskId, "editor");
+        requireAccessOrNotFound(access, "задача");
+      }
       const count = await db.bulkDeleteTasks(input.taskIds);
       return { deleted: count };
     }),
@@ -511,7 +688,9 @@ const taskRouter = router({
   // Duplicate task
   duplicate: protectedProcedure
     .input(z.object({ taskId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
       return db.duplicateTask(input.taskId);
     }),
 
@@ -521,7 +700,9 @@ const taskRouter = router({
       sectionId: z.number(),
       taskIds: z.array(z.number()),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkSectionAccess(ctx.user.id, input.sectionId, "editor");
+      requireAccessOrNotFound(access, "раздел");
       return db.reorderTasks(input.sectionId, input.taskIds);
     }),
   // Reorder tasks globally (across sections) - used by Table View drag & drop
@@ -529,7 +710,12 @@ const taskRouter = router({
     .input(z.object({
       taskIds: z.array(z.number()).min(1),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check access to first task to verify project access
+      if (input.taskIds.length > 0) {
+        const access = await checkTaskAccess(ctx.user.id, input.taskIds[0], "editor");
+        requireAccessOrNotFound(access, "задача");
+      }
       return db.reorderTasksGlobal(input.taskIds);
     }),
 
@@ -540,18 +726,22 @@ const taskRouter = router({
     }),
 
   // ============ TASK DEPENDENCIES (for Gantt Chart) ============
-  
+
   // Get dependencies for a task
   getDependencies: protectedProcedure
     .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId);
+      requireAccessOrNotFound(access, "задача");
       return db.getTaskDependencies(input.taskId);
     }),
 
   // Get tasks that depend on this task
   getDependentTasks: protectedProcedure
     .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId);
+      requireAccessOrNotFound(access, "задача");
       return db.getDependentTasks(input.taskId);
     }),
 
@@ -563,7 +753,13 @@ const taskRouter = router({
       dependencyType: z.enum(["finish_to_start", "start_to_start", "finish_to_finish", "start_to_finish"]).optional(),
       lagDays: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check access to both tasks
+      const access1 = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access1, "задача");
+      const access2 = await checkTaskAccess(ctx.user.id, input.dependsOnTaskId);
+      requireAccessOrNotFound(access2, "зависимая задача");
+
       // Prevent self-dependency
       if (input.taskId === input.dependsOnTaskId) {
         throw new TRPCError({
@@ -581,15 +777,20 @@ const taskRouter = router({
 
   // Remove a dependency
   removeDependency: protectedProcedure
-    .input(z.object({ dependencyId: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ dependencyId: z.number(), taskId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      // Check access to the task that owns this dependency
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
       return db.deleteTaskDependency(input.dependencyId);
     }),
 
   // Get Gantt chart data for a project
   getGanttData: protectedProcedure
     .input(z.object({ projectId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const access = await checkProjectAccess(ctx.user.id, input.projectId);
+      requireAccessOrNotFound(access, "проект");
       return db.getGanttChartData(input.projectId);
     }),
 });
@@ -598,7 +799,9 @@ const taskRouter = router({
 const subtaskRouter = router({
   list: protectedProcedure
     .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId);
+      requireAccessOrNotFound(access, "задача");
       return db.getSubtasksByTask(input.taskId);
     }),
 
@@ -609,7 +812,9 @@ const subtaskRouter = router({
       status: z.enum(["not_started", "in_progress", "completed"]).optional(),
       sortOrder: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
       return db.createSubtask(input);
     }),
 
@@ -620,14 +825,18 @@ const subtaskRouter = router({
       status: z.enum(["not_started", "in_progress", "completed"]).optional(),
       sortOrder: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkSubtaskAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(access, "подзадача");
       const { id, ...data } = input;
       return db.updateSubtask(id, data);
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkSubtaskAccess(ctx.user.id, input.id, "editor");
+      requireAccessOrNotFound(access, "подзадача");
       return db.deleteSubtask(input.id);
     }),
 
@@ -636,7 +845,9 @@ const subtaskRouter = router({
       taskId: z.number(),
       subtaskIds: z.array(z.number()),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
       return db.reorderSubtasks(input.taskId, input.subtaskIds);
     }),
 
@@ -671,6 +882,8 @@ const subtaskRouter = router({
       category: z.string().max(100).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId);
+      requireAccessOrNotFound(access, "задача");
       return db.saveSubtasksAsTemplate(
         input.taskId,
         ctx.user.id,
@@ -686,6 +899,8 @@ const subtaskRouter = router({
       taskId: z.number(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
       return db.applySubtaskTemplate(input.templateId, input.taskId, ctx.user.id);
     }),
 
@@ -700,7 +915,9 @@ const subtaskRouter = router({
       taskId: z.number(),
       templateKey: z.enum(["research", "analysis", "documentation", "review", "testing"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
       const BUILTIN_TEMPLATES: Record<string, { title: string; items: string[] }> = {
         research: {
           title: "Исследование",
@@ -1020,6 +1237,10 @@ const chatRouter = router({
       limit: z.number().optional(),
     }))
     .query(async ({ ctx, input }) => {
+      // Check access to the entity based on context type
+      const access = await checkEntityAccess(ctx.user.id, input.contextType, input.contextId);
+      requireAccessOrNotFound(access, input.contextType === "project" ? "проект" : input.contextType === "block" ? "блок" : input.contextType === "section" ? "раздел" : "задача");
+
       return db.getChatHistory(
         input.contextType,
         input.contextId,
@@ -1036,6 +1257,9 @@ const chatRouter = router({
       projectContext: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check access to the entity based on context type (editor role for sending messages)
+      const access = await checkEntityAccess(ctx.user.id, input.contextType, input.contextId, "editor");
+      requireAccessOrNotFound(access, input.contextType === "project" ? "проект" : input.contextType === "block" ? "блок" : input.contextType === "section" ? "раздел" : "задача");
       // Get or initialize user credits
       let userCredits = await db.getUserCredits(ctx.user.id);
       if (!userCredits) {
@@ -1172,6 +1396,10 @@ ${input.projectContext ? `Контекст проекта: ${input.projectContex
       contextId: z.number(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check access to the entity based on context type (editor role for clearing)
+      const access = await checkEntityAccess(ctx.user.id, input.contextType, input.contextId, "editor");
+      requireAccessOrNotFound(access, input.contextType === "project" ? "проект" : input.contextType === "block" ? "блок" : input.contextType === "section" ? "раздел" : "задача");
+
       return db.clearChatHistory(input.contextType, input.contextId, ctx.user.id);
     }),
 });
@@ -1182,8 +1410,24 @@ const driveRouter = router({
     return googleDrive.checkDriveConnection();
   }),
 
-  listFiles: protectedProcedure.query(async () => {
-    return googleDrive.listRoadmapFiles();
+  listFiles: protectedProcedure.query(async ({ ctx }) => {
+    // Get all files
+    const allFiles = await googleDrive.listRoadmapFiles();
+
+    // Filter to only show files for projects the user has access to
+    const accessibleFiles = [];
+    for (const file of allFiles) {
+      // Extract projectId from filename pattern: {name}_{projectId}.json
+      const match = file.name.match(/_(\d+)\.json$/);
+      if (match) {
+        const projectId = parseInt(match[1], 10);
+        const access = await checkProjectAccess(ctx.user.id, projectId);
+        if (access.hasAccess) {
+          accessibleFiles.push(file);
+        }
+      }
+    }
+    return accessibleFiles;
   }),
 
   saveProject: protectedProcedure
@@ -1203,19 +1447,19 @@ const driveRouter = router({
         status: project.status,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
-        blocks: project.blocks.map(block => ({
+        blocks: project.blocks.map((block: schema.Block & { sections: (schema.Section & { tasks: (schema.Task & { subtasks: schema.Subtask[] })[] })[] }) => ({
           number: block.number,
           title: block.title,
           titleRu: block.titleRu,
-          sections: block.sections.map(section => ({
+          sections: block.sections.map((section: schema.Section & { tasks: (schema.Task & { subtasks: schema.Subtask[] })[] }) => ({
             title: section.title,
-            tasks: section.tasks.map(task => ({
+            tasks: section.tasks.map((task: schema.Task & { subtasks: schema.Subtask[] }) => ({
               title: task.title,
               description: task.description,
               status: task.status,
               notes: task.notes,
               summary: task.summary,
-              subtasks: task.subtasks.map(subtask => ({
+              subtasks: task.subtasks.map((subtask: schema.Subtask) => ({
                 title: subtask.title,
                 status: subtask.status,
               })),
@@ -1229,19 +1473,47 @@ const driveRouter = router({
 
   loadProject: protectedProcedure
     .input(z.object({ filename: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Extract projectId from filename pattern: {name}_{projectId}.json
+      const match = input.filename.match(/_(\d+)\.json$/);
+      if (match) {
+        const projectId = parseInt(match[1], 10);
+        const access = await checkProjectAccess(ctx.user.id, projectId);
+        if (!access.hasAccess) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к этому файлу" });
+        }
+      }
       return googleDrive.loadProjectFromDrive(input.filename);
     }),
 
   deleteFile: protectedProcedure
     .input(z.object({ filename: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Extract projectId from filename pattern: {name}_{projectId}.json
+      const match = input.filename.match(/_(\d+)\.json$/);
+      if (!match) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Некорректное имя файла" });
+      }
+      const projectId = parseInt(match[1], 10);
+      const access = await checkProjectAccess(ctx.user.id, projectId, "editor");
+      if (!access.hasAccess) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа для удаления этого файла" });
+      }
       return googleDrive.deleteProjectFromDrive(input.filename);
     }),
 
   getShareableLink: protectedProcedure
     .input(z.object({ filename: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Extract projectId from filename pattern: {name}_{projectId}.json
+      const match = input.filename.match(/_(\d+)\.json$/);
+      if (match) {
+        const projectId = parseInt(match[1], 10);
+        const access = await checkProjectAccess(ctx.user.id, projectId);
+        if (!access.hasAccess) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к этому файлу" });
+        }
+      }
       return googleDrive.getShareableLink(input.filename);
     }),
 
@@ -1262,19 +1534,19 @@ const driveRouter = router({
         status: project.status,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
-        blocks: project.blocks.map(block => ({
+        blocks: project.blocks.map((block: schema.Block & { sections: (schema.Section & { tasks: (schema.Task & { subtasks: schema.Subtask[] })[] })[] }) => ({
           number: block.number,
           title: block.title,
           titleRu: block.titleRu,
-          sections: block.sections.map(section => ({
+          sections: block.sections.map((section: schema.Section & { tasks: (schema.Task & { subtasks: schema.Subtask[] })[] }) => ({
             title: section.title,
-            tasks: section.tasks.map(task => ({
+            tasks: section.tasks.map((task: schema.Task & { subtasks: schema.Subtask[] }) => ({
               title: task.title,
               description: task.description,
               status: task.status,
               notes: task.notes,
               summary: task.summary,
-              subtasks: task.subtasks.map(subtask => ({
+              subtasks: task.subtasks.map((subtask: schema.Subtask) => ({
                 title: subtask.title,
                 status: subtask.status,
               })),
@@ -1297,7 +1569,11 @@ const calendarRouter = router({
       deadline: z.date(),
       description: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check task access before creating calendar event
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
+
       return googleCalendar.createTaskDeadlineEvent({
         taskId: input.taskId,
         taskTitle: input.taskTitle,
@@ -1309,6 +1585,7 @@ const calendarRouter = router({
 
   createProjectMilestones: protectedProcedure
     .input(z.object({
+      projectId: z.number(),
       projectName: z.string(),
       milestones: z.array(z.object({
         title: z.string(),
@@ -1316,19 +1593,31 @@ const calendarRouter = router({
         description: z.string().optional(),
       })),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check project access before creating milestones
+      const access = await checkProjectAccess(ctx.user.id, input.projectId, "editor");
+      requireAccessOrNotFound(access, "проект");
+
       return googleCalendar.createProjectMilestones(input.projectName, input.milestones);
     }),
 
   searchProjectEvents: protectedProcedure
-    .input(z.object({ projectName: z.string() }))
-    .query(async ({ input }) => {
+    .input(z.object({ projectId: z.number(), projectName: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Check project access before searching events
+      const access = await checkProjectAccess(ctx.user.id, input.projectId);
+      requireAccessOrNotFound(access, "проект");
+
       return googleCalendar.searchProjectEvents(input.projectName);
     }),
 
   deleteEvent: protectedProcedure
-    .input(z.object({ eventId: z.string() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ eventId: z.string(), projectId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      // Check project access before deleting event
+      const access = await checkProjectAccess(ctx.user.id, input.projectId, "editor");
+      requireAccessOrNotFound(access, "проект");
+
       return googleCalendar.deleteCalendarEvent(input.eventId);
     }),
 });
@@ -1429,8 +1718,13 @@ const templateRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return db.getTemplateById(input.id);
+    .query(async ({ ctx, input }) => {
+      const template = await db.getTemplateById(input.id);
+      // Only return if public or owned by user
+      if (template && (template.isPublic || template.authorId === ctx.user.id)) {
+        return template;
+      }
+      return null;
     }),
 
   saveProjectAsTemplate: protectedProcedure
@@ -1564,13 +1858,13 @@ const pitchDeckRouter = router({
       const projectSummary = {
         name: project.name,
         description: project.description,
-        blocks: project.blocks.map(b => ({
+        blocks: project.blocks.map((b: schema.Block & { sections: (schema.Section & { tasks: schema.Task[] })[] }) => ({
           title: b.title,
           titleRu: b.titleRu,
           duration: b.duration,
-          sections: b.sections.map(s => ({
+          sections: b.sections.map((s: schema.Section & { tasks: schema.Task[] }) => ({
             title: s.title,
-            tasks: s.tasks.map(t => t.title)
+            tasks: s.tasks.map((t: schema.Task) => t.title)
           }))
         }))
       };
@@ -1765,10 +2059,14 @@ export const appRouter = router({
   adminContent: adminContentRouter,
   adminUI: adminUIRouter,
   adminIntegrations: adminIntegrationsRouter,
+  adminModelRatings: adminModelRatingsRouter,
   adminLogs: adminLogsRouter,
   usage: usageRouter,
   customFields: customFieldsRouter,
   savedViews: savedViewsRouter,
+  openclaw: openclawRouter,
+  attachments: attachmentsRouter,
+  skillExecution: skillExecutionRouter,
 });
 
 export type AppRouter = typeof appRouter;

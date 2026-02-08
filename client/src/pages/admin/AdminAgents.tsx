@@ -1,5 +1,6 @@
 /**
  * Admin Agents Page - Enhanced agent management with skills/MCP binding
+ * Part 8.2: Added model preference selector, agent statistics, improved testing
  */
 
 import { useState } from "react";
@@ -15,17 +16,21 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
-import { 
-  Bot, 
-  Plus, 
-  Pencil, 
-  Trash2, 
+import { Streamdown } from "streamdown";
+import {
+  Bot,
+  Plus,
+  Pencil,
+  Trash2,
   Copy,
   MessageSquare,
   Loader2,
   Zap,
   Server,
-  Play
+  Play,
+  Clock,
+  CheckCircle,
+  TrendingUp
 } from "lucide-react";
 
 export default function AdminAgents() {
@@ -39,6 +44,7 @@ export default function AdminAgents() {
   const { data: agents, isLoading, refetch } = trpc.agents.list.useQuery();
   const { data: skills } = trpc.skills.list.useQuery();
   const { data: mcpServers } = trpc.mcpServers.list.useQuery();
+  const { data: modelRatings } = trpc.adminModelRatings.list.useQuery();
 
   const createMutation = trpc.agents.create.useMutation({
     onSuccess: () => {
@@ -65,19 +71,34 @@ export default function AdminAgents() {
     onError: (err) => toast.error(err.message),
   });
 
-  const [newAgent, setNewAgent] = useState({
+  const [newAgent, setNewAgent] = useState<{
+    name: string;
+    nameRu: string;
+    slug: string;
+    description: string;
+    type: "research" | "analysis" | "code" | "general" | "writing" | "planning";
+    systemPrompt: string;
+    modelPreference: string;
+    temperature: number;
+    maxTokens: number;
+    isActive: boolean;
+    skillIds: number[];
+    mcpServerIds: number[];
+    triggerPatterns: string;
+  }>({
     name: "",
     nameRu: "",
     slug: "",
     description: "",
-    type: "general" as const,
+    type: "general",
     systemPrompt: "",
     modelPreference: "",
     temperature: 70,
     maxTokens: 4096,
     isActive: true,
-    skillIds: [] as number[],
-    mcpServerIds: [] as number[],
+    skillIds: [],
+    mcpServerIds: [],
+    triggerPatterns: "",
   });
 
   const handleCreate = () => {
@@ -85,20 +106,34 @@ export default function AdminAgents() {
       toast.error("Заполните обязательные поля");
       return;
     }
+    const triggerPatterns = newAgent.triggerPatterns
+      .split('\n')
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+
     createMutation.mutate({
-      ...newAgent,
-      temperature: newAgent.temperature / 100,
+      name: newAgent.name,
+      nameRu: newAgent.nameRu,
+      slug: newAgent.slug,
+      description: newAgent.description,
+      type: newAgent.type,
+      systemPrompt: newAgent.systemPrompt,
+      modelPreference: newAgent.modelPreference || undefined,
+      temperature: newAgent.temperature,
+      maxTokens: newAgent.maxTokens,
+      triggerPatterns: triggerPatterns.length > 0 ? triggerPatterns : undefined,
     });
   };
 
-  const handleClone = (agent: typeof agents extends (infer T)[] | undefined ? T : never) => {
+  const handleClone = (agent: NonNullable<typeof agents>[number]) => {
     if (!agent) return;
+    const patterns = (agent.triggerPatterns as string[] | null) || [];
     setNewAgent({
       name: `${agent.name} (копия)`,
       nameRu: agent.nameRu ? `${agent.nameRu} (копия)` : "",
       slug: `${agent.slug}-copy`,
       description: agent.description || "",
-      type: agent.type as any,
+      type: agent.type as "research" | "analysis" | "code" | "general" | "writing" | "planning",
       systemPrompt: agent.systemPrompt || "",
       modelPreference: agent.modelPreference || "",
       temperature: (agent.temperature || 0.7) * 100,
@@ -106,6 +141,7 @@ export default function AdminAgents() {
       isActive: true,
       skillIds: [],
       mcpServerIds: [],
+      triggerPatterns: patterns.join('\n'),
     });
     setIsCreateOpen(true);
   };
@@ -118,16 +154,68 @@ export default function AdminAgents() {
     if (!selectedAgent || !testMessage.trim()) return;
     setIsTesting(true);
     setTestResponse("");
-    
+
+    type AgentItem = NonNullable<typeof agents>[number];
+    const agent = agents?.find((a: AgentItem) => a.id === selectedAgent);
+    if (!agent) {
+      toast.error("Агент не найден");
+      setIsTesting(false);
+      return;
+    }
+
     try {
-      // Simple test - would need a test endpoint
-      toast.info("Тестирование агента...");
-      setTimeout(() => {
-        setTestResponse("Тестовый ответ от агента. Для полноценного тестирования используйте AI чат.");
-        setIsTesting(false);
-      }, 1500);
-    } catch (err) {
-      toast.error("Ошибка тестирования");
+      // Use the streaming endpoint with agent's model preference
+      const response = await fetch('/api/ai/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: testMessage }],
+          taskType: 'chat',
+          model: agent.modelPreference || undefined,
+          projectContext: agent.systemPrompt ? `System: ${agent.systemPrompt}` : undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Ошибка запроса');
+      }
+
+      if (!response.body) throw new Error('Нет тела ответа');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'done') continue;
+              if (data.type === 'error') throw new Error(data.message);
+              const content = data.choices?.[0]?.delta?.content;
+              if (content) {
+                fullContent += content;
+                setTestResponse(fullContent);
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue;
+              throw e;
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      toast.error("Ошибка тестирования: " + (err.message || "Неизвестная ошибка"));
+    } finally {
       setIsTesting(false);
     }
   };
@@ -243,6 +331,50 @@ export default function AdminAgents() {
                   />
                 </div>
               </div>
+
+              {/* Model Preference Selector */}
+              <div className="space-y-2">
+                <Label>Предпочитаемая модель</Label>
+                <Select
+                  value={newAgent.modelPreference || "auto"}
+                  onValueChange={(v) => setNewAgent({ ...newAgent, modelPreference: v === "auto" ? "" : v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Авто (по рейтингу)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Авто (по рейтингу задачи)</SelectItem>
+                    {modelRatings?.map((model: { id: number; modelName: string; provider: string }) => (
+                      <SelectItem key={model.id} value={model.modelName}>
+                        <span className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">
+                            {model.provider}
+                          </Badge>
+                          {model.modelName.split('/').pop()}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Если не указано, модель выбирается автоматически по типу задачи
+                </p>
+              </div>
+
+              {/* Trigger Patterns */}
+              <div className="space-y-2">
+                <Label>Триггер-паттерны (regex)</Label>
+                <Textarea
+                  value={newAgent.triggerPatterns}
+                  onChange={(e) => setNewAgent({ ...newAgent, triggerPatterns: e.target.value })}
+                  placeholder="план|roadmap|стратегия&#10;анализ|исследование&#10;(каждый паттерн на новой строке)"
+                  rows={3}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Паттерны для автоматического выбора агента по сообщению пользователя
+                </p>
+              </div>
               
               {/* Skills binding */}
               <div className="space-y-2">
@@ -251,7 +383,7 @@ export default function AdminAgents() {
                   Привязанные скиллы
                 </Label>
                 <div className="flex flex-wrap gap-2 p-3 border rounded-lg min-h-[60px]">
-                  {skills?.map((skill) => (
+                  {skills?.map((skill: { id: number; name: string }) => (
                     <Badge
                       key={skill.id}
                       variant={newAgent.skillIds.includes(skill.id) ? "default" : "outline"}
@@ -281,7 +413,7 @@ export default function AdminAgents() {
                   Привязанные MCP серверы
                 </Label>
                 <div className="flex flex-wrap gap-2 p-3 border rounded-lg min-h-[60px]">
-                  {mcpServers?.map((server) => (
+                  {mcpServers?.map((server: { id: number; name: string }) => (
                     <Badge
                       key={server.id}
                       variant={newAgent.mcpServerIds.includes(server.id) ? "default" : "outline"}
@@ -327,10 +459,33 @@ export default function AdminAgents() {
 
       {/* Test Agent Dialog */}
       <Dialog open={isTestOpen} onOpenChange={setIsTestOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Тестировать агента</DialogTitle>
-            <DialogDescription>Отправьте тестовое сообщение агенту</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <Bot className="w-5 h-5 text-amber-400" />
+              Тестировать агента
+              {selectedAgent && (() => {
+                type AgentItem = NonNullable<typeof agents>[number];
+                const found = agents?.find((a: AgentItem) => a.id === selectedAgent);
+                return found ? (
+                  <Badge variant="outline" className="ml-2">
+                    {found.nameRu || found.name}
+                  </Badge>
+                ) : null;
+              })()}
+            </DialogTitle>
+            <DialogDescription>
+              Отправьте тестовое сообщение и проверьте ответ агента
+              {selectedAgent && (() => {
+                type AgentItem = NonNullable<typeof agents>[number];
+                const found = agents?.find((a: AgentItem) => a.id === selectedAgent);
+                return found?.modelPreference ? (
+                  <span className="block text-xs mt-1">
+                    Модель: {found.modelPreference}
+                  </span>
+                ) : null;
+              })()}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -338,24 +493,44 @@ export default function AdminAgents() {
               <Textarea
                 value={testMessage}
                 onChange={(e) => setTestMessage(e.target.value)}
-                placeholder="Введите тестовое сообщение..."
+                placeholder="Введите тестовое сообщение для агента..."
                 rows={3}
+                disabled={isTesting}
               />
             </div>
-            {testResponse && (
+            {(testResponse || isTesting) && (
               <div className="space-y-2">
-                <Label>Ответ агента</Label>
-                <div className="p-3 bg-muted rounded-lg text-sm">
-                  {testResponse}
+                <Label className="flex items-center gap-2">
+                  Ответ агента
+                  {isTesting && <Loader2 className="w-3 h-3 animate-spin text-amber-400" />}
+                </Label>
+                <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700 min-h-[100px] max-h-[300px] overflow-y-auto">
+                  {testResponse ? (
+                    <div className="text-sm prose prose-invert prose-sm max-w-none">
+                      <Streamdown>{testResponse}</Streamdown>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-slate-400 text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Генерация ответа...
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsTestOpen(false)}>
+            <Button variant="outline" onClick={() => {
+              setIsTestOpen(false);
+              setTestResponse("");
+            }}>
               Закрыть
             </Button>
-            <Button onClick={handleTestAgent} disabled={isTesting || !testMessage.trim()}>
+            <Button
+              onClick={handleTestAgent}
+              disabled={isTesting || !testMessage.trim()}
+              className="bg-amber-500 hover:bg-amber-600 text-slate-900"
+            >
               {isTesting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               <Play className="w-4 h-4 mr-2" />
               Тест
@@ -366,7 +541,7 @@ export default function AdminAgents() {
 
       {/* Agents Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {agents?.map((agent) => (
+        {agents?.map((agent: NonNullable<typeof agents>[number]) => (
           <Card key={agent.id} className={!agent.isActive ? "opacity-60" : ""}>
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between">
@@ -395,13 +570,46 @@ export default function AdminAgents() {
                   <span className="text-muted-foreground">Тип:</span>
                   <Badge variant="outline">{agent.type}</Badge>
                 </div>
+                {agent.modelPreference && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Модель:</span>
+                    <span className="text-xs truncate max-w-[120px]" title={agent.modelPreference}>
+                      {agent.modelPreference.split('/').pop()}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Температура:</span>
                   <span>{((agent.temperature || 0.7) * 100).toFixed(0)}%</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Вызовов:</span>
-                  <span>{(agent as any).totalInvocations || 0}</span>
+
+                {/* Agent Statistics */}
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700/50">
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                      <TrendingUp className="w-3 h-3" />
+                    </div>
+                    <div className="text-sm font-medium">{(agent as any).totalInvocations || 0}</div>
+                    <div className="text-[10px] text-muted-foreground">вызовов</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3" />
+                    </div>
+                    <div className="text-sm font-medium">
+                      {(agent as any).avgResponseTime ? `${Math.round((agent as any).avgResponseTime)}ms` : '—'}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">время</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                      <CheckCircle className="w-3 h-3" />
+                    </div>
+                    <div className="text-sm font-medium">
+                      {(agent as any).successRate ? `${Math.round((agent as any).successRate)}%` : '—'}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">успех</div>
+                  </div>
                 </div>
                 
                 {/* Bound skills */}

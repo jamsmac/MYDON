@@ -245,7 +245,7 @@ export default function AdminRoles() {
               </Card>
             ))
           ) : (
-            roles?.map((role) => (
+            roles?.map((role: NonNullable<typeof roles>[number]) => (
               <Card key={role.id} className="relative">
                 {role.isSystem && (
                   <Badge 
@@ -339,7 +339,7 @@ export default function AdminRoles() {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left py-3 px-4 font-medium">Право</th>
-                    {roles?.map((role) => (
+                    {roles?.map((role: NonNullable<typeof roles>[number]) => (
                       <th key={role.id} className="text-center py-3 px-4 font-medium">
                         <div className="flex items-center justify-center gap-2">
                           <div
@@ -363,7 +363,7 @@ export default function AdminRoles() {
                       {group.permissions.map((perm) => (
                         <tr key={perm.key} className="border-b">
                           <td className="py-2 px-4 text-sm">{perm.label}</td>
-                          {roles?.map((role) => (
+                          {roles?.map((role: NonNullable<typeof roles>[number]) => (
                             <td key={role.id} className="text-center py-2 px-4">
                               {(role.permissions as Permissions)?.[perm.key as keyof Permissions] ? (
                                 <Badge className="bg-emerald-500">✓</Badge>

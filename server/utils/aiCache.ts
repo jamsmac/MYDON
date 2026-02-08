@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { getDb } from '../db';
 import * as schema from '../../drizzle/schema';
 import { eq, lt, desc } from 'drizzle-orm';
+import { logger } from './logger';
 
 const TTL_MAP = {
   reasoning: 7 * 24 * 60 * 60 * 1000,
@@ -80,11 +81,20 @@ export class AICache {
   }
 
   static async cleanup(): Promise<number> {
-    const db = await getDb();
-    if (!db) return 0;
+    try {
+      const db = await getDb();
+      if (!db) return 0;
 
-    const result = await db.delete(schema.aiCache).where(lt(schema.aiCache.expiresAt, new Date()));
-    return (result as any).rowsAffected || 0;
+      const result = await db.delete(schema.aiCache).where(lt(schema.aiCache.expiresAt, new Date()));
+      return (result as any).rowsAffected || 0;
+    } catch (error: any) {
+      // Table might not exist yet - ignore gracefully
+      if (error?.cause?.code === 'ER_NO_SUCH_TABLE') {
+        return 0;
+      }
+      logger.ai.warn("AI Cache cleanup failed", { error: error.message });
+      return 0;
+    }
   }
 
   static async getStats() {
@@ -93,9 +103,9 @@ export class AICache {
 
     const entries = await db.select().from(schema.aiCache);
     const totalEntries = entries.length;
-    const totalHits = entries.reduce((sum, e) => sum + (e.hitCount || 0), 0);
+    const totalHits = entries.reduce((sum: number, e: { hitCount: number | null }) => sum + (e.hitCount || 0), 0);
     const avgHitsPerEntry = totalEntries ? (totalHits / totalEntries).toFixed(1) : '0';
-    const totalChars = entries.reduce((sum, e) => sum + (e.prompt?.length || 0) + (e.response?.length || 0), 0);
+    const totalChars = entries.reduce((sum: number, e: { prompt: string | null; response: string | null }) => sum + (e.prompt?.length || 0) + (e.response?.length || 0), 0);
     const cacheSize = `${(totalChars / 1024).toFixed(2)} KB`;
 
     return { totalEntries, totalHits, avgHitsPerEntry, cacheSize };
@@ -112,7 +122,7 @@ export class AICache {
       .orderBy(desc(schema.aiRequests.createdAt))
       .limit(limit);
 
-    return messages.reverse().flatMap(m => [
+    return messages.reverse().flatMap((m: { prompt: string | null; response: string | null }) => [
       { role: 'user' as const, content: m.prompt },
       { role: 'assistant' as const, content: m.response },
     ]);
@@ -122,7 +132,12 @@ export class AICache {
 // Auto-cleanup expired cache entries every hour
 if (process.env.AI_CACHE_ENABLED !== 'false') {
   setInterval(async () => {
-    const deleted = await AICache.cleanup();
-    if (deleted > 0) console.log(`🗑️ AI Cache cleanup: removed ${deleted} expired entries`);
+    try {
+      const deleted = await AICache.cleanup();
+      if (deleted > 0) logger.ai.info("AI Cache cleanup", { deleted });
+    } catch (error: any) {
+      // Ignore cleanup errors - don't crash the server
+      logger.ai.warn("AI Cache cleanup interval error", { error: error.message });
+    }
   }, 60 * 60 * 1000);
 }

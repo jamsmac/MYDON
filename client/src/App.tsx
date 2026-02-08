@@ -9,6 +9,7 @@ import { AchievementNotificationProvider } from "@/components/gamification/Achie
 import { FloatingAIChatButton } from "@/components/FloatingAIChatButton";
 import { ProjectContextProvider } from "@/contexts/ProjectContext";
 import { AIChatContextProvider } from "@/contexts/AIChatContext";
+import { SkipLink } from "@/components/SkipLink";
 
 // Eager load critical pages
 import Dashboard from "./pages/Dashboard";
@@ -34,7 +35,6 @@ const AIChatPage = lazy(() => import("./pages/AIChatPage"));
 const TagManagement = lazy(() => import("./pages/TagManagement"));
 const DecisionLogDashboard = lazy(() => import("./pages/DecisionLogDashboard"));
 const UsagePage = lazy(() => import("./pages/UsagePage"));
-const ProjectViewAlternate = lazy(() => import("./pages/ProjectViewAlternate"));
 const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 
 // Loading fallback component
@@ -55,7 +55,6 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/project/:id" component={ProjectView} />
-        <Route path="/project/:id/views" component={ProjectViewAlternate} />
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={AdminPanel} />
         <Route path="/admin/:rest*" component={AdminPanel} />
@@ -90,7 +89,8 @@ function App() {
         <ProjectContextProvider>
         <AIChatContextProvider>
         <TooltipProvider>
-          <Toaster 
+          <SkipLink />
+          <Toaster
             position="top-right"
             toastOptions={{
               style: {

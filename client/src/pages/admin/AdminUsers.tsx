@@ -206,8 +206,8 @@ export default function AdminUsers() {
 
   // Stats
   const totalUsers = usersData?.total || 0;
-  const activeUsers = usersData?.users?.filter(u => u.status === "active").length || 0;
-  const pendingInvitations = invitations?.filter(i => i.status === "pending").length || 0;
+  const activeUsers = usersData?.users?.filter((u: { status: string }) => u.status === "active").length || 0;
+  const pendingInvitations = invitations?.filter((i: { status: string }) => i.status === "pending").length || 0;
 
   return (
     <AdminLayout>
@@ -262,7 +262,7 @@ export default function AdminUsers() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {usersData?.users?.reduce((sum, u) => sum + u.aiRequests, 0) || 0}
+                {usersData?.users?.reduce((sum: number, u: { aiRequests: number }) => sum + u.aiRequests, 0) || 0}
               </div>
             </CardContent>
           </Card>
@@ -340,7 +340,7 @@ export default function AdminUsers() {
                   </TableCell>
                 </TableRow>
               ) : (
-                usersData?.users?.map((user) => (
+                usersData?.users?.map((user: { id: number; name: string | null; email: string; avatar: string | null; role: string | null; status: string; credits: number | null; aiRequests: number; createdAt: string | null; lastSignedIn: string | null }) => (
                   <TableRow key={user.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -435,7 +435,7 @@ export default function AdminUsers() {
         </Card>
 
         {/* Pending Invitations */}
-        {invitations && invitations.filter(i => i.status === "pending").length > 0 && (
+        {invitations && invitations.filter((i: { status: string }) => i.status === "pending").length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -446,8 +446,8 @@ export default function AdminUsers() {
             <CardContent>
               <div className="space-y-3">
                 {invitations
-                  .filter(i => i.status === "pending")
-                  .map((invitation) => (
+                  .filter((i: { status: string }) => i.status === "pending")
+                  .map((invitation: { id: number; email: string; roleName: string | null; creditLimit: number | null; expiresAt: string | null }) => (
                     <div
                       key={invitation.id}
                       className="flex items-center justify-between p-3 rounded-lg border bg-card"
@@ -509,7 +509,7 @@ export default function AdminUsers() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles?.map((role) => (
+                    {roles?.map((role: { id: number; name: string; nameRu: string | null }) => (
                       <SelectItem key={role.id} value={role.id.toString()}>
                         {role.nameRu || role.name}
                       </SelectItem>

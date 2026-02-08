@@ -375,7 +375,7 @@ export class AIRouter {
         .orderBy(sql`${schema.aiUsageStats.date} ASC`);
 
       const totals = stats.reduce(
-        (acc, s) => ({
+        (acc: { requests: number; tokens: number; cost: number; cached: number }, s: { totalRequests: number | null; totalTokens: number | null; totalCost: number | string | null; cachedRequests: number | null }) => ({
           requests: acc.requests + (s.totalRequests || 0),
           tokens: acc.tokens + (s.totalTokens || 0),
           cost: acc.cost + parseFloat(s.totalCost?.toString() || '0'),

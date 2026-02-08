@@ -88,7 +88,7 @@ export default function DecisionLogDashboard() {
 
   const filteredDecisions = useMemo(() => {
     if (!decisions) return [];
-    return decisions.filter((d) => {
+    return decisions.filter((d: Decision) => {
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matches = d.question.toLowerCase().includes(query) ||
@@ -103,7 +103,7 @@ export default function DecisionLogDashboard() {
 
   const groupedByDate = useMemo(() => {
     const groups: Record<string, Decision[]> = {};
-    filteredDecisions.forEach((d) => {
+    filteredDecisions.forEach((d: Decision) => {
       const date = d.createdAt ? new Date(d.createdAt).toLocaleDateString("ru-RU", {
         year: "numeric", month: "long", day: "numeric",
       }) : "Без даты";
@@ -117,8 +117,8 @@ export default function DecisionLogDashboard() {
     if (!filteredDecisions.length) { toast.error("Нет решений для экспорта"); return; }
     let md = "# Журнал AI Решений\n\n";
     md += `Экспортировано: ${new Date().toLocaleDateString("ru-RU")}\n\n`;
-    filteredDecisions.forEach((d, i) => {
-      const tc = TYPE_CONFIG[d.decisionType || "other"];
+    filteredDecisions.forEach((d: Decision, i: number) => {
+      const tc = TYPE_CONFIG[d.decisionType as keyof typeof TYPE_CONFIG || "other"];
       md += `## ${i + 1}. ${d.finalDecision.substring(0, 80)}\n`;
       md += `**Тип:** ${tc.icon} ${tc.label}\n`;
       md += `### Вопрос\n${d.question}\n\n`;
@@ -312,7 +312,7 @@ export default function DecisionLogDashboard() {
           </div>
         ) : (
           <div className={cn(viewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-4")}>
-            {filteredDecisions.map((d) => renderCard(d as Decision))}
+            {filteredDecisions.map((d: Decision) => renderCard(d))}
           </div>
         )}
       </div>

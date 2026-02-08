@@ -31,10 +31,10 @@ export const adminPricingRouter = router({
       .groupBy(users.subscriptionPlan);
 
     const countMap = Object.fromEntries(
-      userCounts.map(u => [u.plan, u.count])
+      userCounts.map((u: { plan: string | null; count: number }) => [u.plan, u.count])
     );
 
-    return plans.map(plan => ({
+    return plans.map((plan: { id: number; slug: string; name: string; nameRu: string | null; description: string | null; descriptionRu: string | null; priceMonthly: number; priceYearly: number; currency: string; creditsPerMonth: number; maxProjects: number; maxUsers: number; maxStorage: number; features: unknown; color: string; icon: string; isPopular: boolean; isActive: boolean; isSystem: boolean; displayOrder: number; createdAt: Date | null }) => ({
       ...plan,
       userCount: countMap[plan.slug] || 0,
     }));

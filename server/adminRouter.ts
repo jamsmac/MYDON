@@ -8,6 +8,7 @@ import { getDb } from "./db";
 import * as schema from "../drizzle/schema";
 import { eq, sql, and, gte, desc, count } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { seedAgentsAndSkills, isSeeded } from "./utils/seedAgentsSkills";
 
 // Admin-only procedure
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -258,6 +259,32 @@ export const adminRouter = router({
 
       return { success: true };
     }),
+
+  /**
+   * Seed system agents and skills
+   */
+  seedSystemData: adminProcedure.mutation(async () => {
+    try {
+      const result = await seedAgentsAndSkills();
+      return {
+        success: true,
+        ...result,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Seeding failed';
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message,
+      });
+    }
+  }),
+
+  /**
+   * Check if system data is seeded
+   */
+  isSystemDataSeeded: adminProcedure.query(async () => {
+    return { seeded: await isSeeded() };
+  }),
 });
 
 export type AdminRouter = typeof adminRouter;

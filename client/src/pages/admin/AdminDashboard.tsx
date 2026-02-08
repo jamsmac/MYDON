@@ -228,7 +228,7 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {recentLogs.map((log) => (
+                    {recentLogs.map((log: { id: number; createdAt: string; requestType: string; model: string | null; tokensUsed: number | null; status: string | null }) => (
                       <tr key={log.id} className="border-b last:border-0">
                         <td className="py-2 text-muted-foreground">
                           {format(new Date(log.createdAt), "HH:mm:ss", { locale: ru })}

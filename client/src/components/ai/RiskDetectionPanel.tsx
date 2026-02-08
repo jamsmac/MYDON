@@ -97,13 +97,23 @@ export function RiskDetectionPanel({
     },
   });
 
-  const risks = risksData?.risks || [];
+  type Risk = {
+    id: number;
+    severity: string;
+    riskType: string;
+    status: string;
+    title: string;
+    description: string;
+    recommendation?: string;
+  };
+
+  const risks: Risk[] = risksData?.risks || [];
 
   const summary = {
-    critical: risks.filter((r) => r.severity === "critical").length,
-    high: risks.filter((r) => r.severity === "high").length,
-    medium: risks.filter((r) => r.severity === "medium").length,
-    low: risks.filter((r) => r.severity === "low").length,
+    critical: risks.filter((r: Risk) => r.severity === "critical").length,
+    high: risks.filter((r: Risk) => r.severity === "high").length,
+    medium: risks.filter((r: Risk) => r.severity === "medium").length,
+    low: risks.filter((r: Risk) => r.severity === "low").length,
   };
 
   return (
@@ -174,7 +184,7 @@ export function RiskDetectionPanel({
       </CardHeader>
 
       <CardContent className="space-y-3 max-h-[400px] overflow-y-auto">
-        {risks.map((risk) => {
+        {risks.map((risk: Risk) => {
           const severity = severityConfig[risk.severity as keyof typeof severityConfig] || severityConfig.medium;
           const riskType = riskTypeConfig[risk.riskType] || { label: risk.riskType, icon: AlertTriangle };
           const status = statusConfig[risk.status as keyof typeof statusConfig] || statusConfig.open;

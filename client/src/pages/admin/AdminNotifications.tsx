@@ -313,7 +313,7 @@ export default function AdminNotifications() {
             </Card>
           ) : (
             <div className="grid gap-4">
-              {templates.map((template) => (
+              {templates.map((template: { id: number; name: string; subject: string; isActive: boolean; variables: string[] | null }) => (
                 <Card key={template.id}>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">

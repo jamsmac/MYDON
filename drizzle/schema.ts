@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean, index, uniqueIndex, decimal, date } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, boolean, index, uniqueIndex, decimal, date, foreignKey } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -11,6 +11,9 @@ export const users = mysqlTable("users", {
   avatar: varchar("avatar", { length: 512 }), // User avatar URL
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  status: mysqlEnum("status", ["active", "blocked"]).default("active").notNull(), // User account status
+  blockedAt: timestamp("blockedAt"), // When user was blocked
+  blockedReason: text("blockedReason"), // Reason for blocking
   // Stripe subscription fields
   stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
   stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 255 }),
@@ -46,7 +49,14 @@ export const aiSettings = mysqlTable("ai_settings", {
   priority: int("priority").default(0), // Higher = preferred for auto-select
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("ai_settings_user_idx").on(table.userId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_settings_user_fk",
+  }).onDelete("cascade"),
+}));
 
 /**
  * User AI preferences - for smart model selection
@@ -63,7 +73,13 @@ export const aiPreferences = mysqlTable("ai_preferences", {
   creativeTaskProvider: int("creativeTaskProvider"), // Writing, brainstorming
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_preferences_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type AiPreference = typeof aiPreferences.$inferSelect;
 export type InsertAiPreference = typeof aiPreferences.$inferInsert;
@@ -84,7 +100,13 @@ export const userCredits = mysqlTable("user_credits", {
   useBYOK: boolean("useBYOK").default(false), // Use own API keys instead of platform
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "user_credits_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type UserCredits = typeof userCredits.$inferSelect;
 export type InsertUserCredits = typeof userCredits.$inferInsert;
@@ -110,7 +132,15 @@ export const creditTransactions = mysqlTable("credit_transactions", {
   model: varchar("model", { length: 64 }),
   tokensUsed: int("tokensUsed"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("credit_user_idx").on(table.userId),
+  createdAtIdx: index("credit_created_idx").on(table.createdAt),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "credit_transactions_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type CreditTransaction = typeof creditTransactions.$inferSelect;
 export type InsertCreditTransaction = typeof creditTransactions.$inferInsert;
@@ -133,6 +163,11 @@ export const projects = mysqlTable("projects", {
 }, (table) => ({
   userIdx: index("user_idx").on(table.userId),
   statusIdx: index("project_status_idx").on(table.status),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "projects_user_fk",
+  }).onDelete("cascade"),
 }));
 
 export type Project = typeof projects.$inferSelect;
@@ -152,7 +187,20 @@ export const projectMembers = mysqlTable("project_members", {
   status: mysqlEnum("status", ["pending", "active", "removed"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  projectUserIdx: uniqueIndex("member_project_user_idx").on(table.projectId, table.userId),
+  userIdx: index("member_user_idx").on(table.userId),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "project_members_project_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "project_members_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type ProjectMember = typeof projectMembers.$inferSelect;
 export type InsertProjectMember = typeof projectMembers.$inferInsert;
@@ -171,7 +219,20 @@ export const projectInvitations = mysqlTable("project_invitations", {
   usedAt: timestamp("usedAt"),
   usedBy: int("usedBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  projectIdx: index("invitation_project_idx").on(table.projectId),
+  invitedByIdx: index("invitation_invited_by_idx").on(table.invitedBy),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "project_invitations_project_fk",
+  }).onDelete("cascade"),
+  invitedByFk: foreignKey({
+    columns: [table.invitedBy],
+    foreignColumns: [users.id],
+    name: "project_invitations_invited_by_fk",
+  }).onDelete("cascade"),
+}));
 
 export type ProjectInvitation = typeof projectInvitations.$inferSelect;
 export type InsertProjectInvitation = typeof projectInvitations.$inferInsert;
@@ -202,7 +263,21 @@ export const activityLog = mysqlTable("activity_log", {
   entityTitle: varchar("entityTitle", { length: 500 }),
   metadata: json("metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  projectIdx: index("activity_project_idx").on(table.projectId),
+  userIdx: index("activity_user_idx").on(table.userId),
+  createdAtIdx: index("activity_created_idx").on(table.createdAt),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "activity_log_project_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "activity_log_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type ActivityLog = typeof activityLog.$inferSelect;
 export type InsertActivityLog = typeof activityLog.$inferInsert;
@@ -224,7 +299,14 @@ export const blocks = mysqlTable("blocks", {
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  projectSortIdx: index("block_project_sort_idx").on(table.projectId, table.sortOrder),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "blocks_project_fk",
+  }).onDelete("cascade"),
+}));
 
 export type Block = typeof blocks.$inferSelect;
 export type InsertBlock = typeof blocks.$inferInsert;
@@ -240,7 +322,14 @@ export const sections = mysqlTable("sections", {
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  blockSortIdx: index("section_block_sort_idx").on(table.blockId, table.sortOrder),
+  blockFk: foreignKey({
+    columns: [table.blockId],
+    foreignColumns: [blocks.id],
+    name: "sections_block_fk",
+  }).onDelete("cascade"),
+}));
 
 export type Section = typeof sections.$inferSelect;
 export type InsertSection = typeof sections.$inferInsert;
@@ -269,6 +358,16 @@ export const tasks = mysqlTable("tasks", {
   statusIdx: index("status_idx").on(table.status),
   deadlineIdx: index("deadline_idx").on(table.deadline),
   assignedToIdx: index("assigned_to_idx").on(table.assignedTo),
+  sectionFk: foreignKey({
+    columns: [table.sectionId],
+    foreignColumns: [sections.id],
+    name: "tasks_section_fk",
+  }).onDelete("cascade"),
+  assignedToFk: foreignKey({
+    columns: [table.assignedTo],
+    foreignColumns: [users.id],
+    name: "tasks_assigned_to_fk",
+  }).onDelete("set null"),
 }));
 
 export type Task = typeof tasks.$inferSelect;
@@ -285,7 +384,14 @@ export const subtasks = mysqlTable("subtasks", {
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  taskSortIdx: index("subtask_task_sort_idx").on(table.taskId, table.sortOrder),
+  taskFk: foreignKey({
+    columns: [table.taskId],
+    foreignColumns: [tasks.id],
+    name: "subtasks_task_fk",
+  }).onDelete("cascade"),
+}));
 
 export type Subtask = typeof subtasks.$inferSelect;
 export type InsertSubtask = typeof subtasks.$inferInsert;
@@ -303,7 +409,14 @@ export const subtaskTemplates = mysqlTable("subtask_templates", {
   usageCount: int("usageCount").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("subtask_template_user_idx").on(table.userId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "subtask_templates_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type SubtaskTemplate = typeof subtaskTemplates.$inferSelect;
 export type InsertSubtaskTemplate = typeof subtaskTemplates.$inferInsert;
@@ -317,7 +430,14 @@ export const subtaskTemplateItems = mysqlTable("subtask_template_items", {
   title: varchar("title", { length: 500 }).notNull(),
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  templateSortIdx: index("sti_template_sort_idx").on(table.templateId, table.sortOrder),
+  templateFk: foreignKey({
+    columns: [table.templateId],
+    foreignColumns: [subtaskTemplates.id],
+    name: "subtask_template_items_template_fk",
+  }).onDelete("cascade"),
+}));
 
 export type SubtaskTemplateItem = typeof subtaskTemplateItems.$inferSelect;
 export type InsertSubtaskTemplateItem = typeof subtaskTemplateItems.$inferInsert;
@@ -339,7 +459,15 @@ export const chatMessages = mysqlTable("chat_messages", {
   model: varchar("model", { length: 64 }),
   tokensUsed: int("tokensUsed"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  contextIdx: index("chat_context_idx").on(table.contextType, table.contextId),
+  userIdx: index("chat_user_idx").on(table.userId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "chat_messages_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertChatMessage = typeof chatMessages.$inferInsert;
@@ -387,7 +515,21 @@ export const projectTemplates = mysqlTable("project_templates", {
   // Timestamps
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  authorIdx: index("pt_author_idx").on(table.authorId),
+  categoryIdx: index("pt_category_idx").on(table.categoryId),
+  isPublicIdx: index("pt_is_public_idx").on(table.isPublic),
+  authorFk: foreignKey({
+    columns: [table.authorId],
+    foreignColumns: [users.id],
+    name: "project_templates_author_fk",
+  }).onDelete("cascade"),
+  categoryFk: foreignKey({
+    columns: [table.categoryId],
+    foreignColumns: [templateCategories.id],
+    name: "project_templates_category_fk",
+  }).onDelete("set null"),
+}));
 
 // Type for template variable
 export type TemplateVariable = {
@@ -445,7 +587,21 @@ export const templateToTags = mysqlTable("template_to_tags", {
   id: int("id").autoincrement().primaryKey(),
   templateId: int("templateId").notNull(),
   tagId: int("tagId").notNull(),
-});
+}, (table) => ({
+  templateIdx: index("ttt_template_idx").on(table.templateId),
+  tagIdx: index("ttt_tag_idx").on(table.tagId),
+  uniqueTemplateTag: uniqueIndex("ttt_unique_idx").on(table.templateId, table.tagId),
+  templateFk: foreignKey({
+    columns: [table.templateId],
+    foreignColumns: [projectTemplates.id],
+    name: "template_to_tags_template_fk",
+  }).onDelete("cascade"),
+  tagFk: foreignKey({
+    columns: [table.tagId],
+    foreignColumns: [templateTags.id],
+    name: "template_to_tags_tag_fk",
+  }).onDelete("cascade"),
+}));
 
 /**
  * Template Ratings - user ratings for templates
@@ -458,7 +614,21 @@ export const templateRatings = mysqlTable("template_ratings", {
   review: text("review"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  templateIdx: index("tr_template_idx").on(table.templateId),
+  userIdx: index("tr_user_idx").on(table.userId),
+  uniqueTemplateUser: uniqueIndex("tr_unique_idx").on(table.templateId, table.userId),
+  templateFk: foreignKey({
+    columns: [table.templateId],
+    foreignColumns: [projectTemplates.id],
+    name: "template_ratings_template_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "template_ratings_user_fk",
+  }).onDelete("cascade"),
+}));
 export type TemplateRating = typeof templateRatings.$inferSelect;
 export type InsertTemplateRating = typeof templateRatings.$inferInsert;
 
@@ -471,7 +641,25 @@ export const templateDownloads = mysqlTable("template_downloads", {
   userId: int("userId").notNull(),
   createdProjectId: int("createdProjectId"), // Project created from template
   downloadedAt: timestamp("downloadedAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  templateIdx: index("td_template_idx").on(table.templateId),
+  userIdx: index("td_user_idx").on(table.userId),
+  templateFk: foreignKey({
+    columns: [table.templateId],
+    foreignColumns: [projectTemplates.id],
+    name: "template_downloads_template_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "template_downloads_user_fk",
+  }).onDelete("cascade"),
+  projectFk: foreignKey({
+    columns: [table.createdProjectId],
+    foreignColumns: [projects.id],
+    name: "template_downloads_project_fk",
+  }).onDelete("set null"),
+}));
 export type TemplateDownload = typeof templateDownloads.$inferSelect;
 export type InsertTemplateDownload = typeof templateDownloads.$inferInsert;
 
@@ -495,7 +683,20 @@ export const pitchDecks = mysqlTable("pitch_decks", {
   exportFormat: varchar("exportFormat", { length: 32 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("pd_user_idx").on(table.userId),
+  projectIdx: index("pd_project_idx").on(table.projectId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "pitch_decks_user_fk",
+  }).onDelete("cascade"),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "pitch_decks_project_fk",
+  }).onDelete("cascade"),
+}));
 
 export type PitchDeckSlide = {
   id: string;
@@ -575,7 +776,21 @@ export const userSubscriptions = mysqlTable("user_subscriptions", {
   currentPeriodEnd: timestamp("currentPeriodEnd"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("us_user_idx").on(table.userId),
+  planIdx: index("us_plan_idx").on(table.planId),
+  statusIdx: index("us_status_idx").on(table.status),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "user_subscriptions_user_fk",
+  }).onDelete("cascade"),
+  planFk: foreignKey({
+    columns: [table.planId],
+    foreignColumns: [subscriptionPlans.id],
+    name: "user_subscriptions_plan_fk",
+  }).onDelete("restrict"),
+}));
 
 export type UserSubscription = typeof userSubscriptions.$inferSelect;
 export type InsertUserSubscription = typeof userSubscriptions.$inferInsert;
@@ -606,7 +821,14 @@ export const aiIntegrations = mysqlTable("ai_integrations", {
   totalCost: int("totalCost").default(0), // In cents
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("ai_int_user_idx").on(table.userId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_integrations_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type AIIntegrationConfig = {
   model?: string;
@@ -819,7 +1041,14 @@ export const aiUsageTracking = mysqlTable("ai_usage_tracking", {
   requestCount: int("requestCount").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userDateIdx: index("aut_user_date_idx").on(table.userId, table.date),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_usage_tracking_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type AiUsageTracking = typeof aiUsageTracking.$inferSelect;
 export type InsertAiUsageTracking = typeof aiUsageTracking.$inferInsert;
@@ -840,11 +1069,25 @@ export const taskComments = mysqlTable("task_comments", {
   content: text("content").notNull(),
   parentId: int("parentId"), // For threaded replies
   mentions: json("mentions").$type<number[]>(), // Array of mentioned user IDs
+  attachmentIds: json("attachmentIds").$type<number[]>(), // Array of file attachment IDs
   isEdited: boolean("isEdited").default(false),
   isSummary: boolean("isSummary").default(false), // Finalized discussion summary
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  entityIdx: index("tc_entity_idx").on(table.entityType, table.entityId),
+  userIdx: index("tc_user_idx").on(table.userId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "task_comments_user_fk",
+  }).onDelete("cascade"),
+  taskFk: foreignKey({
+    columns: [table.taskId],
+    foreignColumns: [tasks.id],
+    name: "task_comments_task_fk",
+  }).onDelete("cascade"),
+}));
 
 export type TaskComment = typeof taskComments.$inferSelect;
 export type InsertTaskComment = typeof taskComments.$inferInsert;
@@ -858,7 +1101,21 @@ export const commentReactions = mysqlTable("comment_reactions", {
   userId: int("userId").notNull(),
   emoji: varchar("emoji", { length: 32 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  commentIdx: index("cr_comment_idx").on(table.commentId),
+  userIdx: index("cr_user_idx").on(table.userId),
+  uniqueReaction: uniqueIndex("cr_unique_idx").on(table.commentId, table.userId, table.emoji),
+  commentFk: foreignKey({
+    columns: [table.commentId],
+    foreignColumns: [taskComments.id],
+    name: "comment_reactions_comment_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "comment_reactions_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type CommentReaction = typeof commentReactions.$inferSelect;
 export type InsertCommentReaction = typeof commentReactions.$inferInsert;
@@ -890,7 +1147,15 @@ export const notifications = mysqlTable("notifications", {
   isRead: boolean("isRead").default(false),
   readAt: timestamp("readAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  userReadIdx: index("notification_user_read_idx").on(table.userId, table.isRead),
+  userCreatedIdx: index("notification_user_created_idx").on(table.userId, table.createdAt),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "notifications_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = typeof notifications.$inferInsert;
@@ -924,7 +1189,13 @@ export const notificationPreferences = mysqlTable("notification_preferences", {
   notifyDeadlines: boolean("notifyDeadlines").default(true),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "notification_preferences_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
 export type InsertNotificationPreference = typeof notificationPreferences.$inferInsert;
@@ -940,11 +1211,51 @@ export const emailDigestQueue = mysqlTable("email_digest_queue", {
   sentAt: timestamp("sentAt"),
   errorMessage: text("errorMessage"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  statusScheduledIdx: index("edq_status_scheduled_idx").on(table.status, table.scheduledFor),
+  userIdx: index("edq_user_idx").on(table.userId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "email_digest_queue_user_fk",
+  }).onDelete("cascade"),
+}));
 
 export type EmailDigestQueue = typeof emailDigestQueue.$inferSelect;
 export type InsertEmailDigestQueue = typeof emailDigestQueue.$inferInsert;
 
+/**
+ * Task reminders - scheduled reminders for tasks via chat commands
+ */
+export const taskReminders = mysqlTable("task_reminders", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  taskId: int("taskId").notNull(),
+  remindAt: timestamp("remindAt").notNull(),
+  channel: mysqlEnum("channel", ["telegram", "web", "email"]).notNull().default("web"),
+  chatId: varchar("chatId", { length: 64 }), // For telegram/messenger channels
+  status: mysqlEnum("status", ["pending", "sent", "cancelled"]).default("pending"),
+  message: text("message"), // Custom reminder message
+  sentAt: timestamp("sentAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  statusRemindIdx: index("tr_status_remind_idx").on(table.status, table.remindAt),
+  userIdx: index("tr_user_idx").on(table.userId),
+  taskIdx: index("tr_task_idx").on(table.taskId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "task_reminders_user_fk",
+  }).onDelete("cascade"),
+  taskFk: foreignKey({
+    columns: [table.taskId],
+    foreignColumns: [tasks.id],
+    name: "task_reminders_task_fk",
+  }).onDelete("cascade"),
+}));
+
+export type TaskReminder = typeof taskReminders.$inferSelect;
+export type InsertTaskReminder = typeof taskReminders.$inferInsert;
 
 /**
  * AI Chat History - stores conversation history per project
@@ -962,7 +1273,21 @@ export const aiChatHistory = mysqlTable("ai_chat_history", {
   creditsUsed: int("creditsUsed").default(0),
   metadata: json("metadata"), // Additional context like command used
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  userProjectIdx: index("aich_user_project_idx").on(table.userId, table.projectId),
+  taskIdx: index("aich_task_idx").on(table.taskId),
+  createdAtIdx: index("aich_created_idx").on(table.createdAt),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_chat_history_user_fk",
+  }).onDelete("cascade"),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "ai_chat_history_project_fk",
+  }).onDelete("cascade"),
+}));
 export type AiChatHistory = typeof aiChatHistory.$inferSelect;
 export type InsertAiChatHistory = typeof aiChatHistory.$inferInsert;
 
@@ -981,7 +1306,26 @@ export const aiSuggestions = mysqlTable("ai_suggestions", {
   dismissed: boolean("dismissed").default(false),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   expiresAt: timestamp("expiresAt"), // Suggestions can expire
-});
+}, (table) => ({
+  userIdx: index("ais_user_idx").on(table.userId),
+  projectIdx: index("ais_project_idx").on(table.projectId),
+  taskIdx: index("ais_task_idx").on(table.taskId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_suggestions_user_fk",
+  }).onDelete("cascade"),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "ai_suggestions_project_fk",
+  }).onDelete("cascade"),
+  taskFk: foreignKey({
+    columns: [table.taskId],
+    foreignColumns: [tasks.id],
+    name: "ai_suggestions_task_fk",
+  }).onDelete("cascade"),
+}));
 export type AiSuggestion = typeof aiSuggestions.$inferSelect;
 export type InsertAiSuggestion = typeof aiSuggestions.$inferInsert;
 
@@ -1003,7 +1347,25 @@ export const projectRisks = mysqlTable("project_risks", {
   resolvedAt: timestamp("resolvedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  projectIdx: index("pr_project_idx").on(table.projectId),
+  statusIdx: index("pr_status_idx").on(table.status),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "project_risks_project_fk",
+  }).onDelete("cascade"),
+  blockFk: foreignKey({
+    columns: [table.blockId],
+    foreignColumns: [blocks.id],
+    name: "project_risks_block_fk",
+  }).onDelete("cascade"),
+  taskFk: foreignKey({
+    columns: [table.taskId],
+    foreignColumns: [tasks.id],
+    name: "project_risks_task_fk",
+  }).onDelete("cascade"),
+}));
 export type ProjectRisk = typeof projectRisks.$inferSelect;
 export type InsertProjectRisk = typeof projectRisks.$inferInsert;
 
@@ -1023,7 +1385,20 @@ export const executiveSummaries = mysqlTable("executive_summaries", {
   generatedAt: timestamp("generatedAt").defaultNow().notNull(),
   expiresAt: timestamp("expiresAt"), // Summaries can be regenerated
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  projectIdx: index("es_project_idx").on(table.projectId),
+  userIdx: index("es_user_idx").on(table.userId),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "executive_summaries_project_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "executive_summaries_user_fk",
+  }).onDelete("cascade"),
+}));
 export type ExecutiveSummary = typeof executiveSummaries.$inferSelect;
 export type InsertExecutiveSummary = typeof executiveSummaries.$inferInsert;
 
@@ -1045,7 +1420,20 @@ export const webhooks = mysqlTable("webhooks", {
   failureCount: int("failureCount").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("wh_user_idx").on(table.userId),
+  projectIdx: index("wh_project_idx").on(table.projectId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "webhooks_user_fk",
+  }).onDelete("cascade"),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "webhooks_project_fk",
+  }).onDelete("cascade"),
+}));
 export type Webhook = typeof webhooks.$inferSelect;
 export type InsertWebhook = typeof webhooks.$inferInsert;
 
@@ -1065,7 +1453,15 @@ export const webhookDeliveries = mysqlTable("webhook_deliveries", {
   attempts: int("attempts").default(1),
   nextRetryAt: timestamp("nextRetryAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  webhookIdx: index("whd_webhook_idx").on(table.webhookId),
+  createdAtIdx: index("whd_created_idx").on(table.createdAt),
+  webhookFk: foreignKey({
+    columns: [table.webhookId],
+    foreignColumns: [webhooks.id],
+    name: "webhook_deliveries_webhook_fk",
+  }).onDelete("cascade"),
+}));
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
 export type InsertWebhookDelivery = typeof webhookDeliveries.$inferInsert;
 
@@ -1085,7 +1481,15 @@ export const apiKeys = mysqlTable("api_keys", {
   isActive: boolean("isActive").default(true),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("ak_user_idx").on(table.userId),
+  keyHashIdx: index("ak_key_hash_idx").on(table.keyHash),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "api_keys_user_fk",
+  }).onDelete("cascade"),
+}));
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type InsertApiKey = typeof apiKeys.$inferInsert;
 
@@ -1104,7 +1508,15 @@ export const apiUsage = mysqlTable("api_usage", {
   ipAddress: varchar("ipAddress", { length: 45 }),
   userAgent: varchar("userAgent", { length: 500 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  apiKeyIdx: index("au_api_key_idx").on(table.apiKeyId),
+  createdAtIdx: index("au_created_idx").on(table.createdAt),
+  apiKeyFk: foreignKey({
+    columns: [table.apiKeyId],
+    foreignColumns: [apiKeys.id],
+    name: "api_usage_api_key_fk",
+  }).onDelete("cascade"),
+}));
 export type ApiUsage = typeof apiUsage.$inferSelect;
 export type InsertApiUsage = typeof apiUsage.$inferInsert;
 
@@ -1127,6 +1539,21 @@ export const timeEntries = mysqlTable("time_entries", {
   userIdx: index("te_user_idx").on(table.userId),
   taskIdx: index("te_task_idx").on(table.taskId),
   projectIdx: index("te_project_idx").on(table.projectId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "time_entries_user_fk",
+  }).onDelete("cascade"),
+  taskFk: foreignKey({
+    columns: [table.taskId],
+    foreignColumns: [tasks.id],
+    name: "time_entries_task_fk",
+  }).onDelete("cascade"),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "time_entries_project_fk",
+  }).onDelete("cascade"),
 }));
 export type TimeEntry = typeof timeEntries.$inferSelect;
 export type InsertTimeEntry = typeof timeEntries.$inferInsert;
@@ -1142,7 +1569,20 @@ export const timeGoals = mysqlTable("time_goals", {
   period: mysqlEnum("period", ["daily", "weekly", "monthly"]).default("daily"),
   isActive: boolean("isActive").default(true),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("tg_user_idx").on(table.userId),
+  projectIdx: index("tg_project_idx").on(table.projectId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "time_goals_user_fk",
+  }).onDelete("cascade"),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "time_goals_project_fk",
+  }).onDelete("cascade"),
+}));
 export type TimeGoal = typeof timeGoals.$inferSelect;
 export type InsertTimeGoal = typeof timeGoals.$inferInsert;
 
@@ -1182,6 +1622,16 @@ export const userAchievements = mysqlTable("user_achievements", {
 }, (table) => ({
   userIdx: index("ua_user_idx").on(table.userId),
   achievementIdx: index("ua_achievement_idx").on(table.achievementId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "user_achievements_user_fk",
+  }).onDelete("cascade"),
+  achievementFk: foreignKey({
+    columns: [table.achievementId],
+    foreignColumns: [achievementDefinitions.id],
+    name: "user_achievements_achievement_fk",
+  }).onDelete("cascade"),
 }));
 export type UserAchievement = typeof userAchievements.$inferSelect;
 export type InsertUserAchievement = typeof userAchievements.$inferInsert;
@@ -1202,7 +1652,13 @@ export const userStats = mysqlTable("user_stats", {
   lastActivityDate: timestamp("lastActivityDate"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "user_stats_user_fk",
+  }).onDelete("cascade"),
+}));
 export type UserStat = typeof userStats.$inferSelect;
 export type InsertUserStat = typeof userStats.$inferInsert;
 
@@ -1250,6 +1706,11 @@ export const aiRequests = mysqlTable('ai_requests', {
 }, (table) => ({
   userIdIdx: index('ai_requests_user_id_idx').on(table.userId),
   sessionIdIdx: index('ai_requests_session_id_idx').on(table.sessionId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_requests_user_fk",
+  }).onDelete("cascade"),
 }));
 export type AiRequest = typeof aiRequests.$inferSelect;
 export type InsertAiRequest = typeof aiRequests.$inferInsert;
@@ -1267,6 +1728,11 @@ export const aiSessions = mysqlTable('ai_sessions', {
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({
   userIdIdx: index('ai_sessions_user_id_idx').on(table.userId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_sessions_user_fk",
+  }).onDelete("cascade"),
 }));
 export type AiSession = typeof aiSessions.$inferSelect;
 export type InsertAiSession = typeof aiSessions.$inferInsert;
@@ -1286,6 +1752,11 @@ export const aiUsageStats = mysqlTable('ai_usage_stats', {
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({
   userIdDateIdx: index('ai_usage_user_date_idx').on(table.userId, table.date),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_usage_stats_user_fk",
+  }).onDelete("cascade"),
 }));
 export type AiUsageStat = typeof aiUsageStats.$inferSelect;
 export type InsertAiUsageStat = typeof aiUsageStats.$inferInsert;
@@ -1329,6 +1800,16 @@ export const tags = mysqlTable("tags", {
   userIdx: index("tags_user_idx").on(table.userId),
   nameIdx: index("tags_name_idx").on(table.name),
   typeIdx: index("tags_type_idx").on(table.tagType),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "tags_project_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "tags_user_fk",
+  }).onDelete("cascade"),
 }));
 
 export type Tag = typeof tags.$inferSelect;
@@ -1347,6 +1828,21 @@ export const taskTags = mysqlTable("task_tags", {
   taskIdx: index("tt_task_idx").on(table.taskId),
   tagIdx: index("tt_tag_idx").on(table.tagId),
   uniqueTaskTag: uniqueIndex("tt_unique_idx").on(table.taskId, table.tagId),
+  taskFk: foreignKey({
+    columns: [table.taskId],
+    foreignColumns: [tasks.id],
+    name: "task_tags_task_fk",
+  }).onDelete("cascade"),
+  tagFk: foreignKey({
+    columns: [table.tagId],
+    foreignColumns: [tags.id],
+    name: "task_tags_tag_fk",
+  }).onDelete("cascade"),
+  addedByFk: foreignKey({
+    columns: [table.addedBy],
+    foreignColumns: [users.id],
+    name: "task_tags_added_by_fk",
+  }).onDelete("cascade"),
 }));
 
 export type TaskTag = typeof taskTags.$inferSelect;
@@ -1396,6 +1892,11 @@ export const entityRelations = mysqlTable("entity_relations", {
   targetIdx: index("er_target_idx").on(table.targetType, table.targetId),
   relationTypeIdx: index("er_relation_type_idx").on(table.relationType),
   createdByIdx: index("er_created_by_idx").on(table.createdBy),
+  createdByFk: foreignKey({
+    columns: [table.createdBy],
+    foreignColumns: [users.id],
+    name: "entity_relations_created_by_fk",
+  }).onDelete("cascade"),
 }));
 
 export type EntityRelation = typeof entityRelations.$inferSelect;
@@ -1474,6 +1975,16 @@ export const viewConfigs = mysqlTable("view_configs", {
   projectUserIdx: index("vc_project_user_idx").on(table.projectId, table.userId),
   viewTypeIdx: index("vc_view_type_idx").on(table.viewType),
   isDefaultIdx: index("vc_is_default_idx").on(table.isDefault),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "view_configs_project_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "view_configs_user_fk",
+  }).onDelete("cascade"),
 }));
 
 export type ViewConfig = typeof viewConfigs.$inferSelect;
@@ -1535,6 +2046,11 @@ export const kanbanColumns = mysqlTable("kanban_columns", {
 }, (table) => ({
   viewConfigIdx: index("kc_view_config_idx").on(table.viewConfigId),
   columnTypeIdx: index("kc_column_type_idx").on(table.columnType),
+  viewConfigFk: foreignKey({
+    columns: [table.viewConfigId],
+    foreignColumns: [viewConfigs.id],
+    name: "kanban_columns_view_config_fk",
+  }).onDelete("cascade"),
 }));
 
 export type KanbanColumn = typeof kanbanColumns.$inferSelect;
@@ -1585,6 +2101,11 @@ export const lookupFields = mysqlTable("lookup_fields", {
 }, (table) => ({
   entityIdx: index("lf_entity_idx").on(table.entityType, table.entityId),
   relationTypeIdx: index("lf_relation_type_idx").on(table.relationType),
+  createdByFk: foreignKey({
+    columns: [table.createdBy],
+    foreignColumns: [users.id],
+    name: "lookup_fields_created_by_fk",
+  }).onDelete("cascade"),
 }));
 
 export type LookupField = typeof lookupFields.$inferSelect;
@@ -1644,6 +2165,11 @@ export const rollupFields = mysqlTable("rollup_fields", {
 }, (table) => ({
   entityIdx: index("rf_entity_idx").on(table.entityType, table.entityId),
   sourceRelationIdx: index("rf_source_relation_idx").on(table.sourceRelationType),
+  createdByFk: foreignKey({
+    columns: [table.createdBy],
+    foreignColumns: [users.id],
+    name: "rollup_fields_created_by_fk",
+  }).onDelete("cascade"),
 }));
 
 export type RollupField = typeof rollupFields.$inferSelect;
@@ -1680,6 +2206,16 @@ export const userProjectPreferences = mysqlTable("user_project_preferences", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   projectUserIdx: uniqueIndex("upp_project_user_idx").on(table.projectId, table.userId),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "user_project_preferences_project_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "user_project_preferences_user_fk",
+  }).onDelete("cascade"),
 }));
 
 export type UserProjectPreference = typeof userProjectPreferences.$inferSelect;
@@ -1751,6 +2287,16 @@ export const aiDecisionRecords = mysqlTable("ai_decision_records", {
   userIdx: index("adr_user_idx").on(table.userId),
   statusIdx: index("adr_status_idx").on(table.status),
   typeIdx: index("adr_type_idx").on(table.decisionType),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "ai_decision_records_project_fk",
+  }).onDelete("cascade"),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_decision_records_user_fk",
+  }).onDelete("cascade"),
 }));
 
 export type AIDecisionRecord = typeof aiDecisionRecords.$inferSelect;
@@ -1795,6 +2341,16 @@ export const aiChatSessions = mysqlTable("ai_chat_sessions", {
   userIdx: index("acs_user_idx").on(table.userId),
   projectIdx: index("acs_project_idx").on(table.projectId),
   sessionUuidIdx: uniqueIndex("acs_uuid_idx").on(table.sessionUuid),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "ai_chat_sessions_user_fk",
+  }).onDelete("cascade"),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "ai_chat_sessions_project_fk",
+  }).onDelete("cascade"),
 }));
 
 export type AIChatSession = typeof aiChatSessions.$inferSelect;
@@ -1838,6 +2394,16 @@ export const aiChatMessages = mysqlTable("ai_chat_messages", {
 }, (table) => ({
   sessionIdx: index("acm_session_idx").on(table.sessionId),
   roleIdx: index("acm_role_idx").on(table.role),
+  sessionFk: foreignKey({
+    columns: [table.sessionId],
+    foreignColumns: [aiChatSessions.id],
+    name: "ai_chat_messages_session_fk",
+  }).onDelete("cascade"),
+  decisionRecordFk: foreignKey({
+    columns: [table.decisionRecordId],
+    foreignColumns: [aiDecisionRecords.id],
+    name: "ai_chat_messages_decision_record_fk",
+  }).onDelete("set null"),
 }));
 
 export type AIChatMessage = typeof aiChatMessages.$inferSelect;
@@ -1898,6 +2464,21 @@ export const userRoleAssignments = mysqlTable("user_role_assignments", {
 }, (table) => ({
   userIdx: index("ura_user_idx").on(table.userId),
   roleIdx: index("ura_role_idx").on(table.roleId),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "user_role_assignments_user_fk",
+  }).onDelete("cascade"),
+  roleFk: foreignKey({
+    columns: [table.roleId],
+    foreignColumns: [userRoles.id],
+    name: "user_role_assignments_role_fk",
+  }).onDelete("cascade"),
+  assignedByFk: foreignKey({
+    columns: [table.assignedBy],
+    foreignColumns: [users.id],
+    name: "user_role_assignments_assigned_by_fk",
+  }).onDelete("set null"),
 }));
 
 export type UserRoleAssignment = typeof userRoleAssignments.$inferSelect;
@@ -1925,6 +2506,21 @@ export const userInvitations = mysqlTable("user_invitations", {
   emailIdx: index("ui_email_idx").on(table.email),
   tokenIdx: index("ui_token_idx").on(table.token),
   statusIdx: index("ui_status_idx").on(table.status),
+  roleFk: foreignKey({
+    columns: [table.roleId],
+    foreignColumns: [userRoles.id],
+    name: "user_invitations_role_fk",
+  }).onDelete("set null"),
+  invitedByFk: foreignKey({
+    columns: [table.invitedBy],
+    foreignColumns: [users.id],
+    name: "user_invitations_invited_by_fk",
+  }).onDelete("cascade"),
+  acceptedByFk: foreignKey({
+    columns: [table.acceptedBy],
+    foreignColumns: [users.id],
+    name: "user_invitations_accepted_by_fk",
+  }).onDelete("set null"),
 }));
 
 export type UserInvitation = typeof userInvitations.$inferSelect;
@@ -2577,3 +3173,255 @@ export const discussionReadStatus = mysqlTable("discussion_read_status", {
 
 export type DiscussionReadStatus = typeof discussionReadStatus.$inferSelect;
 export type InsertDiscussionReadStatus = typeof discussionReadStatus.$inferInsert;
+
+
+// ============ OPENCLAW INTEGRATION ============
+
+/**
+ * OpenClaw Notification Preferences
+ * Stores user preferences for multi-channel notifications
+ */
+export const openclawPreferences = mysqlTable("openclaw_preferences", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  enabled: boolean("enabled").default(true),
+  // Channel configurations (JSON)
+  channels: json("channels").$type<{
+    telegram?: { chatId: string; enabled: boolean };
+    whatsapp?: { phone: string; enabled: boolean };
+    discord?: { channelId: string; enabled: boolean };
+    slack?: { channelId: string; enabled: boolean };
+  }>(),
+  // Quiet hours settings
+  quietHoursEnabled: boolean("quietHoursEnabled").default(false),
+  quietHoursStart: varchar("quietHoursStart", { length: 5 }), // HH:mm
+  quietHoursEnd: varchar("quietHoursEnd", { length: 5 }),     // HH:mm
+  quietHoursTimezone: varchar("quietHoursTimezone", { length: 64 }).default("Europe/Moscow"),
+  // Notification type preferences (JSON)
+  preferences: json("preferences").$type<{
+    [key: string]: { enabled: boolean; channels: string[] };
+  }>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "openclaw_prefs_user_fk",
+  }).onDelete("cascade"),
+}));
+
+export type OpenClawPreferences = typeof openclawPreferences.$inferSelect;
+export type InsertOpenClawPreferences = typeof openclawPreferences.$inferInsert;
+
+/**
+ * OpenClaw Notification Log
+ * Tracks sent notifications for history and debugging
+ */
+export const openclawNotifications = mysqlTable("openclaw_notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  channel: varchar("channel", { length: 32 }).notNull(), // telegram, whatsapp, etc.
+  type: varchar("type", { length: 64 }).notNull(),       // deadline_warning, task_assigned, etc.
+  target: varchar("target", { length: 128 }),            // phone, chatId, etc.
+  message: text("message"),
+  payload: json("payload").$type<Record<string, unknown>>(),
+  status: mysqlEnum("status", ["pending", "sent", "failed", "delivered"]).default("pending"),
+  errorMessage: text("errorMessage"),
+  sentAt: timestamp("sentAt"),
+  deliveredAt: timestamp("deliveredAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("ocn_user_idx").on(table.userId),
+  typeIdx: index("ocn_type_idx").on(table.type),
+  statusIdx: index("ocn_status_idx").on(table.status),
+  createdIdx: index("ocn_created_idx").on(table.createdAt),
+  userFk: foreignKey({
+    columns: [table.userId],
+    foreignColumns: [users.id],
+    name: "openclaw_notif_user_fk",
+  }).onDelete("cascade"),
+}));
+
+export type OpenClawNotification = typeof openclawNotifications.$inferSelect;
+export type InsertOpenClawNotification = typeof openclawNotifications.$inferInsert;
+
+/**
+ * OpenClaw Cron Jobs
+ * Tracks scheduled jobs managed via OpenClaw
+ */
+export const openclawCronJobs = mysqlTable("openclaw_cron_jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  openclawJobId: varchar("openclawJobId", { length: 64 }).unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  description: text("description"),
+  schedule: varchar("schedule", { length: 64 }).notNull(), // cron expression
+  command: text("command").notNull(),                       // webhook URL or command
+  enabled: boolean("enabled").default(true),
+  lastRun: timestamp("lastRun"),
+  lastStatus: mysqlEnum("lastStatus", ["success", "failed", "skipped"]),
+  lastError: text("lastError"),
+  nextRun: timestamp("nextRun"),
+  runCount: int("runCount").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type OpenClawCronJob = typeof openclawCronJobs.$inferSelect;
+export type InsertOpenClawCronJob = typeof openclawCronJobs.$inferInsert;
+
+// ============ FILE ATTACHMENTS SYSTEM ============
+
+/**
+ * File Attachments
+ * Stores file metadata for attachments on any entity
+ */
+export const fileAttachments = mysqlTable("file_attachments", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  entityType: mysqlEnum("entityType", ["project", "block", "section", "task"]).notNull(),
+  entityId: int("entityId").notNull(),
+  uploadedBy: int("uploadedBy").notNull(),
+  fileName: varchar("fileName", { length: 512 }).notNull(),
+  fileKey: varchar("fileKey", { length: 1024 }).notNull(), // Storage path
+  fileUrl: text("fileUrl"), // Public URL
+  mimeType: varchar("mimeType", { length: 128 }).notNull(),
+  fileSize: int("fileSize").notNull(), // bytes
+  description: text("description"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  entityIdx: index("fa_entity_idx").on(table.entityType, table.entityId),
+  projectIdx: index("fa_project_idx").on(table.projectId),
+  uploadedByIdx: index("fa_uploaded_by_idx").on(table.uploadedBy),
+  projectFk: foreignKey({
+    columns: [table.projectId],
+    foreignColumns: [projects.id],
+    name: "fa_project_fk",
+  }).onDelete("cascade"),
+  uploadedByFk: foreignKey({
+    columns: [table.uploadedBy],
+    foreignColumns: [users.id],
+    name: "fa_uploaded_by_fk",
+  }).onDelete("cascade"),
+}));
+
+export type FileAttachment = typeof fileAttachments.$inferSelect;
+export type InsertFileAttachment = typeof fileAttachments.$inferInsert;
+
+/**
+ * Attachment Settings
+ * Global configuration for file attachments (single row)
+ */
+export const attachmentSettings = mysqlTable("attachment_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  maxFileSizeMB: int("maxFileSizeMB").default(100),
+  maxTotalStorageMB: int("maxTotalStorageMB").default(10000), // 10 GB per project
+  maxFilesPerEntity: int("maxFilesPerEntity").default(50),
+  maxFilesPerMessage: int("maxFilesPerMessage").default(10),
+  maxFileContentForAI_KB: int("maxFileContentForAI_KB").default(100),
+  allowedMimeTypes: json("allowedMimeTypes").$type<string[]>().default([
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
+    "text/plain", "text/markdown", "text/csv",
+    "application/json",
+    "application/zip", "application/x-rar-compressed",
+    "video/mp4", "audio/mpeg", "audio/wav",
+  ]),
+  planOverrides: json("planOverrides").$type<Record<string, {
+    maxFileSizeMB?: number;
+    maxTotalStorageMB?: number;
+    maxFilesPerEntity?: number;
+  }>>(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedBy: int("updatedBy"),
+});
+
+export type AttachmentSettings = typeof attachmentSettings.$inferSelect;
+export type InsertAttachmentSettings = typeof attachmentSettings.$inferInsert;
+
+// ============ AI MODEL RATINGS ============
+/**
+ * AI Model ratings for intelligent model selection
+ * Tracks performance metrics and quality ratings per category
+ */
+export const aiModelRatings = mysqlTable("ai_model_ratings", {
+  id: int("id").autoincrement().primaryKey(),
+  modelName: varchar("modelName", { length: 128 }).notNull().unique(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+
+  // Ratings by category (0-100)
+  ratingReasoning: int("ratingReasoning").default(50),
+  ratingCoding: int("ratingCoding").default(50),
+  ratingCreative: int("ratingCreative").default(50),
+  ratingTranslation: int("ratingTranslation").default(50),
+  ratingSummarization: int("ratingSummarization").default(50),
+  ratingPlanning: int("ratingPlanning").default(50),
+  ratingRiskAnalysis: int("ratingRiskAnalysis").default(50),
+  ratingDataAnalysis: int("ratingDataAnalysis").default(50),
+  ratingDocumentation: int("ratingDocumentation").default(50),
+  ratingChat: int("ratingChat").default(50),
+
+  // General metrics
+  overallRating: int("overallRating").default(50),
+  speedRating: int("speedRating").default(50),
+  costEfficiency: int("costEfficiency").default(50),
+
+  // Auto-metrics (populated from ai_request_logs)
+  avgResponseTimeMs: int("avgResponseTimeMs").default(0),
+  avgTokensPerRequest: int("avgTokensPerRequest").default(0),
+  successRate: int("successRate").default(100),
+  totalRequests: int("totalRequests").default(0),
+
+  // Rating sources
+  ratingSource: mysqlEnum("ratingSource", ["manual", "benchmark", "user_feedback", "auto"]).default("manual"),
+  lastBenchmarkAt: timestamp("lastBenchmarkAt"),
+
+  // Link to model_pricing if exists
+  modelPricingId: int("modelPricingId"),
+
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AIModelRating = typeof aiModelRatings.$inferSelect;
+export type InsertAIModelRating = typeof aiModelRatings.$inferInsert;
+
+/**
+ * AI Model task assignments
+ * Maps task categories to recommended models/agents/skills
+ */
+export const aiModelTaskAssignments = mysqlTable("ai_model_task_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+
+  taskCategory: varchar("taskCategory", { length: 64 }).notNull(),
+  entityType: mysqlEnum("entityType", ["project", "block", "section", "task", "any"]).default("any"),
+
+  // Assigned model
+  primaryModelName: varchar("primaryModelName", { length: 128 }).notNull(),
+  fallbackModelName: varchar("fallbackModelName", { length: 128 }),
+
+  // Optional agent/skill
+  agentId: int("agentId"),
+  skillId: int("skillId"),
+
+  // Selection reason
+  selectionReason: varchar("selectionReason", { length: 255 }),
+
+  // Manual override flag
+  isManualOverride: boolean("isManualOverride").default(false),
+
+  isActive: boolean("isActive").default(true),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  categoryEntityIdx: uniqueIndex("task_category_entity_idx").on(table.taskCategory, table.entityType),
+}));
+
+export type AIModelTaskAssignment = typeof aiModelTaskAssignments.$inferSelect;
+export type InsertAIModelTaskAssignment = typeof aiModelTaskAssignments.$inferInsert;

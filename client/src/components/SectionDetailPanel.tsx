@@ -25,6 +25,7 @@ import {
   ArrowUpCircle,
   Trash2,
   Loader2,
+  Paperclip,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -37,7 +38,9 @@ import { QuickActionsBar } from "./QuickActionsBar";
 import { DiscussionPanel } from "./DiscussionPanel";
 import { BreadcrumbNav } from "./BreadcrumbNav";
 import { EntityAIChat } from "./EntityAIChat";
-import { SwipeableTaskCard } from "./SwipeableTaskCard";
+import { AttachmentsPanel } from "./attachments";
+import { SwipeableTaskCard } from "./mobile/SwipeableTaskCard";
+import { useTouchDevice } from "@/hooks/useMobile";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -77,6 +80,8 @@ interface SectionDetailPanelProps {
   onConvertTaskToSection?: (task: TaskData, sectionId: number) => void;
   onMergeTasks?: (sectionId: number) => void;
   onConvertSectionToTask?: (sectionId: number) => void;
+  /** Update task status (for swipe gestures) */
+  onUpdateTaskStatus?: (taskId: number, status: string) => void;
   /** Selection mode for bulk actions */
   selectionMode?: boolean;
   selectedTaskIds?: number[];
@@ -102,6 +107,7 @@ export function SectionDetailPanel({
   onConvertTaskToSection,
   onMergeTasks,
   onConvertSectionToTask,
+  onUpdateTaskStatus,
   selectionMode = false,
   selectedTaskIds = [],
   onToggleSelectionMode,
@@ -109,6 +115,7 @@ export function SectionDetailPanel({
   onBulkActions,
 }: SectionDetailPanelProps) {
   const [showDiscussion, setShowDiscussion] = useState(false);
+  const isTouchDevice = useTouchDevice();
 
   const tasks = section.tasks || [];
 
@@ -352,6 +359,15 @@ export function SectionDetailPanel({
         />
       </div>
 
+      {/* Attachments */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Paperclip className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-xs text-slate-400">Вложения</span>
+        </div>
+        <AttachmentsPanel entityType="section" entityId={section.id} projectId={projectId} />
+      </div>
+
       {/* Embedded AI Chat */}
       <EntityAIChat
         entityType="section"
@@ -385,145 +401,153 @@ export function SectionDetailPanel({
         </div>
         <div className="space-y-2">
           {tasks.length > 0 ? (
-            tasks.map((task) => (
-              <SwipeableTaskCard
-                key={task.id}
-                taskId={task.id}
-                taskStatus={task.status || 'not_started'}
-                onComplete={(id) => {
-                  if (onUpdateTaskStatus) {
-                    onUpdateTaskStatus(id, 'completed');
-                    toast.success('Задача завершена');
-                  }
-                }}
-                onDelete={(id) => {
-                  if (onDeleteTask) {
-                    onDeleteTask(id);
-                    toast.success('Задача удалена');
-                  }
-                }}
-                onUncomplete={(id) => {
-                  if (onUpdateTaskStatus) {
-                    onUpdateTaskStatus(id, 'not_started');
-                    toast.info('Задача возвращена');
-                  }
-                }}
-                disabled={selectionMode}
-              >
-              <Card
-                className={cn(
-                  "bg-slate-800/50 border-slate-700 hover:border-slate-600 cursor-pointer transition-colors border-0 shadow-none",
-                  selectedTaskIds.includes(task.id) && "border-amber-500/50 bg-amber-500/5"
-                )}
-                onClick={() => {
-                  if (selectionMode && onToggleTaskSelection) {
-                    onToggleTaskSelection(task.id);
-                  } else {
-                    onSelectTask(task, section.id);
-                  }
-                }}
-              >
-                <CardContent className="py-3 px-4">
-                  <div className="flex items-center gap-3">
-                    {selectionMode && (
-                      <Checkbox
-                        checked={selectedTaskIds.includes(task.id)}
-                        onCheckedChange={() => onToggleTaskSelection?.(task.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="border-slate-500"
-                      />
-                    )}
-                    {getStatusIcon(task.status)}
-                    <div className="flex-1 min-w-0">
-                      <span
-                        className={cn(
-                          "text-sm block truncate",
-                          task.status === "completed" ? "text-slate-500 line-through" : "text-slate-200"
-                        )}
-                      >
-                        {task.title}
-                      </span>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {getPriorityBadge(task.priority)}
-                        {(task.deadline || task.dueDate) && (
-                          <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                            <Clock className="w-2.5 h-2.5" />
-                            {format(new Date((task.deadline || task.dueDate) as string), "d MMM", { locale: ru })}
-                          </span>
-                        )}
+            tasks.map((task) => {
+              const taskCard = (
+                <Card
+                  key={task.id}
+                  className={cn(
+                    "bg-slate-800/50 border-slate-700 hover:border-slate-600 cursor-pointer transition-colors",
+                    selectedTaskIds.includes(task.id) && "border-amber-500/50 bg-amber-500/5"
+                  )}
+                  onClick={() => {
+                    if (selectionMode && onToggleTaskSelection) {
+                      onToggleTaskSelection(task.id);
+                    } else {
+                      onSelectTask(task, section.id);
+                    }
+                  }}
+                >
+                  <CardContent className="py-3 px-4">
+                    <div className="flex items-center gap-3">
+                      {selectionMode && (
+                        <Checkbox
+                          checked={selectedTaskIds.includes(task.id)}
+                          onCheckedChange={() => onToggleTaskSelection?.(task.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="border-slate-500"
+                        />
+                      )}
+                      {getStatusIcon(task.status)}
+                      <div className="flex-1 min-w-0">
+                        <span
+                          className={cn(
+                            "text-sm block truncate",
+                            task.status === "completed" ? "text-slate-500 line-through" : "text-slate-200"
+                          )}
+                        >
+                          {task.title}
+                        </span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {getPriorityBadge(task.priority)}
+                          {(task.deadline || task.dueDate) && (
+                            <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                              <Clock className="w-2.5 h-2.5" />
+                              {format(new Date((task.deadline || task.dueDate) as string), "d MMM", { locale: ru })}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Task Actions Dropdown */}
-                    {!selectionMode && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-white">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-                          {onSplitTask && (
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onSplitTask(task, section.id);
-                              }}
-                              className="text-slate-300 focus:text-white focus:bg-slate-700"
-                            >
-                              <Split className="w-4 h-4 mr-2 text-amber-400" />
-                              Разделить на подзадачи
-                            </DropdownMenuItem>
-                          )}
-                          {onDuplicateTask && (
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDuplicateTask(task.id);
-                              }}
-                              className="text-slate-300 focus:text-white focus:bg-slate-700"
-                            >
-                              <CopyPlus className="w-4 h-4 mr-2 text-blue-400" />
-                              Дублировать
-                            </DropdownMenuItem>
-                          )}
-                          {onConvertTaskToSection && (
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onConvertTaskToSection(task, section.id);
-                              }}
-                              className="text-slate-300 focus:text-white focus:bg-slate-700"
-                            >
-                              <ArrowUpCircle className="w-4 h-4 mr-2 text-purple-400" />
-                              Преобразовать в раздел
-                            </DropdownMenuItem>
-                          )}
-                          {onDeleteTask && (
-                            <>
-                              <DropdownMenuSeparator className="bg-slate-700" />
+                      {/* Task Actions Dropdown */}
+                      {!selectionMode && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-white">
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                            {onSplitTask && (
                               <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (confirm("Удалить задачу?")) {
-                                    onDeleteTask(task.id);
-                                  }
+                                  onSplitTask(task, section.id);
                                 }}
-                                className="text-red-400 focus:text-red-300 focus:bg-slate-700"
+                                className="text-slate-300 focus:text-white focus:bg-slate-700"
                               >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Удалить
+                                <Split className="w-4 h-4 mr-2 text-amber-400" />
+                                Разделить на подзадачи
                               </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-              </SwipeableTaskCard>
-            ))
+                            )}
+                            {onDuplicateTask && (
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDuplicateTask(task.id);
+                                }}
+                                className="text-slate-300 focus:text-white focus:bg-slate-700"
+                              >
+                                <CopyPlus className="w-4 h-4 mr-2 text-blue-400" />
+                                Дублировать
+                              </DropdownMenuItem>
+                            )}
+                            {onConvertTaskToSection && (
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onConvertTaskToSection(task, section.id);
+                                }}
+                                className="text-slate-300 focus:text-white focus:bg-slate-700"
+                              >
+                                <ArrowUpCircle className="w-4 h-4 mr-2 text-purple-400" />
+                                Преобразовать в раздел
+                              </DropdownMenuItem>
+                            )}
+                            {onDeleteTask && (
+                              <>
+                                <DropdownMenuSeparator className="bg-slate-700" />
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm("Удалить задачу?")) {
+                                      onDeleteTask(task.id);
+                                    }
+                                  }}
+                                  className="text-red-400 focus:text-red-300 focus:bg-slate-700"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Удалить
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+
+              // Wrap with SwipeableTaskCard for touch devices when not in selection mode
+              if (isTouchDevice && !selectionMode && (onUpdateTaskStatus || onDeleteTask)) {
+                return (
+                  <SwipeableTaskCard
+                    key={task.id}
+                    onComplete={
+                      onUpdateTaskStatus && task.status !== "completed"
+                        ? () => {
+                          onUpdateTaskStatus(task.id, "completed");
+                          toast.success("Задача завершена");
+                        }
+                        : undefined
+                    }
+                    onDelete={
+                      onDeleteTask
+                        ? () => {
+                          onDeleteTask(task.id);
+                          toast.success("Задача удалена");
+                        }
+                        : undefined
+                    }
+                    className="rounded-lg"
+                  >
+                    {taskCard}
+                  </SwipeableTaskCard>
+                );
+              }
+
+              return taskCard;
+            })
           ) : (
             <div className="text-center py-6 text-slate-500">
               <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-40" />

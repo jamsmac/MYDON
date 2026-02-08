@@ -4,6 +4,11 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { timeEntries, timeGoals, tasks, projects, sections, blocks } from "../drizzle/schema";
+import {
+  checkTaskAccess,
+  checkProjectAccess,
+  requireAccessOrNotFound,
+} from "./utils/authorization";
 
 // Get database connection
 const getDatabase = () => {
@@ -21,6 +26,10 @@ export const timeTrackingRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check task access before starting timer
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
+
       const db = getDatabase();
 
       // Check for running timer
@@ -119,6 +128,10 @@ export const timeTrackingRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check task access before adding time entry
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "editor");
+      requireAccessOrNotFound(access, "задача");
+
       const db = getDatabase();
 
       const [task] = await db.select({
@@ -162,6 +175,16 @@ export const timeTrackingRouter = router({
       limit: z.number().default(50),
     }))
     .query(async ({ ctx, input }) => {
+      // Check access if filtering by project or task
+      if (input.projectId) {
+        const access = await checkProjectAccess(ctx.user.id, input.projectId);
+        requireAccessOrNotFound(access, "проект");
+      }
+      if (input.taskId) {
+        const access = await checkTaskAccess(ctx.user.id, input.taskId);
+        requireAccessOrNotFound(access, "задача");
+      }
+
       const db = getDatabase();
 
       const conditions = [eq(timeEntries.userId, ctx.user.id)];
@@ -331,6 +354,12 @@ export const timeTrackingRouter = router({
       period: z.enum(["daily", "weekly", "monthly"]),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check project access if setting goal for specific project
+      if (input.projectId) {
+        const access = await checkProjectAccess(ctx.user.id, input.projectId, "editor");
+        requireAccessOrNotFound(access, "проект");
+      }
+
       const db = getDatabase();
 
       // Deactivate existing goals for same scope

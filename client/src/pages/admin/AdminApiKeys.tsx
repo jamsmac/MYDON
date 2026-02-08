@@ -215,7 +215,7 @@ export default function AdminApiKeys() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {keys.map((key) => {
+          {keys.map((key: { id: number; provider: string; status: string | null; lastVerifiedAt: string | null; totalRequests: number | null; totalTokens: number | null; isEnabled: boolean | null; lastErrorMessage: string | null }) => {
             const provider = AI_PROVIDERS.find(p => p.id === key.provider);
             return (
               <Card key={key.id}>

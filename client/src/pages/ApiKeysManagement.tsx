@@ -294,7 +294,7 @@ export default function ApiKeysManagement() {
 
           {apiKeys && apiKeys.length > 0 ? (
             <div className="space-y-3">
-              {apiKeys.map((key) => (
+              {apiKeys.map((key: { id: number; name: string; keyPreview?: string | null; keyPrefix?: string | null; isActive?: boolean | null; scopes?: string[] | null; rateLimit?: number | null; lastUsedAt?: Date | null; createdAt: Date }) => (
                 <Card
                   key={key.id}
                   className={`cursor-pointer ${selectedKeyId === key.id ? "border-primary" : ""}`}

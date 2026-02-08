@@ -20,7 +20,7 @@ export const adminUsersRouter = router({
     .input(z.object({
       search: z.string().optional(),
       role: z.string().optional(),
-      status: z.enum(["active", "blocked", "pending"]).optional(),
+      status: z.enum(["active", "blocked"]).optional(),
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
       limit: z.number().default(50),
@@ -54,6 +54,10 @@ export const adminUsersRouter = router({
         conditions.push(lte(users.createdAt, new Date(input.dateTo)));
       }
 
+      if (input.status) {
+        conditions.push(eq(users.status, input.status));
+      }
+
       // Get users with their credits
       const usersData = await db
         .select({
@@ -63,6 +67,9 @@ export const adminUsersRouter = router({
           email: users.email,
           avatar: users.avatar,
           role: users.role,
+          status: users.status,
+          blockedAt: users.blockedAt,
+          blockedReason: users.blockedReason,
           subscriptionPlan: users.subscriptionPlan,
           createdAt: users.createdAt,
           lastSignedIn: users.lastSignedIn,
@@ -83,7 +90,7 @@ export const adminUsersRouter = router({
         .where(conditions.length > 0 ? and(...conditions) : undefined);
 
       // Get AI request counts for each user
-      const userIds = usersData.map(u => u.id);
+      const userIds = usersData.map((u: { id: number }) => u.id);
       let aiRequestCounts: Record<number, number> = {};
       
       if (userIds.length > 0) {
@@ -102,15 +109,14 @@ export const adminUsersRouter = router({
           .groupBy(creditTransactions.userId);
         
         aiRequestCounts = Object.fromEntries(
-          requestCounts.map(r => [r.userId, r.count])
+          requestCounts.map((r: { userId: number; count: number }) => [r.userId, r.count])
         );
       }
 
       return {
-        users: usersData.map(u => ({
+        users: usersData.map((u: typeof usersData[number]) => ({
           ...u,
           aiRequests: aiRequestCounts[u.id] || 0,
-          status: "active" as const, // TODO: Add blocked status to users table
         })),
         total: countResult[0]?.count || 0,
       };
@@ -196,16 +202,35 @@ export const adminUsersRouter = router({
     .input(z.object({
       userId: z.number(),
       blocked: z.boolean(),
+      reason: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 
+      // Prevent blocking yourself
+      if (input.userId === ctx.user.id) {
+        throw new Error("Cannot block your own account");
+      }
+
+      // Update user status
+      await db
+        .update(users)
+        .set({
+          status: input.blocked ? "blocked" : "active",
+          blockedAt: input.blocked ? new Date() : null,
+          blockedReason: input.blocked ? (input.reason || null) : null,
+        })
+        .where(eq(users.id, input.userId));
+
       // Log activity
       await db.insert(userActivityLog).values({
         userId: input.userId,
         action: input.blocked ? "blocked" : "unblocked",
-        metadata: { changedBy: ctx.user.id },
+        metadata: {
+          changedBy: ctx.user.id,
+          reason: input.reason || null,
+        },
       });
 
       return { success: true };
@@ -465,10 +490,10 @@ export const adminUsersRouter = router({
       .groupBy(userRoleAssignments.roleId);
 
     const countMap = Object.fromEntries(
-      roleCounts.map(r => [r.roleId, r.count])
+      roleCounts.map((r: { roleId: number; count: number }) => [r.roleId, r.count])
     );
 
-    return roles.map(role => ({
+    return roles.map((role: { id: number; name: string; nameRu: string | null; description: string | null; color: string; permissions: unknown; priority: number; isSystem: boolean; createdAt: Date | null }) => ({
       ...role,
       userCount: countMap[role.id] || 0,
     }));

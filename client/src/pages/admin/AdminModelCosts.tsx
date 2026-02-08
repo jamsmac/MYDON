@@ -50,7 +50,7 @@ export default function AdminModelCosts() {
   useEffect(() => {
     if (models) {
       const initial: typeof editedModels = {};
-      models.forEach((model) => {
+      models.forEach((model: { id: number; inputCostPer1K: string; outputCostPer1K: string; isEnabled: boolean | null; planRestrictions: unknown }) => {
         initial[model.id] = {
           inputCost: parseFloat(model.inputCostPer1K) || 0,
           outputCost: parseFloat(model.outputCostPer1K) || 0,
@@ -241,7 +241,7 @@ export default function AdminModelCosts() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  models?.map((model) => (
+                  models?.map((model: NonNullable<typeof models>[number]) => (
                     <TableRow key={model.id} className={!editedModels[model.id]?.isEnabled ? "opacity-50" : ""}>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -285,7 +285,7 @@ export default function AdminModelCosts() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {plans?.map((plan) => (
+                          {plans?.map((plan: { id: number; name: string; nameRu: string | null }) => (
                             <Badge
                               key={plan.id}
                               variant={editedModels[model.id]?.allowedPlans?.includes(plan.name) ? "default" : "outline"}

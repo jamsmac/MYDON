@@ -162,7 +162,7 @@ export default function AIChatPage() {
   // Load session messages when session changes
   useEffect(() => {
     if (sessionMessages) {
-      const loadedMessages: Message[] = sessionMessages.flatMap((m) => [
+      const loadedMessages: Message[] = sessionMessages.flatMap((m: { id: number; prompt: string; response: string; model?: string | null; fromCache?: boolean | null; executionTime?: number | null; createdAt: Date | string | null }) => [
         {
           id: `user-${m.id}`,
           role: 'user' as const,
@@ -408,25 +408,25 @@ export default function AIChatPage() {
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
             ) : sessions && sessions.length > 0 ? (
-              sessions.map((session) => (
+              sessions.map((session: { id: number; title?: string | null }) => (
                 <div
                   key={session.id}
                   className={cn(
                     'group flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors',
-                    currentSessionId === session.id
+                    currentSessionId === String(session.id)
                       ? 'bg-primary/10 text-primary'
                       : 'hover:bg-muted'
                   )}
-                  onClick={() => handleSelectSession(session.id)}
+                  onClick={() => handleSelectSession(String(session.id))}
                 >
                   <MessageSquare className="w-4 h-4 flex-shrink-0" />
-                  {editingSessionId === session.id ? (
+                  {editingSessionId === String(session.id) ? (
                     <Input
                       value={editingTitle}
                       onChange={(e) => setEditingTitle(e.target.value)}
-                      onBlur={() => handleUpdateSessionTitle(session.id)}
+                      onBlur={() => handleUpdateSessionTitle(String(session.id))}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleUpdateSessionTitle(session.id);
+                        if (e.key === 'Enter') handleUpdateSessionTitle(String(session.id));
                         if (e.key === 'Escape') setEditingSessionId(null);
                       }}
                       className="h-6 text-sm"
@@ -452,7 +452,7 @@ export default function AIChatPage() {
                       <DropdownMenuItem
                         onClick={(e) => {
                           e.stopPropagation();
-                          setEditingSessionId(session.id);
+                          setEditingSessionId(String(session.id));
                           setEditingTitle(session.title || '');
                         }}
                       >
@@ -462,7 +462,7 @@ export default function AIChatPage() {
                       <DropdownMenuItem
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteSession(session.id);
+                          handleDeleteSession(String(session.id));
                         }}
                         className="text-destructive"
                       >

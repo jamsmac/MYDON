@@ -108,7 +108,7 @@ export default function AdminNavbar() {
     );
   }
 
-  const enabledItems = items.filter(i => i.isEnabled);
+  const enabledItems = items.filter((i: { isEnabled: boolean | null }) => i.isEnabled);
 
   return (
     <div className="p-6 space-y-6">
@@ -197,7 +197,7 @@ export default function AdminNavbar() {
                 Нет элементов навигации
               </div>
             ) : (
-              items.map((item, index) => (
+              items.map((item: { id: number; name: string; path: string | null; icon: string | null; externalUrl: string | null; isEnabled: boolean | null; isCustom: boolean | null }, index: number) => (
                 <div
                   key={item.id}
                   className={`flex items-center gap-3 p-3 rounded-lg border ${
@@ -280,7 +280,7 @@ export default function AdminNavbar() {
                 </div>
                 
                 <div className="flex items-center gap-1">
-                  {enabledItems.slice(0, 6).map((item) => (
+                  {enabledItems.slice(0, 6).map((item: { id: number; name: string; icon: string | null }) => (
                     <div
                       key={item.id}
                       className="w-8 h-8 rounded hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
@@ -304,7 +304,7 @@ export default function AdminNavbar() {
                 Активные элементы: {enabledItems.length}
               </div>
               <div className="flex flex-wrap gap-2">
-                {enabledItems.map((item) => (
+                {enabledItems.map((item: { id: number; name: string; icon: string | null }) => (
                   <div
                     key={item.id}
                     className="flex items-center gap-1 px-2 py-1 rounded bg-primary/10 text-xs"

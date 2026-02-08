@@ -25,6 +25,17 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
+interface TaskComment {
+  id: number;
+  content: string;
+  userId: number;
+  userName?: string | null;
+  createdAt: Date;
+  isEdited?: boolean;
+  parentId?: number | null;
+  reactions?: Array<{ emoji: string; userId: number }>;
+}
+
 interface TaskCommentsProps {
   taskId: number;
   projectId: number;
@@ -179,7 +190,7 @@ export function TaskComments({
       {/* Comments List */}
       <div className="space-y-3">
         {comments && comments.length > 0 ? (
-          comments.map((comment) => (
+          comments.map((comment: TaskComment) => (
             <div
               key={comment.id}
               className={cn(
@@ -189,7 +200,7 @@ export function TaskComments({
             >
               <Avatar className="w-8 h-8 flex-shrink-0">
                 <AvatarFallback className={cn("text-white text-xs", getUserColor(comment.userId))}>
-                  {getInitials(comment.userName)}
+                  {getInitials(comment.userName || null)}
                 </AvatarFallback>
               </Avatar>
 
@@ -248,11 +259,11 @@ export function TaskComments({
                 {comment.reactions && comment.reactions.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {Object.entries(
-                      comment.reactions.reduce((acc, r) => {
+                      comment.reactions.reduce((acc: Record<string, number>, r: { emoji: string; userId: number }) => {
                         acc[r.emoji] = (acc[r.emoji] || 0) + 1;
                         return acc;
                       }, {} as Record<string, number>)
-                    ).map(([emoji, count]) => (
+                    ).map(([emoji, count]: [string, number]) => (
                       <button
                         key={emoji}
                         onClick={() => addReaction.mutate({ commentId: comment.id, emoji })}
@@ -260,7 +271,7 @@ export function TaskComments({
                           "px-1.5 py-0.5 rounded text-xs flex items-center gap-1",
                           "bg-slate-700/50 hover:bg-slate-700 transition-colors",
                           comment.reactions?.some(
-                            (r) => r.emoji === emoji && r.userId === user?.id
+                            (r: { emoji: string; userId: number }) => r.emoji === emoji && r.userId === user?.id
                           ) && "ring-1 ring-amber-500"
                         )}
                       >

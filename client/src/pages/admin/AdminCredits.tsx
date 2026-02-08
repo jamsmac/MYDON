@@ -350,7 +350,7 @@ export default function AdminCredits() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  transactionsData?.transactions?.map((tx) => (
+                  transactionsData?.transactions?.map((tx: { id: number; createdAt: string | null; userName: string | null; userEmail: string | null; type: string | null; description: string | null; model: string | null; tokensUsed: number | null; amount: number | null; balance: number | null }) => (
                     <TableRow key={tx.id}>
                       <TableCell className="text-sm">
                         {tx.createdAt && format(new Date(tx.createdAt), "d MMM HH:mm", { locale: ru })}

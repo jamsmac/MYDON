@@ -1,4 +1,4 @@
-import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { AXIOS_TIMEOUT_MS, COOKIE_NAME, SESSION_TTL_MS, REFRESH_TTL_MS, DEV_SESSION_TTL_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
@@ -7,6 +7,7 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { logger } from "../utils/logger";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -30,11 +31,9 @@ const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserI
 
 class OAuthService {
   constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
+    logger.auth.info("OAuth initialized", { baseURL: ENV.oAuthServerUrl });
     if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
-      );
+      logger.auth.error("OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.");
     }
   }
 
@@ -178,12 +177,20 @@ class SDKServer {
     );
   }
 
+  /**
+   * Get default session TTL based on environment
+   * Dev mode uses longer sessions for convenience
+   */
+  getDefaultSessionTTL(): number {
+    return ENV.isProduction ? SESSION_TTL_MS : DEV_SESSION_TTL_MS;
+  }
+
   async signSession(
     payload: SessionPayload,
     options: { expiresInMs?: number } = {}
   ): Promise<string> {
     const issuedAt = Date.now();
-    const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
+    const expiresInMs = options.expiresInMs ?? this.getDefaultSessionTTL();
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
     const secretKey = this.getSessionSecret();
 
@@ -197,11 +204,51 @@ class SDKServer {
       .sign(secretKey);
   }
 
+  /**
+   * Create a refresh token with longer TTL
+   */
+  async createRefreshToken(openId: string): Promise<string> {
+    const issuedAt = Date.now();
+    const expirationSeconds = Math.floor((issuedAt + REFRESH_TTL_MS) / 1000);
+    const secretKey = this.getSessionSecret();
+
+    return new SignJWT({
+      openId,
+      type: 'refresh',
+      appId: ENV.appId,
+    })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setExpirationTime(expirationSeconds)
+      .sign(secretKey);
+  }
+
+  /**
+   * Verify a refresh token
+   */
+  async verifyRefreshToken(token: string): Promise<{ openId: string } | null> {
+    try {
+      const secretKey = this.getSessionSecret();
+      const { payload } = await jwtVerify(token, secretKey, {
+        algorithms: ["HS256"],
+      });
+
+      const { openId, type } = payload as Record<string, unknown>;
+
+      if (type !== 'refresh' || !isNonEmptyString(openId)) {
+        return null;
+      }
+
+      return { openId };
+    } catch {
+      return null;
+    }
+  }
+
   async verifySession(
     cookieValue: string | undefined | null
   ): Promise<{ openId: string; appId: string; name: string } | null> {
     if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
+      // Don't log missing cookies as it's normal for unauthenticated requests
       return null;
     }
 
@@ -217,7 +264,7 @@ class SDKServer {
         !isNonEmptyString(appId) ||
         !isNonEmptyString(name)
       ) {
-        console.warn("[Auth] Session payload missing required fields");
+        logger.auth.warn("[Auth] Session payload missing required fields");
         return null;
       }
 
@@ -227,7 +274,7 @@ class SDKServer {
         name,
       };
     } catch (error) {
-      console.warn("[Auth] Session verification failed", String(error));
+      logger.auth.warn("[Auth] Session verification failed", { error: String(error) });
       return null;
     }
   }
@@ -283,13 +330,19 @@ class SDKServer {
         });
         user = await db.getUserByOpenId(userInfo.openId);
       } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
+        logger.auth.error("Failed to sync user from OAuth", error as Error);
         throw ForbiddenError("Failed to sync user info");
       }
     }
 
     if (!user) {
       throw ForbiddenError("User not found");
+    }
+
+    // Check if user is blocked
+    if (user.status === 'blocked') {
+      logger.auth.warn("Blocked user attempted access", { userId: user.id, openId: user.openId });
+      throw ForbiddenError("Your account has been suspended. Please contact support.");
     }
 
     await db.upsertUser({

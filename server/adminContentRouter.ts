@@ -90,7 +90,7 @@ export const adminContentRouter = router({
       
       // Get owner info and stats for each project
       const projectsWithStats = await Promise.all(
-        projects.map(async (project) => {
+        projects.map(async (project: { id: number; name: string; description: string | null; userId: number; status: string | null; createdAt: Date | null; updatedAt: Date | null }) => {
           // Get owner
           const [owner] = await db
             .select({ id: schema.users.id, name: schema.users.name, email: schema.users.email })
@@ -107,11 +107,11 @@ export const adminContentRouter = router({
           let taskCountNum = 0;
           const projectBlocks = await db.select({ id: schema.blocks.id }).from(schema.blocks).where(eq(schema.blocks.projectId, project.id));
           if (projectBlocks.length > 0) {
-            const blockIds = projectBlocks.map(b => b.id);
-            const projectSections = await db.select({ id: schema.sections.id }).from(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
+            const blockIds = projectBlocks.map((b: { id: number }) => b.id);
+            const projectSections = await db.select({ id: schema.sections.id }).from(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
             if (projectSections.length > 0) {
-              const sectionIds = projectSections.map(s => s.id);
-              const [taskCount] = await db.select({ count: count() }).from(schema.tasks).where(sql`${schema.tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
+              const sectionIds = projectSections.map((s: { id: number }) => s.id);
+              const [taskCount] = await db.select({ count: count() }).from(schema.tasks).where(sql`${schema.tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
               taskCountNum = taskCount?.count ?? 0;
             }
           }
@@ -154,11 +154,11 @@ export const adminContentRouter = router({
       const projectBlocks = await db.select({ id: schema.blocks.id }).from(schema.blocks).where(eq(schema.blocks.projectId, project.id));
       let taskCountNum = 0;
       if (projectBlocks.length > 0) {
-        const blockIds = projectBlocks.map(b => b.id);
-        const projectSections = await db.select({ id: schema.sections.id }).from(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
+        const blockIds = projectBlocks.map((b: { id: number }) => b.id);
+        const projectSections = await db.select({ id: schema.sections.id }).from(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
         if (projectSections.length > 0) {
-          const sectionIds = projectSections.map(s => s.id);
-          const [taskCount] = await db.select({ count: count() }).from(schema.tasks).where(sql`${schema.tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
+          const sectionIds = projectSections.map((s: { id: number }) => s.id);
+          const [taskCount] = await db.select({ count: count() }).from(schema.tasks).where(sql`${schema.tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
           taskCountNum = taskCount?.count ?? 0;
         }
       }
@@ -171,8 +171,8 @@ export const adminContentRouter = router({
       // Get section count via blocks
       let sectionCountNum = 0;
       if (projectBlocks.length > 0) {
-        const blockIds = projectBlocks.map(b => b.id);
-        const [sectionCount] = await db.select({ count: count() }).from(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
+        const blockIds = projectBlocks.map((b: { id: number }) => b.id);
+        const [sectionCount] = await db.select({ count: count() }).from(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
         sectionCountNum = sectionCount?.count ?? 0;
       }
       
@@ -251,29 +251,29 @@ export const adminContentRouter = router({
       
       // Get all blocks for this project
       const blocks = await db.select({ id: schema.blocks.id }).from(schema.blocks).where(eq(schema.blocks.projectId, input.id));
-      const blockIds = blocks.map(b => b.id);
-      
+      const blockIds = blocks.map((b: { id: number }) => b.id);
+
       if (blockIds.length > 0) {
         // Get all sections for these blocks
-        const sections = await db.select({ id: schema.sections.id }).from(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
-        const sectionIds = sections.map(s => s.id);
-        
+        const sections = await db.select({ id: schema.sections.id }).from(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
+        const sectionIds = sections.map((s: { id: number }) => s.id);
+
         if (sectionIds.length > 0) {
           // Get all tasks for these sections
-          const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks).where(sql`${schema.tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
-          const taskIds = tasks.map(t => t.id);
-          
+          const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks).where(sql`${schema.tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
+          const taskIds = tasks.map((t: { id: number }) => t.id);
+
           // Delete subtasks for these tasks
           if (taskIds.length > 0) {
-            await db.delete(schema.subtasks).where(sql`${schema.subtasks.taskId} IN (${sql.join(taskIds.map(id => sql`${id}`), sql`, `)})`);
+            await db.delete(schema.subtasks).where(sql`${schema.subtasks.taskId} IN (${sql.join(taskIds.map((id: number) => sql`${id}`), sql`, `)})`);
           }
-          
+
           // Delete tasks
-          await db.delete(schema.tasks).where(sql`${schema.tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`);
+          await db.delete(schema.tasks).where(sql`${schema.tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`);
         }
-        
+
         // Delete sections
-        await db.delete(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
+        await db.delete(schema.sections).where(sql`${schema.sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`);
       }
       
       // Delete blocks
@@ -389,26 +389,46 @@ export const adminContentRouter = router({
         .orderBy(schema.blocks.sortOrder);
       
       // Get sections for each block
-      const structure: any = {
-        blocks: await Promise.all(blocks.map(async (block) => {
+      interface TemplateTask {
+        title: string;
+        description: string | null;
+        priority: string | null;
+      }
+      interface TemplateSection {
+        title: string;
+        description: string | null;
+        tasks: TemplateTask[];
+      }
+      interface TemplateBlock {
+        title: string;
+        description: string | null;
+        icon: string | null;
+        sections: TemplateSection[];
+      }
+      interface TemplateStructure {
+        blocks: TemplateBlock[];
+      }
+
+      const structure: TemplateStructure = {
+        blocks: await Promise.all(blocks.map(async (block: { id: number; title: string; description: string | null; icon: string | null }) => {
           const sections = await db
             .select()
             .from(schema.sections)
             .where(eq(schema.sections.blockId, block.id))
             .orderBy(schema.sections.sortOrder);
-          
+
           // Get tasks for each section
-          const sectionsWithTasks = await Promise.all(sections.map(async (section) => {
+          const sectionsWithTasks = await Promise.all(sections.map(async (section: { id: number; title: string; description: string | null }) => {
             const tasks = await db
               .select()
               .from(schema.tasks)
               .where(eq(schema.tasks.sectionId, section.id))
               .orderBy(schema.tasks.sortOrder);
-            
+
             return {
               title: section.title,
               description: section.description,
-              tasks: tasks.map(t => ({
+              tasks: tasks.map((t: { title: string; description: string | null; priority: string | null }) => ({
                 title: t.title,
                 description: t.description,
                 priority: t.priority,
@@ -512,7 +532,7 @@ export const adminContentRouter = router({
       
       // Get template count for each category
       const categoriesWithCounts = await Promise.all(
-        categories.map(async (category) => {
+        categories.map(async (category: { id: number; name: string; slug: string; description: string | null; icon: string | null; color: string | null; createdAt: Date | null }) => {
           const [countResult] = await db
             .select({ count: count() })
             .from(schema.projectTemplates)
@@ -615,7 +635,7 @@ export const adminContentRouter = router({
       
       // Build CSV
       const headers = ["ID", "Name", "Description", "Owner ID", "Status", "Created At"];
-      const rows = projects.map(p => [
+      const rows = projects.map((p: { id: number; name: string; description: string | null; userId: number; status: string | null; createdAt: Date | null }) => [
         p.id,
         `"${(p.name || "").replace(/"/g, '""')}"`,
         `"${(p.description || "").replace(/"/g, '""')}"`,
@@ -623,8 +643,8 @@ export const adminContentRouter = router({
         p.status || "active",
         p.createdAt?.toISOString() || "",
       ]);
-      
-      const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+
+      const csv = [headers.join(","), ...rows.map((r: (string | number)[]) => r.join(","))].join("\n");
       
       return { csv };
     }),

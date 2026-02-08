@@ -230,7 +230,7 @@ export function FloatingAIChatContent({
   // Load messages when session changes
   useEffect(() => {
     if (messagesQuery.data) {
-      const loadedMessages: Message[] = messagesQuery.data.map((m) => ({
+      const loadedMessages: Message[] = messagesQuery.data.map((m: { id: number; role: string; content: string; createdAt: Date | string; metadata: unknown }) => ({
         id: m.id,
         role: m.role,
         content: m.content,
@@ -484,7 +484,7 @@ export function FloatingAIChatContent({
                 )}
               </div>
             ) : (
-              displayData.map((session) => (
+              displayData.map((session: Session | SearchResult) => (
                 <div
                   key={session.id}
                   className={cn(

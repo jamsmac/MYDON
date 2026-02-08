@@ -226,7 +226,7 @@ export default function AdminWebhooks() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {webhooks.map((webhook) => (
+          {webhooks.map((webhook: { id: number; name: string; url: string; isActive: boolean | null; failureCount: number | null; events: unknown; lastTriggeredAt: string | null }) => (
             <Card key={webhook.id}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between">
@@ -339,7 +339,7 @@ export default function AdminWebhooks() {
                 Нет истории вызовов
               </div>
             ) : (
-              history.map((delivery) => (
+              history.map((delivery: { id: number; event: string; success: boolean; responseStatus: number | null; duration: number | null; error: string | null; createdAt: string | null }) => (
                 <div
                   key={delivery.id}
                   className="flex items-center gap-3 p-3 rounded-lg border"

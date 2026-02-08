@@ -21,6 +21,7 @@ const AdminCredits = lazy(() => import("./AdminCredits"));
 const AdminLimits = lazy(() => import("./AdminLimits"));
 const AdminTariffs = lazy(() => import("./AdminTariffs"));
 const AdminModelCosts = lazy(() => import("./AdminModelCosts"));
+const AdminModelRatings = lazy(() => import("./AdminModelRatings"));
 const AdminProjects = lazy(() => import("./AdminProjects"));
 const AdminTemplates = lazy(() => import("./AdminTemplates"));
 
@@ -98,6 +99,7 @@ export default function AdminIndex() {
           <Route path="/admin/limits" component={AdminLimits} />
           <Route path="/admin/tariffs" component={AdminTariffs} />
           <Route path="/admin/model-costs" component={AdminModelCosts} />
+          <Route path="/admin/model-ratings" component={AdminModelRatings} />
           
           {/* Content */}
           <Route path="/admin/projects" component={AdminProjects} />

@@ -21,11 +21,15 @@ import {
   AlertTriangle,
   Edit,
   Loader2,
+  Paperclip,
 } from "lucide-react";
 import { QuickActionsBar } from "./QuickActionsBar";
 import { DiscussionPanel } from "./DiscussionPanel";
 import { BreadcrumbNav } from "./BreadcrumbNav";
 import { EntityAIChat } from "./EntityAIChat";
+import { AttachmentsPanel } from "./attachments";
+import { SwipeableTaskCard } from "./mobile/SwipeableTaskCard";
+import { useTouchDevice } from "@/hooks/useMobile";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -62,6 +66,10 @@ interface BlockDetailPanelProps {
   onCreateSection: (blockId: number) => void;
   onNavigate: (item: { type: "project" | "block" | "section" | "task"; id: number; title: string }) => void;
   onMarkRead?: (entityType: string, entityId: number) => void;
+  /** Delete a task */
+  onDeleteTask?: (taskId: number) => void;
+  /** Update task status (for swipe gestures) */
+  onUpdateTaskStatus?: (taskId: number, status: string) => void;
 }
 
 export function BlockDetailPanel({
@@ -73,9 +81,12 @@ export function BlockDetailPanel({
   onCreateSection,
   onNavigate,
   onMarkRead,
+  onDeleteTask,
+  onUpdateTaskStatus,
 }: BlockDetailPanelProps) {
   const [showDiscussion, setShowDiscussion] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
+  const isTouchDevice = useTouchDevice();
 
   // Calculate block statistics
   const stats = useMemo(() => {
@@ -260,6 +271,15 @@ export function BlockDetailPanel({
         />
       </div>
 
+      {/* Attachments */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Paperclip className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-xs text-slate-400">Вложения</span>
+        </div>
+        <AttachmentsPanel entityType="block" entityId={block.id} projectId={projectId} />
+      </div>
+
       {/* Embedded AI Chat */}
       <EntityAIChat
         entityType="block"
@@ -345,37 +365,69 @@ export function BlockDetailPanel({
                     {/* Expanded Tasks */}
                     {isExpanded && sectionTasks.length > 0 && (
                       <div className="border-t border-slate-700/50 px-4 py-2 space-y-1">
-                        {sectionTasks.map((task) => (
-                          <div
-                            key={task.id}
-                            className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/30 cursor-pointer transition-colors"
-                            onClick={() => onSelectTask(task.id, task.title, section.id)}
-                          >
-                            {task.status === "completed" ? (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-                            ) : task.status === "in_progress" ? (
-                              <Clock className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                            ) : (
-                              <Circle className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                            )}
-                            <span
-                              className={cn(
-                                "text-xs flex-1 truncate",
-                                task.status === "completed" ? "text-slate-500 line-through" : "text-slate-300"
-                              )}
+                        {sectionTasks.map((task) => {
+                          const taskElement = (
+                            <div
+                              key={task.id}
+                              className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/30 cursor-pointer transition-colors"
+                              onClick={() => onSelectTask(task.id, task.title, section.id)}
                             >
-                              {task.title}
-                            </span>
-                            {task.priority === "critical" && (
-                              <AlertTriangle className="w-3 h-3 text-red-400 flex-shrink-0" />
-                            )}
-                            {task.priority === "high" && (
-                              <Badge variant="outline" className="text-[9px] px-1 py-0 border-orange-500/30 text-orange-400">
-                                high
-                              </Badge>
-                            )}
-                          </div>
-                        ))}
+                              {task.status === "completed" ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                              ) : task.status === "in_progress" ? (
+                                <Clock className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                              ) : (
+                                <Circle className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                              )}
+                              <span
+                                className={cn(
+                                  "text-xs flex-1 truncate",
+                                  task.status === "completed" ? "text-slate-500 line-through" : "text-slate-300"
+                                )}
+                              >
+                                {task.title}
+                              </span>
+                              {task.priority === "critical" && (
+                                <AlertTriangle className="w-3 h-3 text-red-400 flex-shrink-0" />
+                              )}
+                              {task.priority === "high" && (
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 border-orange-500/30 text-orange-400">
+                                  high
+                                </Badge>
+                              )}
+                            </div>
+                          );
+
+                          // Wrap with SwipeableTaskCard for touch devices
+                          if (isTouchDevice && (onUpdateTaskStatus || onDeleteTask)) {
+                            return (
+                              <SwipeableTaskCard
+                                key={task.id}
+                                onComplete={
+                                  onUpdateTaskStatus && task.status !== "completed"
+                                    ? () => {
+                                      onUpdateTaskStatus(task.id, "completed");
+                                      toast.success("Задача завершена");
+                                    }
+                                    : undefined
+                                }
+                                onDelete={
+                                  onDeleteTask
+                                    ? () => {
+                                      onDeleteTask(task.id);
+                                      toast.success("Задача удалена");
+                                    }
+                                    : undefined
+                                }
+                                className="rounded"
+                              >
+                                {taskElement}
+                              </SwipeableTaskCard>
+                            );
+                          }
+
+                          return taskElement;
+                        })}
                       </div>
                     )}
                   </CardContent>

@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
-import { projectMembers, projectInvitations, taskComments, commentReactions, users, projects, blocks, sections, tasks, discussionReadStatus } from "../drizzle/schema";
+import { projectMembers, projectInvitations, taskComments, commentReactions, users, projects, blocks, sections, tasks, discussionReadStatus, attachmentSettings } from "../drizzle/schema";
 import { eq, and, desc, inArray, gt, sql, count } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { invokeLLM } from "./_core/llm";
+import { checkEntityAccess, checkTaskAccess, checkSectionAccess, requireAccessOrNotFound } from "./utils/authorization";
 
 // Helper to generate invite token
 const generateToken = () => crypto.randomBytes(32).toString("hex");
@@ -206,7 +207,7 @@ export const collaborationRouter = router({
         )
       );
       
-      const pendingInvite = existingInvites.find(inv => !inv.usedAt);
+      const pendingInvite = existingInvites.find((inv: { usedAt: Date | null }) => !inv.usedAt);
       if (pendingInvite) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Invitation already sent" });
       }
@@ -249,7 +250,7 @@ export const collaborationRouter = router({
         .where(eq(projectInvitations.projectId, input.projectId))
         .orderBy(desc(projectInvitations.createdAt));
       
-      return allInvitations.filter(inv => !inv.usedAt);
+      return allInvitations.filter((inv: { usedAt: Date | null }) => !inv.usedAt);
     }),
   
   // Cancel invitation
@@ -336,7 +337,11 @@ export const collaborationRouter = router({
       entityType: z.enum(["project", "block", "section", "task"]),
       entityId: z.number(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Check access to the entity
+      const access = await checkEntityAccess(ctx.user.id, input.entityType, input.entityId);
+      requireAccessOrNotFound(access, input.entityType);
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
       
@@ -349,6 +354,7 @@ export const collaborationRouter = router({
         content: taskComments.content,
         parentId: taskComments.parentId,
         mentions: taskComments.mentions,
+        attachmentIds: taskComments.attachmentIds,
         isEdited: taskComments.isEdited,
         isSummary: taskComments.isSummary,
         createdAt: taskComments.createdAt,
@@ -365,21 +371,21 @@ export const collaborationRouter = router({
       .orderBy(taskComments.createdAt);
       
       // Get reactions for all comments
-      const commentIds = comments.map(c => c.id);
-      const reactions = commentIds.length > 0 
+      const commentIds = comments.map((c: { id: number }) => c.id);
+      const reactions = commentIds.length > 0
         ? await db.select()
             .from(commentReactions)
             .where(inArray(commentReactions.commentId, commentIds))
         : [];
-      
+
       // Group reactions by comment
-      const reactionsByComment = reactions.reduce((acc, r) => {
+      const reactionsByComment = reactions.reduce((acc: Record<number, typeof reactions>, r: { commentId: number; id: number; userId: number; emoji: string; createdAt: Date }) => {
         if (!acc[r.commentId]) acc[r.commentId] = [];
         acc[r.commentId].push(r);
         return acc;
       }, {} as Record<number, typeof reactions>);
-      
-      return comments.map(comment => ({
+
+      return comments.map((comment: { id: number; taskId: number | null; entityType: string | null; entityId: number | null; userId: number; content: string; parentId: number | null; mentions: number[] | null; isEdited: boolean | null; isSummary: boolean | null; createdAt: Date; updatedAt: Date | null; userName: string | null; userEmail: string | null }) => ({
         ...comment,
         reactions: reactionsByComment[comment.id] || [],
       }));
@@ -394,11 +400,29 @@ export const collaborationRouter = router({
       parentId: z.number().optional(),
       mentions: z.array(z.number()).optional(),
       isSummary: z.boolean().optional(),
+      attachmentIds: z.array(z.number()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check editor access to add comments
+      const access = await checkEntityAccess(ctx.user.id, input.entityType, input.entityId, "viewer");
+      requireAccessOrNotFound(access, input.entityType);
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
-      
+
+      // Check attachment limit if attachments are provided
+      if (input.attachmentIds && input.attachmentIds.length > 0) {
+        const [settings] = await db.select().from(attachmentSettings).limit(1);
+        const maxFilesPerMessage = settings?.maxFilesPerMessage ?? 10;
+
+        if (input.attachmentIds.length > maxFilesPerMessage) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Превышен лимит вложений на сообщение (${maxFilesPerMessage})`,
+          });
+        }
+      }
+
       const [result] = await db.insert(taskComments).values({
         taskId: input.entityType === "task" ? input.entityId : null,
         entityType: input.entityType,
@@ -408,15 +432,20 @@ export const collaborationRouter = router({
         parentId: input.parentId || null,
         mentions: input.mentions || [],
         isSummary: input.isSummary || false,
+        attachmentIds: input.attachmentIds || null,
       });
-      
+
       return { id: result.insertId };
     }),
 
   // Legacy listComments - backward compatible
   listComments: protectedProcedure
     .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      // Check access to the task
+      const access = await checkTaskAccess(ctx.user.id, input.taskId);
+      requireAccessOrNotFound(access, "задача");
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
       
@@ -427,6 +456,7 @@ export const collaborationRouter = router({
         content: taskComments.content,
         parentId: taskComments.parentId,
         mentions: taskComments.mentions,
+        attachmentIds: taskComments.attachmentIds,
         isEdited: taskComments.isEdited,
         isSummary: taskComments.isSummary,
         createdAt: taskComments.createdAt,
@@ -440,26 +470,26 @@ export const collaborationRouter = router({
       .orderBy(taskComments.createdAt);
       
       // Get reactions for all comments
-      const commentIds = comments.map(c => c.id);
-      const reactions = commentIds.length > 0 
+      const commentIds = comments.map((c: { id: number }) => c.id);
+      const reactions = commentIds.length > 0
         ? await db.select()
             .from(commentReactions)
             .where(inArray(commentReactions.commentId, commentIds))
         : [];
-      
+
       // Group reactions by comment
-      const reactionsByComment = reactions.reduce((acc, r) => {
+      const reactionsByComment = reactions.reduce((acc: Record<number, typeof reactions>, r: { commentId: number; id: number; userId: number; emoji: string; createdAt: Date }) => {
         if (!acc[r.commentId]) acc[r.commentId] = [];
         acc[r.commentId].push(r);
         return acc;
       }, {} as Record<number, typeof reactions>);
-      
-      return comments.map(comment => ({
+
+      return comments.map((comment: { id: number; taskId: number | null; userId: number; content: string; parentId: number | null; mentions: number[] | null; isEdited: boolean | null; isSummary: boolean | null; createdAt: Date; updatedAt: Date | null; userName: string | null; userEmail: string | null }) => ({
         ...comment,
         reactions: reactionsByComment[comment.id] || [],
       }));
     }),
-  
+
   // Add comment
   addComment: protectedProcedure
     .input(z.object({
@@ -469,6 +499,10 @@ export const collaborationRouter = router({
       mentions: z.array(z.number()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check viewer access (commenters can view)
+      const access = await checkTaskAccess(ctx.user.id, input.taskId, "viewer");
+      requireAccessOrNotFound(access, "задача");
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
       
@@ -553,7 +587,24 @@ export const collaborationRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
-      
+
+      // Get the comment to check access to its entity
+      const [comment] = await db.select().from(taskComments)
+        .where(eq(taskComments.id, input.commentId)).limit(1);
+
+      if (!comment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Комментарий не найден" });
+      }
+
+      // Check access to the entity the comment belongs to
+      if (comment.entityType && comment.entityId) {
+        const access = await checkEntityAccess(ctx.user.id, comment.entityType as "project" | "block" | "section" | "task", comment.entityId, "viewer");
+        requireAccessOrNotFound(access, comment.entityType);
+      } else if (comment.taskId) {
+        const access = await checkTaskAccess(ctx.user.id, comment.taskId, "viewer");
+        requireAccessOrNotFound(access, "задача");
+      }
+
       // Check if already reacted with same emoji
       const [existing] = await db.select().from(commentReactions)
         .where(and(
@@ -588,6 +639,10 @@ export const collaborationRouter = router({
       entityTitle: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Check editor access for AI finalization
+      const access = await checkEntityAccess(ctx.user.id, input.entityType, input.entityId, "editor");
+      requireAccessOrNotFound(access, input.entityType);
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
@@ -607,13 +662,13 @@ export const collaborationRouter = router({
       ))
       .orderBy(taskComments.createdAt);
 
-      const regularComments = comments.filter(c => !c.isSummary);
+      const regularComments = comments.filter((c: { isSummary: boolean | null }) => !c.isSummary);
       if (regularComments.length === 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No messages to finalize" });
       }
 
       const discussionText = regularComments
-        .map(c => `${c.userName || 'User'} (${new Date(c.createdAt).toLocaleDateString('ru')}): ${c.content}`)
+        .map((c: { userName: string | null; createdAt: Date; content: string }) => `${c.userName || 'User'} (${new Date(c.createdAt).toLocaleDateString('ru')}): ${c.content}`)
         .join('\n');
 
       const entityLabel = { project: 'проекта', block: 'блока', section: 'раздела', task: 'задачи' }[input.entityType];
@@ -662,7 +717,11 @@ export const collaborationRouter = router({
       entityTitle: z.string(),
       projectId: z.number(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check editor access for AI distribution
+      const access = await checkEntityAccess(ctx.user.id, input.entityType, input.entityId, "editor");
+      requireAccessOrNotFound(access, input.entityType);
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
@@ -680,7 +739,7 @@ export const collaborationRouter = router({
       ))
       .orderBy(taskComments.createdAt);
 
-      const regularComments = comments.filter(c => !c.isSummary);
+      const regularComments = comments.filter((c: { isSummary: boolean | null }) => !c.isSummary);
       if (regularComments.length === 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No messages to distribute" });
       }
@@ -691,18 +750,18 @@ export const collaborationRouter = router({
         title: blocks.title,
       }).from(blocks).where(eq(blocks.projectId, input.projectId));
 
-      const allSections = [];
+      const allSections: { id: number; title: string; blockId: number; blockTitle: string }[] = [];
       for (const block of projectBlocks) {
         const secs = await db.select({
           id: sections.id,
           title: sections.title,
           blockId: sections.blockId,
         }).from(sections).where(eq(sections.blockId, block.id));
-        allSections.push(...secs.map(s => ({ ...s, blockTitle: block.title })));
+        allSections.push(...secs.map((s: { id: number; title: string; blockId: number }) => ({ ...s, blockTitle: block.title })));
       }
 
       const discussionText = regularComments
-        .map(c => `${c.userName || 'User'}: ${c.content}`)
+        .map((c: { userName: string | null; content: string }) => `${c.userName || 'User'}: ${c.content}`)
         .join('\n');
 
       const structureText = allSections.map(s => 
@@ -757,7 +816,14 @@ export const collaborationRouter = router({
         priority: z.enum(["critical", "high", "medium", "low"]).optional(),
       })),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check editor access to all sections where tasks will be created
+      const uniqueSectionIds = Array.from(new Set(input.tasks.map(t => t.sectionId)));
+      for (const sectionId of uniqueSectionIds) {
+        const access = await checkSectionAccess(ctx.user.id, sectionId, "editor");
+        requireAccessOrNotFound(access, "секция");
+      }
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
@@ -814,7 +880,7 @@ export const collaborationRouter = router({
         }
       }
       
-      members.forEach(m => {
+      members.forEach((m: { userId: number; userName: string | null; userEmail: string | null }) => {
         if (m.userId && !allUsers.find(u => u.id === m.userId)) {
           allUsers.push({
             id: m.userId,
@@ -849,13 +915,13 @@ export const collaborationRouter = router({
 
       // Get all blocks for this project
       const projectBlocks = await db.select({ id: blocks.id }).from(blocks).where(eq(blocks.projectId, input.projectId));
-      const blockIds = projectBlocks.map(b => b.id);
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
 
       // Get all sections for these blocks
       let sectionIds: number[] = [];
       if (blockIds.length > 0) {
         const projectSections = await db.select({ id: sections.id }).from(sections).where(inArray(sections.blockId, blockIds));
-        sectionIds = projectSections.map(s => s.id);
+        sectionIds = projectSections.map((s: { id: number }) => s.id);
       }
 
       // Get all read statuses for this user

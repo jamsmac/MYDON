@@ -47,6 +47,16 @@ interface NotificationData {
   [key: string]: unknown;
 }
 
+interface Notification {
+  id: number;
+  type: string;
+  title: string;
+  message: string | null;
+  isRead: boolean;
+  data: NotificationData | null;
+  createdAt: Date;
+}
+
 // Notification type configurations with colors and icons
 const notificationConfig: Record<string, {
   icon: React.ElementType;
@@ -283,13 +293,13 @@ export function NotificationCenter() {
     
     // Apply type filter
     if (filter) {
-      result = result.filter((n) => n.type === filter);
+      result = result.filter((n: Notification) => n.type === filter);
     }
     
     // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
-      result = result.filter((n) => {
+      result = result.filter((n: Notification) => {
         const titleMatch = n.title.toLowerCase().includes(query);
         const messageMatch = n.message?.toLowerCase().includes(query);
         const data = n.data as NotificationData | null;
@@ -311,8 +321,8 @@ export function NotificationCenter() {
 
   // Get unique notification types for filter
   const notificationTypes = useMemo(() => {
-    const types = new Set(notifications.map((n) => n.type));
-    return Array.from(types);
+    const types = new Set(notifications.map((n: Notification) => n.type));
+    return Array.from(types) as string[];
   }, [notifications]);
 
   const handleNotificationClick = (notification: typeof notifications[0]) => {
@@ -477,7 +487,7 @@ export function NotificationCenter() {
               >
                 Все
               </Badge>
-              {notificationTypes.map((type) => {
+              {notificationTypes.map((type: string) => {
                 const config = notificationConfig[type] || notificationConfig.system;
                 return (
                   <Badge

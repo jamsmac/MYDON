@@ -278,9 +278,9 @@ export const templateEnhancedRouter = router({
         .where(and(...conditions));
       
       // Get tags for each template
-      const templateIds = templates.map(t => t.id);
+      const templateIds = templates.map((t: { id: number }) => t.id);
       let tagsMap: Record<number, { id: number; name: string }[]> = {};
-      
+
       if (templateIds.length > 0) {
         const tagMappings = await db.select({
           templateId: templateToTags.templateId,
@@ -289,8 +289,8 @@ export const templateEnhancedRouter = router({
         })
           .from(templateToTags)
           .leftJoin(templateTags, eq(templateToTags.tagId, templateTags.id))
-          .where(sql`${templateToTags.templateId} IN (${sql.join(templateIds.map(id => sql`${id}`), sql`, `)})`);
-        
+          .where(sql`${templateToTags.templateId} IN (${sql.join(templateIds.map((id: number) => sql`${id}`), sql`, `)})`);
+
         for (const mapping of tagMappings) {
           if (!tagsMap[mapping.templateId]) {
             tagsMap[mapping.templateId] = [];
@@ -300,9 +300,9 @@ export const templateEnhancedRouter = router({
           }
         }
       }
-      
+
       return {
-        templates: templates.map(t => ({
+        templates: templates.map((t: { id: number; rating: number | null }) => ({
           ...t,
           tags: tagsMap[t.id] || [],
           ratingDisplay: t.rating ? (t.rating / 100).toFixed(1) : '0.0',
@@ -608,41 +608,41 @@ export const templateEnhancedRouter = router({
         .where(eq(blocks.projectId, input.projectId))
         .orderBy(asc(blocks.sortOrder));
       
-      const blockIds = projectBlocks.map(b => b.id);
-      
+      const blockIds = projectBlocks.map((b: { id: number }) => b.id);
+
       // Get all sections
       let allSections: any[] = [];
       if (blockIds.length > 0) {
         allSections = await db.select().from(sections)
-          .where(sql`${sections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`)
+          .where(sql`${sections.blockId} IN (${sql.join(blockIds.map((id: number) => sql`${id}`), sql`, `)})`)
           .orderBy(asc(sections.sortOrder));
       }
-      
-      const sectionIds = allSections.map(s => s.id);
-      
+
+      const sectionIds = allSections.map((s: { id: number }) => s.id);
+
       // Get all tasks
       let allTasks: any[] = [];
       if (sectionIds.length > 0) {
         allTasks = await db.select().from(tasks)
-          .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map(id => sql`${id}`), sql`, `)})`)
+          .where(sql`${tasks.sectionId} IN (${sql.join(sectionIds.map((id: number) => sql`${id}`), sql`, `)})`)
           .orderBy(asc(tasks.sortOrder));
       }
-      
+
       // Build structure
       const structure: TemplateStructure = {
         variables: input.variables || [],
-        blocks: projectBlocks.map(block => ({
+        blocks: projectBlocks.map((block: { id: number; title: string; description: string | null; duration: number | null }) => ({
           title: block.title,
           description: block.description || undefined,
           duration: block.duration || undefined,
           sections: allSections
-            .filter(s => s.blockId === block.id)
-            .map(section => ({
+            .filter((s: { blockId: number }) => s.blockId === block.id)
+            .map((section: { id: number; title: string; description: string | null }) => ({
               title: section.title,
               description: section.description || undefined,
               tasks: allTasks
-                .filter(t => t.sectionId === section.id)
-                .map(task => ({
+                .filter((t: { sectionId: number }) => t.sectionId === section.id)
+                .map((task: { title: string; description: string | null; priority: string | null }) => ({
                   title: task.title,
                   description: task.description || undefined,
                   priority: task.priority || undefined,

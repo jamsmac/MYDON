@@ -300,7 +300,7 @@ export default function WebhooksManagement() {
 
           {webhooks && webhooks.length > 0 ? (
             <div className="space-y-4">
-              {webhooks.map((webhook) => (
+              {webhooks.map((webhook: { id: number; name: string; url: string; events: string[] | null; isActive: boolean | null; secret?: string | null; lastTriggeredAt?: Date | null; failureCount?: number | null }) => (
                 <Card key={webhook.id}>
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
@@ -425,7 +425,7 @@ export default function WebhooksManagement() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {deliveries.map((delivery) => (
+                    {deliveries.map((delivery: { id: number; success: boolean; statusCode?: number | null; responseTime?: number | null; responseStatus?: number | null; duration?: number | null; event?: string | null; createdAt: Date | string }) => (
                       <TableRow key={delivery.id}>
                         <TableCell>
                           {delivery.success ? (

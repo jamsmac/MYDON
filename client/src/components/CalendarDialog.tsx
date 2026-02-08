@@ -102,6 +102,7 @@ export function CalendarDialog({ open, onOpenChange, projectId, projectName, tas
     }
 
     createMilestones.mutate({
+      projectId,
       projectName,
       milestones: validMilestones.map(m => ({
         title: m.title,
