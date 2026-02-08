@@ -107,7 +107,6 @@ export function SectionDetailPanel({
   onConvertTaskToSection,
   onMergeTasks,
   onConvertSectionToTask,
-  onUpdateTaskStatus,
   selectionMode = false,
   selectedTaskIds = [],
   onToggleSelectionMode,
