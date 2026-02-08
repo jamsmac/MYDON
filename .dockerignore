@@ -1,0 +1,49 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output (we build inside Docker)
+dist
+
+# Development files
+.git
+.gitignore
+.github
+*.md
+!README.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Test files
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__
+coverage
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs
+
+# Docker files (prevent recursion)
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Misc
+*.tgz
+*.tar.gz
