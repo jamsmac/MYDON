@@ -74,14 +74,13 @@ interface SectionDetailPanelProps {
   onNavigate: (item: { type: "project" | "block" | "section" | "task"; id: number; title: string }) => void;
   onMarkRead?: (entityType: string, entityId: number) => void;
   onDeleteTask?: (taskId: number) => void;
+  /** Update task status (for swipe gestures) */
   onUpdateTaskStatus?: (taskId: number, status: string) => void;
   onDuplicateTask?: (taskId: number) => void;
   onSplitTask?: (task: TaskData, sectionId: number) => void;
   onConvertTaskToSection?: (task: TaskData, sectionId: number) => void;
   onMergeTasks?: (sectionId: number) => void;
   onConvertSectionToTask?: (sectionId: number) => void;
-  /** Update task status (for swipe gestures) */
-  onUpdateTaskStatus?: (taskId: number, status: string) => void;
   /** Selection mode for bulk actions */
   selectionMode?: boolean;
   selectedTaskIds?: number[];

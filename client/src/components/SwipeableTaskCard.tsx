@@ -2,6 +2,8 @@ import React, { ReactNode, useState, useRef, useCallback, type TouchEvent } from
 import { Check, Trash2, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMobile } from '@/hooks/useMobile';
+import { useLongPress } from '@/hooks/useLongPress';
+import { TaskContextMenu, TaskContextMenuAction } from './TaskContextMenu';
 
 interface SwipeableTaskCardProps {
   taskId: number;
@@ -9,9 +11,13 @@ interface SwipeableTaskCardProps {
   onComplete: (taskId: number) => void;
   onDelete: (taskId: number) => void;
   onUncomplete?: (taskId: number) => void;
+  onChangeStatus?: (taskId: number, status: string) => void;
+  onAddSubtask?: (taskId: number) => void;
+  onDiscuss?: (taskId: number) => void;
   children: ReactNode;
   className?: string;
   disabled?: boolean;
+  contextMenuActions?: TaskContextMenuAction[];
 }
 
 interface SwipeState {
@@ -31,9 +37,13 @@ export function SwipeableTaskCard({
   onComplete,
   onDelete,
   onUncomplete,
+  onChangeStatus,
+  onAddSubtask,
+  onDiscuss,
   children,
   className,
   disabled = false,
+  contextMenuActions,
 }: SwipeableTaskCardProps) {
   const { isMobile } = useMobile();
   const stateRef = useRef<SwipeState>({
@@ -47,9 +57,32 @@ export function SwipeableTaskCard({
   const [offset, setOffset] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const [actionTriggered, setActionTriggered] = useState<'complete' | 'delete' | 'uncomplete' | null>(null);
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isCompleted = taskStatus === 'completed';
+
+  // Long-press handler
+  const longPressHandlers = useLongPress({
+    duration: 300,
+    disabled: disabled || !isMobile,
+    onLongPress: (e) => {
+      // Prevent swipe gestures during long-press
+      stateRef.current.isTracking = false;
+      setOffset(0);
+      
+      // Get position for context menu
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        setContextMenuPos({
+          x: rect.left + rect.width / 2,
+          y: rect.top,
+        });
+      }
+      setContextMenuOpen(true);
+    },
+  });
 
   const handleTouchStart = useCallback(
     (e: TouchEvent) => {
@@ -179,6 +212,43 @@ export function SwipeableTaskCard({
     setTimeout(() => setIsAnimating(false), 200);
   }, [isMobile, disabled, isCompleted, taskId, onComplete, onDelete, onUncomplete]);
 
+  // Build default context menu actions if not provided
+  const defaultActions: TaskContextMenuAction[] = contextMenuActions || [
+    {
+      id: 'complete',
+      label: isCompleted ? 'Mark as incomplete' : 'Mark as complete',
+      icon: isCompleted ? <Undo2 className="w-4 h-4" /> : <Check className="w-4 h-4" />,
+      onClick: () => {
+        if (onChangeStatus) {
+          onChangeStatus(taskId, isCompleted ? 'not_started' : 'completed');
+        } else if (isCompleted && onUncomplete) {
+          onUncomplete(taskId);
+        } else if (!isCompleted) {
+          onComplete(taskId);
+        }
+      },
+    },
+    ...(onAddSubtask ? [{
+      id: 'add-subtask',
+      label: 'Add subtask',
+      icon: <Check className="w-4 h-4" />,
+      onClick: () => onAddSubtask(taskId),
+    }] : []),
+    ...(onDiscuss ? [{
+      id: 'discuss',
+      label: 'Discuss',
+      icon: <Check className="w-4 h-4" />,
+      onClick: () => onDiscuss(taskId),
+    }] : []),
+    {
+      id: 'delete',
+      label: 'Delete task',
+      icon: <Trash2 className="w-4 h-4" />,
+      onClick: () => onDelete(taskId),
+      variant: 'destructive',
+    },
+  ];
+
   // On desktop, just render children without swipe
   if (!isMobile) {
     return <div className={className}>{children}</div>;
@@ -188,10 +258,12 @@ export function SwipeableTaskCard({
   const leftActionActive = actionTriggered === 'delete';
 
   return (
-    <div
-      ref={containerRef}
-      className={cn("relative overflow-hidden rounded-lg", className)}
-    >
+    <>
+      <div
+        ref={containerRef}
+        className={cn("relative overflow-hidden rounded-lg", className)}
+        {...longPressHandlers}
+      >
       {/* Background action indicators */}
       {/* Right swipe background (complete/uncomplete) */}
       <div
@@ -256,5 +328,16 @@ export function SwipeableTaskCard({
         {children}
       </div>
     </div>
+
+      {/* Context Menu */}
+      <TaskContextMenu
+        taskId={taskId}
+        taskStatus={taskStatus}
+        position={contextMenuPos}
+        isOpen={contextMenuOpen}
+        onClose={() => setContextMenuOpen(false)}
+        actions={defaultActions}
+      />
+    </>
   );
 }

@@ -2461,3 +2461,13 @@
 - [x] Integrate into SectionDetailPanel task lists
 - [x] Add haptic feedback (navigator.vibrate) on action trigger
 - [x] Write vitest tests for swipe-to-action logic (18 tests passing)
+
+
+## Long-Press Context Menu on Task Cards
+- [x] Create useLongPress hook with 300ms hold detection
+- [x] Create TaskContextMenu component with quick actions
+- [x] Integrate long-press into SwipeableTaskCard
+- [x] Add actions: change status, change priority, add subtask, delete
+- [x] Visual feedback during long-press (highlight, cursor change)
+- [x] Prevent swipe gestures during long-press menu
+- [x] Write vitest tests for long-press logic (17 tests for hook, 20 tests for menu)

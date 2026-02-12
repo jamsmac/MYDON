@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
-import { visualizer } from "rollup-plugin-visualizer";
+// import { visualizer } from "rollup-plugin-visualizer"; // Optional: uncomment to analyze bundle size
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -162,17 +162,18 @@ const plugins = [
 
 // Add bundle analyzer when ANALYZE env var is set
 // Usage: ANALYZE=true pnpm build
-if (process.env.ANALYZE) {
-  plugins.push(
-    visualizer({
-      filename: "dist/bundle-stats.html",
-      open: true,
-      gzipSize: true,
-      brotliSize: true,
-      template: "treemap", // or "sunburst", "network"
-    }) as Plugin
-  );
-}
+// Uncomment visualizer import above to enable
+// if (process.env.ANALYZE) {
+//   plugins.push(
+//     visualizer({
+//       filename: "dist/bundle-stats.html",
+//       open: true,
+//       gzipSize: true,
+//       brotliSize: true,
+//       template: "treemap", // or "sunburst", "network"
+//     }) as Plugin
+//   );
+// }
 
 export default defineConfig({
   plugins,

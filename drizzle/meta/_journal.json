@@ -64,6 +64,13 @@
       "when": 1770512614786,
       "tag": "0008_redundant_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1770931318398,
+      "tag": "0009_hard_red_ghost",
+      "breakpoints": true
     }
   ]
 }
