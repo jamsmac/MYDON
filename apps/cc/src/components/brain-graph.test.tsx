@@ -1,0 +1,217 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { DocsGraph } from "../lib/core";
+import { BrainGraph } from "./brain-graph";
+
+/**
+ * Предпросмотр документа ходит в Core серверным действием — в тесте его
+ * подменяем: проверяем поведение карточки, а не сеть.
+ */
+const previewDoc = vi.hoisted(() => vi.fn());
+vi.mock("../app/brain/actions", () => ({ previewDoc }));
+
+const SKILL = "apps/agents/agents/parts-keeper/skills/parts-audit.md";
+
+const graph: DocsGraph = {
+  builtAt: "2026-09-06T08:00:00.000Z",
+  nodes: [
+    { id: "CLAUDE.md", kind: "root", label: "MYDON — контекст монорепо", path: "CLAUDE.md" },
+    { id: "domain:vendhub", kind: "domain", label: "vendhub" },
+    { id: "agent:parts-keeper", kind: "agent", label: "parts-keeper", href: "/agents/parts-keeper" },
+    { id: SKILL, kind: "skill", label: "Ревизия узлов", path: SKILL, href: "/skills" },
+    { id: "tool:read", kind: "tool", label: "read" },
+    { id: "docs/DEPLOY.md", kind: "doc", label: "Деплой MYDON", path: "docs/DEPLOY.md" },
+    { id: "memory/glossary.md", kind: "memory", label: "Словарь", path: "memory/glossary.md" },
+  ],
+  edges: [
+    { from: "CLAUDE.md", to: "domain:vendhub", kind: "routes" },
+    { from: "domain:vendhub", to: "agent:parts-keeper", kind: "owns" },
+    { from: "agent:parts-keeper", to: SKILL, kind: "has_skill" },
+    { from: SKILL, to: "tool:read", kind: "uses_tool" },
+    { from: "memory/glossary.md", to: "CLAUDE.md", kind: "mentions" },
+  ],
+};
+
+/**
+ * jsdom не рисует: у canvas нет 2D-контекста, нет ResizeObserver и нет
+ * matchMedia. Подменяем ровно то, чем пользуется компонент, — иначе тест
+ * падал бы на отрисовке, ничего не сказав о поведении экрана.
+ */
+beforeAll(() => {
+  const ctx = {
+    canvas: { width: 800, height: 520 },
+    fillStyle: "",
+    strokeStyle: "",
+    lineWidth: 1,
+    globalAlpha: 1,
+    font: "",
+    textAlign: "left",
+    textBaseline: "alphabetic",
+    clearRect: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
+    scale: vi.fn(),
+    setTransform: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    fillText: vi.fn(),
+    measureText: vi.fn(() => ({ width: 40 })),
+  };
+  HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+
+  class Stub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  globalThis.ResizeObserver = Stub as unknown as typeof ResizeObserver;
+
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    media: "",
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+});
+
+const результаты = (): string[] =>
+  screen
+    .getAllByRole("button", { name: /./ })
+    .map((b) => b.textContent ?? "")
+    .filter((t) => t.length > 0);
+
+describe("Граф знаний: поиск", () => {
+  it("показывает узлы списком — путь к графу без canvas", () => {
+    render(<BrainGraph graph={graph} />);
+    expect(screen.getByRole("button", { name: /Деплой MYDON/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ревизия узлов/ })).toBeInTheDocument();
+  });
+
+  it("ввод в поиск сужает список результатов", async () => {
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.type(screen.getByLabelText(/поиск/i), "ревизия");
+    expect(screen.getByRole("button", { name: /Ревизия узлов/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Деплой MYDON/ })).not.toBeInTheDocument();
+    expect(результаты().some((t) => t.includes("Словарь"))).toBe(false);
+  });
+
+  it("пустой результат поиска говорит, что сделать", async () => {
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.type(screen.getByLabelText(/поиск/i), "такого узла нет");
+    expect(screen.getByText(/ничего не нашлось/i)).toBeInTheDocument();
+  });
+
+  it("легенда считает виды узлов показанного графа", async () => {
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    const legend = screen.getByRole("group", { name: /виды узлов/i });
+    expect(legend).toHaveTextContent(/агент/);
+    expect(legend).toHaveTextContent(/навык/);
+    // Сузили до навыка и соседей — «память» из легенды уходит вместе с узлом.
+    await user.type(screen.getByLabelText(/поиск/i), "ревизия");
+    expect(screen.getByRole("group", { name: /виды узлов/i })).not.toHaveTextContent(/память/);
+  });
+});
+
+describe("Граф знаний: карточка узла", () => {
+  it("клик по агенту открывает карточку с видом словами и ссылкой на агента", async () => {
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: /^parts-keeper/ }));
+
+    const card = screen.getByRole("complementary", { name: /узел/i });
+    expect(card).toHaveTextContent("parts-keeper");
+    expect(card).toHaveTextContent("агент");
+    expect(screen.getByRole("link", { name: /карточка агента/i })).toHaveAttribute(
+      "href",
+      "/agents/parts-keeper",
+    );
+  });
+
+  it("клик по документу даёт ссылку в «Документы» и предпросмотр первых строк", async () => {
+    previewDoc.mockResolvedValue({
+      ok: true,
+      title: "Деплой MYDON",
+      lines: ["# Деплой MYDON", "Разворачиваем на Hetzner."],
+    });
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: /Деплой MYDON/ }));
+
+    expect(screen.getByRole("link", { name: /читать документ/i })).toHaveAttribute(
+      "href",
+      "/docs?path=docs%2FDEPLOY.md",
+    );
+    expect(await screen.findByText(/Разворачиваем на Hetzner/)).toBeInTheDocument();
+    expect(previewDoc).toHaveBeenCalledWith("docs/DEPLOY.md");
+  });
+
+  it("личный документ объясняет отказ, а не показывает ошибку", async () => {
+    previewDoc.mockResolvedValue({ ok: false, reason: "forbidden" });
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: /Словарь/ }));
+    expect(
+      await screen.findByText(/личный документ — доступен только владельцу/i),
+    ).toBeInTheDocument();
+  });
+
+  it("у навыка — ссылка на витрину навыков и на файл навыка", async () => {
+    previewDoc.mockResolvedValue({ ok: true, title: "Ревизия узлов", lines: ["# Ревизия узлов"] });
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: /Ревизия узлов/ }));
+    expect(screen.getByRole("link", { name: /витрина навыков/i })).toHaveAttribute("href", "/skills");
+    expect(screen.getByRole("link", { name: /читать документ/i })).toHaveAttribute(
+      "href",
+      `/docs?path=${encodeURIComponent(SKILL)}`,
+    );
+  });
+
+  it("у синтетического узла ссылок нет, но вид назван", async () => {
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: /^vendhub/ }));
+    const card = screen.getByRole("complementary", { name: /узел/i });
+    expect(card).toHaveTextContent("направление");
+    expect(screen.queryByRole("link", { name: /читать документ/i })).not.toBeInTheDocument();
+    expect(previewDoc).not.toHaveBeenCalledWith("domain:vendhub");
+  });
+
+  it("Esc закрывает карточку", async () => {
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: /^parts-keeper/ }));
+    expect(screen.getByRole("complementary", { name: /узел/i })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: /узел/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("Граф знаний: приход из «Документов»", () => {
+  it("focus сразу открывает карточку документа и подставляет его в поиск", async () => {
+    previewDoc.mockResolvedValue({ ok: true, title: "Деплой MYDON", lines: ["# Деплой MYDON"] });
+    render(<BrainGraph graph={graph} focus="docs/DEPLOY.md" />);
+    const card = await screen.findByRole("complementary", { name: /узел/i });
+    expect(card).toHaveTextContent("Деплой MYDON");
+    expect(screen.getByLabelText(/поиск/i)).toHaveValue("docs/DEPLOY.md");
+  });
+
+  it("focus на узел, которого в графе нет, экран не роняет", () => {
+    render(<BrainGraph graph={graph} focus="docs/НЕТ-ТАКОГО.md" />);
+    expect(screen.getByText(/ничего не нашлось/i)).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: /узел/i })).not.toBeInTheDocument();
+  });
+});

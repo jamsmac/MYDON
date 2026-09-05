@@ -2558,6 +2558,66 @@ export type DocFileResult =
   | { kind: "missing" }
   | { kind: "forbidden" };
 
+/**
+ * Вид узла графа знаний (R-M-4) — зеркало `GraphNodeKind` из Core.
+ *
+ * Копия, а не импорт: у панели нет зависимости на `apps/core`, а тянуть её
+ * ради одиннадцати строк значило бы связать сборки. Расхождение поймает
+ * `styleOf`: у него на каждый вид свой токен, и новый вид без записи в карте
+ * не соберётся типами.
+ */
+export type GraphNodeKind =
+  | "root"
+  | "router"
+  | "domain"
+  | "agent"
+  | "skill"
+  | "tool"
+  | "doc"
+  | "memory"
+  | "decision"
+  | "engine"
+  | "kb";
+
+/** Вид связи: `mentions` — путь в бэктиках, остальное — объявленная структура. */
+export type GraphEdgeKind =
+  | "links"
+  | "mentions"
+  | "routes"
+  | "owns"
+  | "has_skill"
+  | "uses_tool"
+  | "reads_kb"
+  | "describes";
+
+/**
+ * Узел графа.
+ *
+ * `path` есть у всего, что лежит файлом на диске (его же читает `/docs`),
+ * `href` — у навыков (`/skills`) и агентов (`/agents/<name>`). Синтетические
+ * узлы (домен, тип инструмента, навык без файла) не имеют ни того, ни другого.
+ */
+export interface GraphNode {
+  id: string;
+  kind: GraphNodeKind;
+  label: string;
+  path?: string;
+  href?: string;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  kind: GraphEdgeKind;
+}
+
+/** Снимок графа знаний целиком: Core собирает его с диска образа и из базы. */
+export interface DocsGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  builtAt: string;
+}
+
 export const core = {
   briefing: () => get<Briefing>("/registry/briefing"),
 
@@ -2588,6 +2648,14 @@ export const core = {
       throw err;
     }
   },
+  /**
+   * Граф знаний целиком (R-M-4): узлы и рёбра одним снимком.
+   *
+   * Без owner-токена и без «мягких» кодов: в графе только метаданные —
+   * заголовки и связи, содержимого личных документов в нём нет. Любой не-200
+   * здесь действительно авария Core, а не «такого узла нет».
+   */
+  docsGraph: () => getWithToken<DocsGraph>("/docs/graph"),
   agents: () => get<AgentCard[]>("/agents"),
   /** Витрина навыков: что агенты вообще умеют (R-SD-2). */
   skillDeck: () => get<SkillDeck>("/agents/skills"),

@@ -1599,3 +1599,75 @@ article.doc th { color: var(--tx-3); font-size: 11px; font-weight: 700; letter-s
 article.doc tr:last-child td { border-bottom: none; }
 /* Картинки панель не грузит (см. markdown.ts) — от них остаётся подпись. */
 article.doc .doc-img { color: var(--tx-3); font-style: italic; }
+
+/* ── «Мозг»: граф знаний (R-M-6) ──
+   Все цвета — токенами, поэтому в ветки темы правила не дублируются: экран
+   тёмный не сам по себе, а через `data-theme="dark"` от <ConsoleTheme/>. */
+.brain-layout {
+  display: grid; gap: 16px; align-items: start;
+  grid-template-columns: 1fr minmax(280px, 360px);
+}
+/* min-width: 0 обязателен обоим: без него холст и длинные пути растягивают
+   колонку грида, и страница едет вбок на телефоне. */
+.brain-main, .brain-card { min-width: 0; }
+/* Ниже 900px — одна колонка, карточка ПОД графом (в разметке она вторая). */
+@media (max-width: 900px) {
+  .brain-layout { grid-template-columns: 1fr; }
+}
+.brain-search { margin-bottom: 10px; }
+.brain-search input { height: 38px; font-size: 13.5px; }
+.brain-legend { padding: 0 0 10px; }
+/* Кружок вида — та же метка, что и на графе: чип объясняет цвет холста.
+   Цвета берём теми же токенами, что и `styleOf` в brain-layout.ts. */
+.brain-kind::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 6px; vertical-align: 0; background: currentColor;
+}
+/* `.chip` набран моно (var(--fm)) — а в этих чипах русские слова («агент»,
+   «навык»), и кириллица в оболочке ВСЕГДА Golos (§6). Моно оставляем только
+   счётчику: `.num` внутри переопределяет шрифт обратно сам. */
+.brain-kind { font-family: var(--fu); color: var(--tx-2); }
+.brain-kind[data-kind="agent"] { color: var(--agent); }
+.brain-kind[data-kind="skill"] { color: var(--accent-tx); }
+.brain-kind[data-kind="tool"] { color: var(--tx-3); }
+.brain-kind[data-kind="root"], .brain-kind[data-kind="router"], .brain-kind[data-kind="domain"] { color: var(--tx); }
+.brain-kind[data-kind="decision"], .brain-kind[data-kind="engine"] { color: var(--hot); }
+/* Холст: высота фиксирована в vh — граф должен помещаться в экран целиком,
+   иначе перетаскивание узла уводит страницу, а не узел. */
+.brain-canvas {
+  position: relative; height: min(58vh, 560px); margin-bottom: 14px;
+  background: var(--surf); border: 1px solid var(--line-strong); border-radius: var(--r-s);
+  box-shadow: 4px 4px 0 var(--line); overflow: hidden; touch-action: none;
+}
+.brain-canvas canvas { display: block; max-width: 100%; cursor: grab; }
+.brain-canvas canvas:active { cursor: grabbing; }
+.brain-results-title { margin: 0 0 8px; }
+.brain-results .row { padding: 9px 12px; }
+.brain-results .row .t { overflow-wrap: anywhere; }
+.brain-results .row .t b { font-size: 13.5px; font-weight: 600; }
+.brain-results .row .t small { font-size: 11px; color: var(--tx-3); }
+.brain-results .row:hover { background: var(--surf-2); }
+.brain-results .row[aria-current] { background: var(--surf-2); }
+.brain-results .row[aria-current] .t b { color: var(--accent-tx); }
+.brain-more { margin: 9px 2px 0; font-size: 12px; color: var(--tx-3); }
+
+/* Липкой карточка становится только рядом с графом: в одну колонку она стоит
+   под ним, и «прилипание» там прижимало бы её к верху пустого экрана. */
+@media (min-width: 901px) {
+  .brain-card { position: sticky; top: 16px; }
+}
+.brain-card-head { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+.brain-card-head .eyebrow { margin: 0; }
+.brain-card-title { display: block; font-family: var(--fh); font-size: 16px; font-weight: 700; margin-top: 4px; }
+.brain-card-path { display: block; margin-top: 3px; font-size: 11px; color: var(--tx-3); overflow-wrap: anywhere; }
+.brain-card-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.brain-card-links .btn { text-decoration: none; }
+.brain-preview-note { margin: 10px 0 0; font-size: 12.5px; color: var(--tx-2); }
+/* Предпросмотр — сырые первые строки файла, не рендер markdown: карточка
+   отвечает «тот ли это документ», а читают его на /docs. */
+.brain-preview {
+  margin: 6px 0 0; padding: 10px 12px; max-height: 240px; overflow: auto;
+  background: var(--surf-2); border: 1px solid var(--line); border-radius: var(--r-s);
+  font-family: var(--fm); font-size: 11.5px; line-height: 1.5; color: var(--tx-2);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
