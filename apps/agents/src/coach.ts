@@ -98,6 +98,9 @@ export function isSafetyCritical(v: Verdict): boolean {
 
 export type CoachOutcome = "excellent" | "acceptable" | "improve" | "safety-block";
 
+/** Рантайм-список значений `CoachOutcome` (тип стирается — тесту нужен массив). */
+export const COACH_OUTCOMES: readonly CoachOutcome[] = ["excellent", "acceptable", "improve", "safety-block"];
+
 /**
  * Решение по вердикту. Безопасность бьёт первой (жёсткий блок). Иначе по итогу:
  * ≥4.5 отлично, ≥4.0 приемлемо, ниже — предложить правку навыка.
