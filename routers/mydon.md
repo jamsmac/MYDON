@@ -31,6 +31,8 @@
 - `/audit` — журнал; `/system` — LLM-настройки, мониторинг, активация (`llm-settings.tsx`, `llm-monitoring.tsx`), owner-guard.
 - `/assistant` + `floating-chat.tsx` + `command-palette.tsx` (⌘K) — помощник (`packages/assistant`).
 - Сквозные реестры: `/registry`, `/card/[id]`, `/places`, `/maintenance`, `/sources`, `/imports`, `/catalog`.
+- `/docs` — Документы: дерево репозитория (`docs/`, `memory/`, `routers/`, `engine/`, паспорта и навыки), чтение markdown с диска образа Core за сервисным токеном; личные корни (`memory/**`, `routers/personal.md`) — за owner-токеном.
+- `/brain` — Мозг: граф знаний (CLAUDE.md → роутеры → домены → агенты → навыки → документы) на `d3-force`, поиск, карточка узла со ссылками на документ/навык/агента.
 - Оболочка: `layout.tsx` (шрифты локально, счётчик Входящих), `components/nav.tsx` (сайдбар ≥900px, таббар — только MAIN), `components/bg/`.
 
 ## Telegram-бот (`apps/bot/src/`)

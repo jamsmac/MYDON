@@ -267,25 +267,39 @@ mydon/
 
 ### 6.2 Волна M — память: роутеры, зеркала, мозг
 
-1. **CLAUDE.md → главный роутер.** Содержимое сохраняется; добавляются «Цели квартала» (короткий
-   список, обновляет `calibrate`) и «Карта»: одна строка на направление со ссылкой на
-   `routers/<domain>.md`, ссылки на `memory/`, `docs/decisions`, `engine/`, доноров. AGENTS.md
-   остаётся симлинком (Codex читает то же).
-2. **`routers/<domain>.md`** — по образцу `content.md` автора: агенты направления, их навыки,
-   референсы (спеки, docs, схема), экраны CC, источники данных, коннекторы. Папки не переезжают.
-3. **`memory/`** — маленькие файлы; `memory/decisions.md` только указывает на `docs/decisions/*`;
-   `memory/session-log/` — handoff по шаблону claudeclaw (активный контекст · сделано · ожидает ·
-   решения), пишет `calibrate`.
+1. **CLAUDE.md → главный роутер.** — **СДЕЛАНО 04.09.** Содержимое сохраняется; добавляются «Цели
+   квартала» (короткий список, обновляет `calibrate`) и «Карта»: одна строка на направление со
+   ссылкой на `routers/<domain>.md`, ссылки на `memory/`, `docs/decisions`, `engine/`, доноров.
+   AGENTS.md остаётся симлинком (Codex читает то же).
+2. **`routers/<domain>.md`** — **СДЕЛАНО 04.09.** По образцу `content.md` автора: агенты
+   направления, их навыки, референсы (спеки, docs, схема), экраны CC, источники данных,
+   коннекторы. Папки не переезжают.
+3. **`memory/`** — **СДЕЛАНО 04.09.** Маленькие файлы; `memory/decisions.md` только указывает на
+   `docs/decisions/*`; `memory/session-log/` — handoff по шаблону claudeclaw (активный контекст ·
+   сделано · ожидает · решения), пишет `calibrate`.
 4. **Память агентов**: `apps/agents/shared/COMPANY.md` (устав 600–800 слов), `shared/kb/index.md`
-   + страницы, перенос `PROTOCOL.md` и `MYDON_AGENT_BUILDER.md` из `mydon-agent-os`,
-   `engine/autonomy.yaml` и `engine/eval-rubric.md` как **читаемые зеркала** `policy.ts` /
-   `coach-review.ts` (генерировать из кода, чтобы не расходились) — закрывает 51 битую ссылку.
-5. **Панель «Документы»** (`/docs`): markdown из `docs/`, `memory/`, `routers/`, `shared/kb`
-   (чтение); правка агентом — через approval (как coach-diff).
-6. **Панель «Мозг»** (`/brain`): force-directed граф узлов CLAUDE.md → роутеры → агенты → навыки →
-   референсы/документы → направления; поиск и предпросмотр. Источник — скан репо на сборке +
-   агенты/навыки из Core. Это «второй мозг» из видео и Skill Trees + Docs из RUBRIC в одном экране.
-7. **Включить RAG** по runbook `AGENTS_ACTIVATION.md`.
+   + страницы — **СДЕЛАНО 04.09**; `engine/autonomy.yaml` и `engine/eval-rubric.md` как
+   **читаемые зеркала** `policy.ts` / `coach-review.ts` — **СДЕЛАНО 06.09**, но НЕ генерацией: зеркала
+   рукописные и под тестом дрейфа `apps/agents/src/engine-mirror.test.ts` (решение Р-1) — закрывает
+   51 битую ссылку. Перенос `PROTOCOL.md` и `MYDON_AGENT_BUILDER.md` из `mydon-agent-os` —
+   **НЕ ВЫПОЛНЕН и не будет**: `chat-historian` проверил всю историю чатов (06.09) — оригиналы жили
+   только в чатах claude.ai (июнь–июль 2026) и не сохранились нигде на диске. Заменены `_template/`
+   (структура паспорта), `direction-package.md` (пакет направления фабрики) и дословно восстановленный
+   контракт запуска `apps/agents/shared/kb/protocol/run-log.md` — см. решение Р-8.
+5. **Панель «Документы»** (`/docs`) — **СДЕЛАНО 06.09**: чтение `docs/`, `memory/`, `routers/`,
+   `engine/`, паспортов и навыков через Core (`GET /docs/tree|file`, белый список корней, сервисный
+   токен обязателен и на GET); личные корни (`memory/**`, `routers/personal.md`, профиль владельца) —
+   за owner-токеном (добавлено в ревью, решение Р-2). Правка агентом — через approval (как
+   coach-diff) — **НЕ в этом срезе**, см. решение Р-6.
+6. **Панель «Мозг»** (`/brain`) — **СДЕЛАНО 06.09**: force-directed граф узлов CLAUDE.md → роутеры →
+   домены → агенты → навыки → документы; поиск и предпросмотр. Источник — `GET /docs/graph` в Core
+   (скан репо + агенты/каталог навыков из базы, включая рёбра `mentions` по путям в бэктиках —
+   решение Р-3), рисует `d3-force` на canvas в CC (решение Р-5). Это «второй мозг» из видео и
+   Skill Trees + Docs из RUBRIC в одном экране.
+7. **Включить RAG** по runbook `AGENTS_ACTIVATION.md` — **НЕ включено этим срезом**: владелец,
+   сценарий 2 рунбука (`docs/AGENTS_ACTIVATION.md` → «Сценарий 2 — включить семантическую память
+   (RAG)»); деньги и инфраструктура — не решение ассистента (Р-7). Пункт добавлен в
+   `docs/FIRST_LOGIN_CHECKLIST.md`.
 8. **Критерий:** новая сессия Claude Code начинается с `onboard` и за один вызов знает цели,
    правила, роутер нужного направления и последние 3 решения; `knowledge-curator` читает
    `shared/kb/index.md`, а не 404; граф `/brain` открывает любой навык за один клик.
@@ -445,6 +459,14 @@ Scout (`untrusted.ts`, вердикт только с доказательств
 > отчёт `docs/ventures/2026-09-05-session-1.md`, импортёр `tools/import-ventures.mjs`. Референсы —
 > `apps/agents/shared/kb/venture-factory/`, реестр — `entity(type='venture_candidate')` в домене `mydon`;
 > решения с причинами — `docs/decisions/2026-09-05-venture-factory-interactive.md`.
+
+> **06.09.2026:** волна M закрыта — зеркала движка под тестом дрейфа (`apps/agents/src/engine-mirror.test.ts`),
+> панель «Документы» (`/docs`) и граф «Мозг» (`/brain`) читают Core (`GET /docs/tree|file|graph`, сервисный
+> токен на GET, личные корни за owner-токеном); `PROTOCOL.md`/`MYDON_AGENT_BUILDER.md` — не найдены нигде
+> в истории чатов, заменены `_template/` + `direction-package.md` + восстановленный дословно `run-log.md`;
+> RAG не включён (решение владельца, сценарий 2 рунбука). Спека
+> `docs/superpowers/specs/2026-09-06-wave-m-docs-brain-design.md`, решения с причинами —
+> `docs/decisions/2026-09-06-wave-m-docs-brain.md`. Дальше — волна R (доска срабатываний, хуки, плейбэк).
 
 1. `CLAUDE.md` → главный роутер (цели, карта) + `routers/{globerent,vendhub,personal,mydon,ventures,dev}.md`
    + `memory/` — без кода, 2–3 часа.
