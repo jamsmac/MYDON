@@ -23,6 +23,23 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * То же, но для текста, который marked МОГ уже экранировать.
+ *
+ * Обычный текстовый токен приходит с готовыми мнемониками (`&amp;`), а токен
+ * из «сырого блока» — как есть. Второй раз экранировать `&` внутри уже
+ * готовой мнемоники нельзя, иначе в документе появится `&amp;amp;`; всё
+ * остальное экранируем безусловно — именно этим правилом живёт сам marked.
+ */
+function escapeText(value: string): string {
+  return value
+    .replace(/&(?!#?\w+;)/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Папка документа: от неё считаются относительные ссылки. */
 function dirOf(repoPath: string): string[] {
   const parts = repoPath.split("/");
@@ -59,9 +76,14 @@ export function resolveDocLink(href: string, fromPath: string): string | null {
   return path;
 }
 
-/** Ссылка в саму панель: путь едет параметром запроса, как в дереве. */
-function panelHref(repoPath: string): string {
-  return `/docs?path=${encodeURIComponent(repoPath)}`;
+/**
+ * Ссылка в саму панель: путь едет параметром запроса, как в дереве.
+ *
+ * `fragment` (вместе с «#») сохраняем: ссылка `dev.md#команды` без него ведёт
+ * в начало чужого документа, и владельцу приходится искать раздел глазами.
+ */
+function panelHref(repoPath: string, fragment = ""): string {
+  return `/docs?path=${encodeURIComponent(repoPath)}${escapeHtml(fragment)}`;
 }
 
 /**
@@ -76,6 +98,10 @@ function foldFrontMatter(markdown: string): string {
   const end = markdown.indexOf("\n---", 3);
   if (end === -1) return markdown;
   const head = markdown.slice(4, end);
+  // Первая строка обязана быть парой «ключ: значение». Иначе `---` в начале —
+  // это горизонтальная линия, и раньше весь документ до следующей такой линии
+  // уезжал в блок кода вместе со своим заголовком.
+  if (!/^[A-Za-z_][\w.-]*\s*:/.test(head.split("\n", 1)[0] ?? "")) return markdown;
   const rest = markdown.slice(end + 4).replace(/^[^\n]*\n?/, "");
   return `\`\`\`yaml\n${head}\n\`\`\`\n\n${rest}`;
 }
@@ -94,6 +120,30 @@ class DocRenderer extends Renderer {
   }
 
   /**
+   * Внутри ли мы сейчас ссылки (пока `link()` разбирает свой текст).
+   *
+   * `parseInline` синхронный, поэтому простого флага достаточно, а знать это
+   * обязательно: `<a>` внутри `<a>` браузер разрывает, и разметка вокруг
+   * ссылки рассыпается.
+   */
+  private inLink = false;
+
+  /**
+   * Текстовый токен — всегда экранированным.
+   *
+   * Незакрытый строчный `<script>`, `<pre>`, `<code>` или `<kbd>` переводит
+   * лексер в состояние «сырой блок», и ДЕФОЛТНЫЙ `text()` печатает дальше всё
+   * без экранирования — до конца документа. Тогда `<svg/onload=…>` из текста
+   * становится живым элементом страницы. Экранирования `html()` для этого
+   * мало: тот видит только сами теги, а не текст после них.
+   */
+  override text(token: Tokens.Text | Tokens.Escape | Tokens.Tag): string {
+    return "tokens" in token && token.tokens
+      ? this.parser.parseInline(token.tokens)
+      : escapeText(token.text);
+  }
+
+  /**
    * Путь в обратных кавычках — это тоже ссылка.
    *
    * В репозитории так пишут почти всегда: на 209 документов приходится 24
@@ -105,7 +155,9 @@ class DocRenderer extends Renderer {
   override codespan(token: Tokens.Codespan): string {
     const code = `<code>${escapeHtml(token.text)}</code>`;
     const path = token.text.trim();
-    return this.known.has(path) ? `<a href="${panelHref(path)}">${code}</a>` : code;
+    // Внутри ссылки — только код: своя ссылка там дала бы вложенный `<a>`.
+    if (this.inLink || !this.known.has(path)) return code;
+    return `<a href="${panelHref(path)}">${code}</a>`;
   }
 
   /** HTML из документа — текстом. Ровно то, ради чего написан Р-4. */
@@ -119,7 +171,11 @@ class DocRenderer extends Renderer {
   }
 
   override link(token: Tokens.Link): string {
+    // Текст ссылки разбираем с поднятым флагом: вложенных `<a>` быть не должно.
+    const wasInLink = this.inLink;
+    this.inLink = true;
     const text = this.parser.parseInline(token.tokens);
+    this.inLink = wasInLink;
     const href = token.href.trim();
     const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
     // Якорь ведёт внутрь этого же документа — трогать нечего.
@@ -130,7 +186,13 @@ class DocRenderer extends Renderer {
     }
     if (/^(mailto|tel):/i.test(href)) return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
     const repoPath = resolveDocLink(href, this.fromPath);
-    if (repoPath) return `<a href="${panelHref(repoPath)}"${title}>${text}</a>`;
+    if (repoPath) {
+      // Якорь несём дальше: `dev.md#команды` без него ведёт в начало чужого
+      // документа, и раздел приходится искать глазами.
+      const hash = href.indexOf("#");
+      const fragment = hash === -1 ? "" : href.slice(hash);
+      return `<a href="${panelHref(repoPath, fragment)}"${title}>${text}</a>`;
+    }
     // Всё прочее (`javascript:`, путь к коду, файл вне белого списка) — текстом:
     // ни исполнять, ни вести в 404 панель не должна.
     return text;

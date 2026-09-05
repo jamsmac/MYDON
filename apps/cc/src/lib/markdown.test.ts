@@ -20,6 +20,35 @@ describe("renderMarkdown: сырой HTML не проходит", () => {
     expect(html).not.toContain("<b onclick");
     expect(html).toContain("&lt;b onclick");
   });
+
+  /**
+   * Дыра, найденная на ревью (ebd8b31). Незакрытый строчный `<script>`, `<pre>`,
+   * `<code>` или `<kbd>` переводит лексер marked в состояние `inRawBlock`, и
+   * ДЕФОЛТНЫЙ `Renderer.text()` печатает дальнейшие текстовые токены БЕЗ
+   * экранирования — до конца документа. То есть весь текст после такого тега
+   * становится живым HTML: `<svg/onload=…>` исполняется. Экранирования
+   * `html()` для этого мало, нужен и свой `text()`.
+   */
+  it("после незакрытого <script> текст остаётся текстом, а не живым HTML", () => {
+    const html = renderMarkdown("текст <script> и <svg/onload=alert(1)> конец\n", "docs/x.md");
+    expect(html).not.toContain("<svg");
+    expect(html).toContain("&lt;svg/onload=alert(1)&gt;");
+  });
+
+  it("после незакрытых <code>/<pre> — тоже (сырой блок ловит четыре тега)", () => {
+    for (const tag of ["<code>", "<pre", "<kbd>"]) {
+      const html = renderMarkdown(`текст ${tag} и <img/src=x/onerror=alert(1)> конец\n`, "docs/x.md");
+      expect(html, tag).not.toContain("<img");
+      expect(html, tag).toContain("&lt;img/src=x/onerror=alert(1)&gt;");
+    }
+  });
+
+  it("обычный текст не экранируется дважды", () => {
+    const html = renderMarkdown("a & b, уже &amp; и \\<b\\> и 'кавычки'\n", "docs/x.md");
+    expect(html).toContain("a &amp; b");
+    expect(html).not.toContain("&amp;amp;");
+    expect(html).toContain("&lt;b&gt;");
+  });
 });
 
 describe("renderMarkdown: ссылки", () => {
@@ -36,6 +65,11 @@ describe("renderMarkdown: ссылки", () => {
   it("соседний файл считается от папки документа", () => {
     const html = renderMarkdown("[деплой](./DEPLOY.md)\n", "docs/y.md");
     expect(html).toContain('href="/docs?path=docs%2FDEPLOY.md"');
+  });
+
+  it("якорь на разделе другого документа не теряется", () => {
+    const html = renderMarkdown("[команды](../routers/dev.md#команды)\n", "docs/y.md");
+    expect(html).toContain('href="/docs?path=routers%2Fdev.md#команды"');
   });
 
   it("якорь остаётся якорем и не открывается в новой вкладке", () => {
@@ -96,6 +130,14 @@ describe("renderMarkdown: пути в обратных кавычках", () => 
     expect(html).toContain("<code>routers/vendhub.md</code>");
   });
 
+  it("внутри ссылки путь ссылкой НЕ становится — вложенных <a> не бывает", () => {
+    const html = renderMarkdown("[роутер `routers/vendhub.md` тут](https://example.com)\n", "CLAUDE.md", known);
+    // Ровно одна открывающая `<a` на весь абзац: вложенный `<a>` браузер
+    // разрывает, и разметка вокруг ссылки рассыпается.
+    expect(html.match(/<a\s/g) ?? []).toHaveLength(1);
+    expect(html).toContain("<code>routers/vendhub.md</code>");
+  });
+
   it("код, который не путь, не трогаем", () => {
     const html = renderMarkdown("Команда `pnpm test` и `<b>` в коде.\n", "CLAUDE.md", known);
     expect(html).toContain("<code>pnpm test</code>");
@@ -118,6 +160,14 @@ describe("renderMarkdown: типографика документа", () => {
     expect(html).toContain("<pre>");
     expect(html).toContain("name: onboard");
     expect(html).toContain("<h1>Навык</h1>");
+  });
+
+  it("документ, начатый тематическим разрывом, не съедается как шапка", () => {
+    // `---` в начале — это горизонтальная линия, а не YAML. Раньше всё до
+    // следующего `---` уезжало в блок кода вместе с заголовком документа.
+    const html = renderMarkdown("---\n\n# Заголовок\n\nтекст\n\n---\n\nещё\n", "docs/x.md");
+    expect(html).toContain("<h1>Заголовок</h1>");
+    expect(html).not.toContain("language-yaml");
   });
 
   it("код в блоке экранируется, а не исполняется", () => {

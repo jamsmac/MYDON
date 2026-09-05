@@ -75,7 +75,12 @@ export function DocsTree({ items, active }: { items: DocsTreeItem[]; active?: st
             className="docs-group"
             // Фильтр раскрывает всё: искать в свёрнутом корне бессмысленно.
             open={needle.length > 0 || !closed.includes(root)}
-            onToggle={(e) => toggle(root, e.currentTarget.open)}
+            // ...но раскрытие фильтром — не решение владельца: браузер сообщает
+            // о нём тем же `toggle`, и без этой проверки набранный фильтр
+            // молча отменял ранее свёрнутые корни.
+            onToggle={(e) => {
+              if (needle.length === 0) toggle(root, e.currentTarget.open);
+            }}
           >
             <summary>
               <span className="docs-root">{root}</span>

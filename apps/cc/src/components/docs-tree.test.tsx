@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { DocsTreeItem } from "../lib/core";
@@ -81,5 +81,28 @@ describe("Дерево документов: личный контур", () => {
     );
     expect(screen.getByRole("link", { name: /Словарь/i })).toHaveTextContent(/личное/i);
     expect(screen.getByRole("link", { name: /Деплой/i })).not.toHaveTextContent(/личное/i);
+  });
+});
+
+describe("Дерево документов: свёрнутые корни и фильтр", () => {
+  it("фильтр раскрывает корни на время поиска, но не отменяет сворачивание", async () => {
+    const user = userEvent.setup();
+    render(<DocsTree items={items} />);
+    const details = screen.getByText("routers").closest("details") as HTMLDetailsElement;
+    expect(details.open).toBe(true);
+
+    // Владелец свернул корень — так браузер и сообщает об этом React.
+    details.open = false;
+    fireEvent(details, new Event("toggle"));
+    expect(details.open).toBe(false);
+
+    const input = screen.getByLabelText(/фильтр/i);
+    await user.type(input, "vendhub");
+    // Искать в свёрнутом корне бессмысленно — на время поиска он открыт.
+    expect(details.open).toBe(true);
+
+    await user.clear(input);
+    // ...но сворачивание — решение владельца, и фильтр его не отменяет.
+    expect(details.open).toBe(false);
   });
 });
