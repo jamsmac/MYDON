@@ -985,7 +985,7 @@ describe("GapsService.list() — сборка реестра", () => {
 
     // appConfig.tz совпадает с TZ в этом процессе (config.ts форсирует process.env.TZ) — гэп 14 тоже не сработает.
     const service = new GapsService(db, collections, finance);
-    const gaps = await service.list();
+    const gaps = await service.list(TODAY);
     assert.deepEqual(gaps, []);
   });
 
