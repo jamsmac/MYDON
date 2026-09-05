@@ -15,6 +15,8 @@ export interface DocsTreeItem {
   title: string;
   bytes: number;
   updatedAt: string;
+  /** Личный контур владельца: содержимое за owner-токеном (см. `isPersonalDoc`). */
+  personal?: boolean;
 }
 
 /** Документ с содержимым (R-M-2). */
@@ -43,7 +45,15 @@ export interface GraphNode {
   href?: string;
 }
 
-export type GraphEdgeKind = "links" | "routes" | "owns" | "has_skill" | "uses_tool" | "reads_kb";
+export type GraphEdgeKind =
+  | "links"
+  | "mentions"
+  | "routes"
+  | "owns"
+  | "has_skill"
+  | "uses_tool"
+  | "reads_kb"
+  | "describes";
 
 export interface GraphEdge {
   from: string;
@@ -77,6 +87,29 @@ export const ROOT_DOC = "CLAUDE.md";
 
 /** Архив стартера читать не надо: это снимок старых файлов, а не документация. */
 const BACKUP_PREFIX = "docs/agentic-os-starter/_backup/";
+
+/**
+ * Документы личного контура вне `memory/**`: роутер личного направления и
+ * профиль владельца из навыка фабрики направлений.
+ */
+const PERSONAL_FILES = new Set([
+  "routers/personal.md",
+  ".claude/skills/mydon-venture-factory/references/owner-profile.md",
+]);
+
+/**
+ * Личное владельца среди документов (зеркало `PersonalDomainGuard`).
+ *
+ * `SERVICE_TOKEN` общий — его держат бот и агенты, поэтому «за сервисным
+ * токеном» для `memory/` (handoff'ы сессий, ограничения, личные заметки) —
+ * это не защита. При включённом ужесточении owner-identity содержимое таких
+ * файлов отдаётся только по owner-токену; заголовки в дереве остаются видны,
+ * иначе панель молча теряла бы часть дерева и владелец не понимал бы почему.
+ */
+export function isPersonalDoc(relPath: string): boolean {
+  if (relPath.startsWith("memory/")) return true;
+  return PERSONAL_FILES.has(relPath);
+}
 
 /**
  * Описание корня из белого списка (спека §4).
@@ -201,8 +234,23 @@ export function isAllowed(relPath: string): boolean {
 export function titleOf(markdown: string, relPath: string): string {
   const name = relPath.split("/").pop() ?? relPath;
   if (!relPath.endsWith(".md")) return name;
-  const heading = /^# +(.+?)\s*$/m.exec(markdown);
-  return heading ? heading[1].trim() : name;
+
+  // Внутри блока кода `# …` — комментарий shell или markdown-пример, а не
+  // заголовок документа: рунбуки начинаются именно с такого блока.
+  let fence: string | null = null;
+  for (const line of markdown.split("\n")) {
+    const fenceMark = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fenceMark) {
+      const mark = fenceMark[1][0];
+      if (fence === null) fence = mark;
+      else if (mark === fence) fence = null;
+      continue;
+    }
+    if (fence !== null) continue;
+    const heading = /^# +(.+?)\s*$/.exec(line);
+    if (heading) return heading[1].trim();
+  }
+  return name;
 }
 
 /** `[текст](цель)`, включая вариант с подписью `[текст](цель "подпись")`. */
@@ -231,6 +279,41 @@ export function linksOf(markdown: string, fromPath: string): string[] {
     if (rel === null || rel === fromPath) continue;
     if (!isAllowed(rel)) continue;
     if (!out.includes(rel)) out.push(rel);
+  }
+  return out;
+}
+
+/** Путь в обратных кавычках: `routers/vendhub.md`, `engine/autonomy.yaml`. */
+const BACKTICK_RE = /`([^`\n]+)`/g;
+const PATH_TOKEN_RE = /^[A-Za-z0-9_./-]+\.(md|yaml)$/;
+
+/**
+ * Пути, УПОМЯНУТЫЕ в обратных кавычках, — источник рёбер `mentions`.
+ *
+ * В этом репозитории документы ссылаются друг на друга не markdown-ссылками, а
+ * путём в бэктиках: на 208 файлов приходится всего 25 настоящих ссылок, и граф
+ * из одних `links` распадался бы на 167 островов. Толкований два — путь от
+ * корня репозитория и путь рядом с самим файлом; берём ПЕРВОЕ, которое
+ * указывает на существующий файл из белого списка (`exists`), поэтому функция и
+ * получает предикат, а не лезет на диск.
+ */
+export function mentionsOf(
+  markdown: string,
+  fromPath: string,
+  exists: (relPath: string) => boolean,
+): string[] {
+  const out: string[] = [];
+  const dir = path.posix.dirname(fromPath);
+  for (const match of markdown.matchAll(BACKTICK_RE)) {
+    const token = match[1].trim();
+    if (!PATH_TOKEN_RE.test(token)) continue;
+    for (const candidate of [token, path.posix.join(dir, token)]) {
+      const rel = normalizeDocPath(candidate);
+      if (rel === null || rel === fromPath) continue;
+      if (!isAllowed(rel) || !exists(rel)) continue;
+      if (!out.includes(rel)) out.push(rel);
+      break;
+    }
   }
   return out;
 }
@@ -288,6 +371,9 @@ function kindOfPath(relPath: string): GraphNodeKind {
   if (relPath.startsWith("docs/decisions/")) return "decision";
   if (relPath.startsWith("engine/")) return "engine";
   if (relPath.startsWith("apps/agents/shared/")) return "kb";
+  // Файл навыка И навык из каталога — ОДИН узел: два узла на один навык
+  // рвали бы граф надвое (и «Мозг» показывал бы навыки дважды).
+  if (/^apps\/agents\/agents\/[^/]+\/skills\/[^/]+\.md$/.test(relPath)) return "skill";
   return "doc";
 }
 
@@ -340,15 +426,21 @@ export function buildGraph(
   const addNode = (node: GraphNode): void => {
     if (!nodes.has(node.id)) nodes.set(node.id, node);
   };
+  const edgeKeyOf = (from: string, to: string, kind: GraphEdgeKind): string =>
+    `${from} ${to} ${kind}`;
   const addEdge = (from: string, to: string, kind: GraphEdgeKind): void => {
-    const key = `${from} ${to} ${kind}`;
+    const key = edgeKeyOf(from, to, kind);
     if (!edges.has(key)) edges.set(key, { from, to, kind });
   };
 
   const byPath = new Map<string, DocFile>();
   for (const file of files) {
     byPath.set(file.path, file);
-    addNode({ id: file.path, kind: kindOfPath(file.path), label: file.title, path: file.path });
+    const kind = kindOfPath(file.path);
+    const node: GraphNode = { id: file.path, kind, label: file.title, path: file.path };
+    // Файл навыка — он же узел навыка, значит и ссылка у него навыковая.
+    if (kind === "skill") node.href = "/skills";
+    addNode(node);
   }
 
   // routes: CLAUDE.md -> роутер -> домен
@@ -386,7 +478,18 @@ export function buildGraph(
 
   for (const agent of agents) {
     const agentId = `agent:${agent.name}`;
-    addNode({ id: agentId, kind: "agent", label: agent.name, href: `/agents/${agent.name}` });
+    // Имя агента приходит из базы и попадает в URL — экранируем, а не верим.
+    addNode({
+      id: agentId,
+      kind: "agent",
+      label: agent.name,
+      href: `/agents/${encodeURIComponent(agent.name)}`,
+    });
+
+    // Паспорт агента — обычный документ дерева; связь с ним объявляем явно,
+    // иначе ROLE.md висел бы островом рядом со своим же агентом.
+    const rolePath = `apps/agents/agents/${agent.name}/ROLE.md`;
+    if (byPath.has(rolePath)) addEdge(agentId, rolePath, "describes");
 
     const domain = domainOfBusiness(agent.business);
     const domainId = `domain:${domain}`;
@@ -399,11 +502,14 @@ export function buildGraph(
     }
 
     for (const skill of skillsByAgent.get(agent.name) ?? []) {
-      const skillId = `skill:${agent.name}/${skill}`;
-      const node: GraphNode = { id: skillId, kind: "skill", label: skill, href: "/skills" };
       const filePath = skillFilePath(agent.name, skill);
-      if (byPath.has(filePath)) node.path = filePath;
-      addNode(node);
+      // Есть файл — узлом навыка служит он сам (уже добавлен выше). Нет файла
+      // (навык только в карточке или в каталоге) — синтетический узел, чтобы
+      // навык не исчез из графа молча.
+      const skillId = byPath.has(filePath) ? filePath : `skill:${agent.name}/${skill}`;
+      if (!byPath.has(filePath)) {
+        addNode({ id: skillId, kind: "skill", label: skill, href: "/skills" });
+      }
       addEdge(agentId, skillId, "has_skill");
 
       for (const tool of toolsBySkill.get(`${agent.name}/${skill}`) ?? []) {
@@ -415,10 +521,16 @@ export function buildGraph(
     }
   }
 
-  // links: markdown-ссылки между документами
+  // links: markdown-ссылки между документами; mentions: пути в бэктиках
+  const exists = (relPath: string): boolean => byPath.has(relPath);
   for (const file of files) {
     for (const target of linksOf(file.markdown, file.path)) {
       if (byPath.has(target)) addEdge(file.path, target, "links");
+    }
+    for (const target of mentionsOf(file.markdown, file.path, exists)) {
+      // Настоящая ссылка сильнее упоминания: вторым ребром ту же пару не дублируем.
+      if (edges.has(edgeKeyOf(file.path, target, "links"))) continue;
+      addEdge(file.path, target, "mentions");
     }
   }
 

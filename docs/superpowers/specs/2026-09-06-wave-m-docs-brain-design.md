@@ -69,8 +69,8 @@
 Корни (репо-относительно, только эти): `CLAUDE.md`; `docs/**/*.md` (кроме `docs/agentic-os-starter/_backup/**`);
 `memory/**/*.md`; `routers/*.md`; `engine/*.{yaml,md}`; `apps/agents/shared/**/*.md`; `apps/agents/agents/*/ROLE.md`;
 `apps/agents/agents/*/skills/*.md`; `.claude/skills/*/SKILL.md`; `.claude/skills/*/references/**/*.md`.
-Корень репозитория в рантайме — `path.resolve(__dirname, "../../..")` от `apps/core/dist/docs/` (в образе `/app`), локально
-то же. Лимит файла — 512 КБ (больше → 413).
+Корень репозитория в рантайме — `path.resolve(__dirname, "../../../..")` (4 уровня от `apps/core/dist/docs/`; тест
+«в корне есть CLAUDE.md»), в образе `/app`, локально то же. Лимит файла — 512 КБ (больше → 413).
 
 ## 5. Панель
 

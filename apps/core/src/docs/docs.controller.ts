@@ -1,4 +1,5 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
+import type { Request } from "express";
 import { IsString, MaxLength, MinLength } from "class-validator";
 import { DocsTokenGuard } from "./docs-token.guard";
 import { DocsService } from "./docs.service";
@@ -33,9 +34,10 @@ export class DocsController {
     return this.docs.tree();
   }
 
+  /** `req` нужен гейту личного контура: owner-токен читается из заголовка. */
   @Get("file")
-  file(@Query() query: DocFileQueryDto): Promise<DocFile> {
-    return this.docs.file(query.path);
+  file(@Query() query: DocFileQueryDto, @Req() req: Request): Promise<DocFile> {
+    return this.docs.file(query.path, req);
   }
 
   @Get("graph")

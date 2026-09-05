@@ -2,6 +2,7 @@ import { readdir, lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -9,10 +10,13 @@ import {
 } from "@nestjs/common";
 import { agent, agentSkillCatalog } from "@mydon/db";
 import { asc, isNull } from "drizzle-orm";
+import type { Request } from "express";
+import { personalVisible } from "../common/owner-enforcement";
 import { DB, type Db } from "../db/db.module";
 import {
   buildGraph,
   DOCS_ROOTS,
+  isPersonalDoc,
   normalizeDocPath,
   repoRootFrom,
   rootOf,
@@ -73,16 +77,25 @@ export class DocsService {
   /**
    * Один документ по репо-относительному пути (R-M-2).
    *
-   * Три независимых пояса: нормализация пути (traversal/абсолют), белый список
-   * корней и проверка, что РЕАЛЬНЫЙ путь остался внутри репозитория — симлинк
-   * (в том числе на родительском каталоге) увёл бы чтение куда угодно.
+   * Четыре независимых пояса: нормализация пути (traversal/абсолют), белый
+   * список корней, owner-токен на личный контур и проверка, что РЕАЛЬНЫЙ путь
+   * остался внутри репозитория — симлинк (в том числе на родительском
+   * каталоге) увёл бы чтение куда угодно.
    */
-  async file(input: string): Promise<DocFile> {
+  async file(input: string, req: Request): Promise<DocFile> {
     const rel = normalizeDocPath(input);
     if (rel === null) throw new BadRequestException("Некорректный путь документа");
 
     const root = rootOf(rel);
     if (root === null) throw new NotFoundException("Документ вне белого списка корней");
+
+    // Личный контур: `SERVICE_TOKEN` общий (его держат бот и агенты), поэтому
+    // содержимое `memory/**` и профиля владельца отдаём по тем же правилам,
+    // что `PersonalDomainGuard` — через единый `personalVisible`. Пока
+    // ужесточение выключено (дефолт), поведение прежнее.
+    if (isPersonalDoc(rel) && !(await personalVisible(req, this.db))) {
+      throw new ForbiddenException("Личный контур доступен только владельцу");
+    }
 
     const abs = path.join(this.repoRoot, rel);
     const stat = await lstat(abs).catch(() => null);
@@ -103,7 +116,7 @@ export class DocsService {
     }
 
     const markdown = await readFile(abs, "utf8");
-    return {
+    const file: DocFile = {
       path: rel,
       root,
       title: titleOf(markdown, rel),
@@ -111,6 +124,8 @@ export class DocsService {
       updatedAt: stat.mtime.toISOString(),
       markdown,
     };
+    if (isPersonalDoc(rel)) file.personal = true;
+    return file;
   }
 
   /** Граф знаний: документы с диска + агенты и каталог навыков из базы, кэш 60 с. */
@@ -206,14 +221,18 @@ export class DocsService {
         stat.size > MAX_FILE_BYTES
           ? ""
           : await readFile(path.join(this.repoRoot, rel), "utf8").catch(() => "");
-      out.push({
+      const item: DocFile = {
         path: rel,
         root: root.key,
         title: titleOf(markdown, rel),
         bytes: stat.size,
         updatedAt: stat.mtime.toISOString(),
         markdown,
-      });
+      };
+      // Метку ставим только когда она есть: лишнее `personal: false` на 200
+      // строк дерева — шум в ответе и в панели.
+      if (isPersonalDoc(rel)) item.personal = true;
+      out.push(item);
     }
   }
 }
