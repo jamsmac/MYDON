@@ -63,6 +63,20 @@ export class CoreUnavailable extends Error {
   }
 }
 
+/**
+ * Core осознанно отказал: «такого нет» (404), «так нельзя» (400), «не тебе» (403).
+ *
+ * Отдельно от `CoreUnavailable`: запрошенный документ вне белого списка или
+ * закрытый личный контур — это не авария Core, и показывать из-за них экран
+ * «Core недоступен» вместо дерева документов было бы враньём. Какие коды
+ * считать отказом, а не аварией, решает вызывающий (`getWithToken`).
+ */
+export class CoreRefused extends Error {
+  constructor(readonly status: number) {
+    super("Core отказал");
+  }
+}
+
 async function get<T>(path: string, opts: { owner?: boolean } = {}): Promise<T> {
   let res: Response;
   // Личные чтения (R-P5-4): когда Core начнёт гейтить домен `personal`, только
@@ -78,6 +92,45 @@ async function get<T>(path: string, opts: { owner?: boolean } = {}): Promise<T> 
   } catch (err) {
     throw new CoreUnavailable(err instanceof Error ? err.message : String(err));
   }
+  if (!res.ok) throw new CoreUnavailable(`HTTP ${res.status} на ${path}`);
+  return (await res.json()) as T;
+}
+
+/**
+ * Чтение из Core С СЕРВИСНЫМ ТОКЕНОМ.
+ *
+ * Обычный `get()` токен не несёт: глобальный `ServiceTokenGuard` Core пропускает
+ * GET/HEAD by design, и чтениям он не нужен. Документы — исключение (R-M-8):
+ * в `memory/` лежит личное, поэтому на `/docs/*` висит `DocsTokenGuard`,
+ * который требует токен и на чтении, — без заголовка ответ 401. Заголовки
+ * берём там же, где их берут мутации (`coreWriteHeaders`), чтобы токен
+ * подставлялся ровно в одном месте панели.
+ *
+ * `opts.owner` — добавить ВТОРОЙ пояс (owner-токен, и только подтверждённому
+ * владельцу): содержимое `memory/**` и профиля владельца Core отдаёт по тому
+ * же `personalVisible`, что и личный контур реестра, — без owner-токена при
+ * включённом ужесточении владелец не прочитал бы собственную память.
+ * `opts.refused` — коды, которые НЕ авария: для них бросаем `CoreRefused`, и
+ * вызывающий решает сам (панель показывает «файл не найден», а не `CoreDown`).
+ */
+async function getWithToken<T>(
+  path: string,
+  opts: { owner?: boolean; refused?: readonly number[] } = {},
+): Promise<T> {
+  let res: Response;
+  const headers = opts.owner
+    ? { ...coreWriteHeaders(false), ...(await ownerActionHeaders()) }
+    : coreWriteHeaders(false);
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+      headers,
+    });
+  } catch (err) {
+    throw new CoreUnavailable(err instanceof Error ? err.message : String(err));
+  }
+  if (opts.refused?.includes(res.status)) throw new CoreRefused(res.status);
   if (!res.ok) throw new CoreUnavailable(`HTTP ${res.status} на ${path}`);
   return (await res.json()) as T;
 }
@@ -2467,8 +2520,74 @@ export interface PartHistoryRow extends MachinePart {
   machineName: string | null;
 }
 
+/**
+ * Документ репозитория в дереве панели (R-M-3).
+ *
+ * `root` — корень белого списка (`docs`, `memory`, `routers`, `CLAUDE.md`, …),
+ * `path` — путь от корня репозитория: он же ключ для `/docs/file` и для ссылок
+ * внутри документов.
+ */
+export interface DocsTreeItem {
+  path: string;
+  root: string;
+  title: string;
+  bytes: number;
+  updatedAt: string;
+  /**
+   * Личный контур владельца (`memory/**`, `routers/personal.md`, профиль
+   * владельца). Дерево такие документы перечисляет всем, а содержимое Core
+   * отдаёт только владельцу — метку показываем, чтобы отказ не был сюрпризом.
+   */
+  personal?: boolean;
+}
+
+/** Тот же документ, но с содержимым (R-M-2). */
+export interface DocFile extends DocsTreeItem {
+  markdown: string;
+}
+
+/**
+ * Чем закончилось чтение документа.
+ *
+ * Три исхода вместо `DocFile | null`: «нет такого» и «личное — не тебе» ведут
+ * себя одинаково для кода (дерево остаётся на месте), но владельцу говорят
+ * разное, а свалить их в один `null` значило бы соврать в одном из случаев.
+ */
+export type DocFileResult =
+  | { kind: "ok"; file: DocFile }
+  | { kind: "missing" }
+  | { kind: "forbidden" };
+
 export const core = {
   briefing: () => get<Briefing>("/registry/briefing"),
+
+  // ── Документы репозитория (Р-2) ──
+  /** Плоское дерево по белому списку корней; Core кэширует его на 60 с. */
+  docsTree: () => getWithToken<DocsTreeItem[]>("/docs/tree"),
+  /**
+   * Один документ, «нет такого» или «личное».
+   *
+   * 400 и 404 сведены в один исход намеренно: для владельца «путь Core не
+   * понравился» и «файла нет» — одно и то же событие, а различать их в панели
+   * значило бы объяснять устройство белого списка вместо ответа по делу. 403
+   * — отдельный исход: это личный контур, и сказать про него «файл не найден»
+   * было бы неправдой. Owner-токен несём всегда (он проставится лишь
+   * подтверждённому владельцу) — иначе владелец не прочитал бы `memory/**`.
+   */
+  docFile: async (path: string): Promise<DocFileResult> => {
+    try {
+      const file = await getWithToken<DocFile>(`/docs/file?path=${encodeURIComponent(path)}`, {
+        owner: true,
+        refused: [400, 403, 404],
+      });
+      return { kind: "ok", file };
+    } catch (err) {
+      if (err instanceof CoreRefused) {
+        return err.status === 403 ? { kind: "forbidden" } : { kind: "missing" };
+      }
+      throw err;
+    }
+  },
   agents: () => get<AgentCard[]>("/agents"),
   /** Витрина навыков: что агенты вообще умеют (R-SD-2). */
   skillDeck: () => get<SkillDeck>("/agents/skills"),

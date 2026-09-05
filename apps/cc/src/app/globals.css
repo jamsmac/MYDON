@@ -1518,3 +1518,84 @@ a.rowlink:hover { background: var(--surf-2); }
 .bnk-bar i { display: block; height: 100%; border-radius: 4px; background: var(--ok); }
 .bnk-bar i.low { background: var(--hot); }
 .bnk-foot { font-size: 11px; color: var(--tx-3); }
+
+/* ── Документы: дерево слева, чтение справа (R-M-5) ── */
+.docs-layout {
+  display: grid; gap: 16px; align-items: start;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+}
+/* Ниже 900px — одна колонка: дерево сверху (оно первое в разметке), документ
+   под ним. Высоту дерева ограничиваем, иначе до текста надо пролистать 200 строк. */
+@media (max-width: 900px) {
+  .docs-layout { grid-template-columns: 1fr; }
+  .docs-tree { max-height: 46vh; overflow-y: auto; }
+}
+/* min-width: 0 обязателен обоим: без него длинный путь или широкая таблица
+   растягивают колонку грида, и страница едет вбок. */
+.docs-tree, .docs-body { min-width: 0; }
+@media (min-width: 901px) {
+  .docs-tree { position: sticky; top: 16px; max-height: calc(100vh - 96px); overflow-y: auto; }
+}
+.docs-filter { margin-bottom: 10px; }
+.docs-filter input { height: 38px; font-size: 13.5px; }
+.docs-group { margin-bottom: 10px; }
+.docs-group > summary {
+  display: flex; align-items: center; gap: 8px; padding: 5px 2px;
+  cursor: pointer; user-select: none; list-style: none; color: var(--tx-2);
+}
+.docs-group > summary::-webkit-details-marker { display: none; }
+.docs-group > summary::before { content: "▸"; color: var(--tx-3); font-size: 11px; transition: transform 0.15s; }
+.docs-group[open] > summary::before { transform: rotate(90deg); }
+.docs-group > summary:hover { color: var(--tx); }
+/* Корень — это путь, поэтому моно; счётчик рядом отвечает «сколько там файлов». */
+.docs-root { flex: 1; min-width: 0; font-family: var(--fm); font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.docs-count { flex: 0 0 auto; color: var(--tx-3); font-size: 11px; }
+.docs-tree .row { padding: 8px 12px; }
+/* Путь навыка длиннее колонки телефона — переносим его, а не страницу. */
+.docs-tree .row .t { overflow-wrap: anywhere; }
+.docs-tree .row .t b { font-size: 13px; font-weight: 500; }
+.docs-tree .row .t small { font-family: var(--fm); font-size: 11px; color: var(--tx-3); }
+/* Метка личного документа: содержимое Core отдаёт только владельцу. */
+.docs-personal { margin-left: 7px; font-family: var(--fu); font-style: normal; color: var(--hot); }
+.docs-tree .row[aria-current="page"] { background: var(--accent-soft); }
+.docs-tree .row[aria-current="page"] .t b { color: var(--accent-tx); font-weight: 600; }
+
+.doc-wrap { background: var(--surf); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; }
+.doc-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
+.doc-meta { flex: 1; min-width: 0; }
+.doc-meta b { display: block; font-family: var(--fh); font-size: 16px; font-weight: 700; }
+.doc-meta small { display: block; margin-top: 3px; color: var(--tx-3); font-size: 11.5px; overflow-wrap: anywhere; }
+/* Ссылка в «Мозг» — не `.chip`: тот моно, а кириллица в оболочке всегда Golos. */
+.doc-brain {
+  flex: 0 0 auto; padding: 4px 11px; border: 1px solid var(--accent-line); border-radius: 999px;
+  color: var(--accent-tx); font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.doc-brain:hover { background: var(--accent-soft); }
+
+/* Типографика документа. Ширину не режем: колонка грида уже её задаёт. */
+article.doc { font-size: 14px; line-height: 1.62; color: var(--tx); overflow-wrap: break-word; }
+article.doc > *:first-child { margin-top: 0; }
+article.doc h1 { font-family: var(--fh); font-size: 20px; font-weight: 800; margin: 0 0 10px; }
+article.doc h2 {
+  font-family: var(--fh); font-size: 16.5px; font-weight: 700; margin: 24px 0 9px;
+  padding-top: 14px; border-top: 1px solid var(--line-soft);
+}
+article.doc h3 { font-size: 14.5px; font-weight: 700; margin: 18px 0 6px; }
+article.doc h4, article.doc h5, article.doc h6 { font-size: 13.5px; font-weight: 600; color: var(--tx-2); margin: 15px 0 5px; }
+article.doc p { margin: 0 0 11px; }
+article.doc ul, article.doc ol { margin: 0 0 12px; padding-left: 21px; }
+article.doc li { margin-bottom: 4px; }
+article.doc a { color: var(--accent-tx); text-decoration: underline; text-underline-offset: 2px; }
+article.doc a:hover { color: var(--hot); }
+article.doc code { font-family: var(--fm); font-size: 12.5px; background: var(--surf-2); border: 1px solid var(--line-soft); border-radius: 6px; padding: 1px 5px; }
+article.doc pre { margin: 0 0 14px; padding: 12px 14px; background: var(--surf-2); border: 1px solid var(--line); border-radius: var(--r-s); overflow-x: auto; }
+article.doc pre code { padding: 0; border: none; background: none; line-height: 1.5; }
+article.doc blockquote { margin: 0 0 14px; padding: 2px 0 2px 13px; border-left: 3px solid var(--line-strong); color: var(--tx-2); }
+article.doc hr { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+article.doc .table-scroll { margin-bottom: 14px; }
+article.doc table { width: 100%; border-collapse: collapse; font-size: 13px; }
+article.doc th, article.doc td { padding: 8px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+article.doc th { color: var(--tx-3); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+article.doc tr:last-child td { border-bottom: none; }
+/* Картинки панель не грузит (см. markdown.ts) — от них остаётся подпись. */
+article.doc .doc-img { color: var(--tx-3); font-style: italic; }
