@@ -1656,6 +1656,12 @@ export const agent = pgTable(
      * агент, заведённый из панели (без каталога на диске), иначе остался бы без KB.
      */
     kbPages: jsonb("kb_pages").default([]).notNull(),
+    /**
+     * Хуки паспорта (волна R, R-R-4): { preRun: [{kind,…}], postRun: [{kind}] }.
+     * Хранятся в карточке, потому что рантайм грузит агентов из базы (источник
+     * истины), а не из файлов — без столбца хуки терялись бы после сида.
+     */
+    hooks: jsonb("hooks").$type<Record<string, unknown>>().default({}).notNull(),
     /** Архив: агент убран из работы, но его история сохранена. */
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: createdAt(),
@@ -1691,6 +1697,58 @@ export const agentSkillCatalog = pgTable(
   },
   (t) => [primaryKey({ columns: [t.agentName, t.skill] })],
 );
+
+// ── Журнал прогонов навыков и мониторов (волна R, R-R-1) ────────────────────
+// Пишет рантайм агентов после каждого прогона (cron, задача, монитор). Раньше
+// исход `skipped:<reason>` жил только в stdout контейнера — владелец не мог
+// узнать, почему навык промолчал. request_key уникален: дубль тика на двух
+// репликах даёт одну строку.
+export const agentRun = pgTable(
+  "agent_run",
+  {
+    id: id(),
+    /** Имя агента или "system" для мониторов. */
+    agentName: text("agent_name").notNull(),
+    /** Навык или имя монитора (ourvend:sync). */
+    skill: text("skill").notNull(),
+    /** cron | task | manual. */
+    trigger: text("trigger").notNull(),
+    cron: text("cron"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    requestKey: text("request_key").notNull().unique(),
+    traceKey: text("trace_key"),
+    taskId: uuid("task_id").references(() => task.id, { onDelete: "set null" }),
+    approvalId: uuid("approval_id").references(() => approval.id, { onDelete: "set null" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+    /** approval_requested | executed | skipped | failed. */
+    outcome: text("outcome").notNull(),
+    /** SkipReason из @mydon/shared (в т.ч. hook_blocked). */
+    skipReason: text("skip_reason"),
+    /** kind заблокировавшего pre_run-хука. */
+    hook: text("hook"),
+    reason: text("reason").notNull(),
+    action: text("action"),
+    /** Заметка coach_lite (post_run). */
+    review: text("review"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("agent_run_agent_skill_idx").on(t.agentName, t.skill, desc(t.startedAt)),
+    index("agent_run_started_idx").on(desc(t.startedAt)),
+    index("agent_run_task_idx").on(t.taskId).where(sql`${t.taskId} is not null`),
+  ],
+);
+
+// ── Снимок рантайма агентов (волна R, R-R-2) ───────────────────────────────
+// Одна строка на ключ ("schedules"): что croner реально держит, не подключённые
+// навыки с причиной, мониторы, паузы. Core считает nextRun сам; возраст снимка
+// показывает, что контейнер агентов жив.
+export const agentRuntimeSnapshot = pgTable("agent_runtime_snapshot", {
+  key: text("key").primaryKey(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 // ── system_config: глобальные тумблеры системы, редактируемые из панели ──────
 // Не-секретные настройки активации (мозг/RAG/пауза/бюджет) живут в базе, а не
@@ -3648,6 +3706,9 @@ export const schema = {
   auditLog,
   agent,
   agentSkillCatalog,
+  // Журнал прогонов навыков/мониторов и снимок рантайма расписаний (волна R).
+  agentRun,
+  agentRuntimeSnapshot,
   // Единый денежный журнал всех метрируемых LLM-вызовов.
   llmModelPrice,
   llmSpend,
