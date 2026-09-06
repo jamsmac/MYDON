@@ -2,7 +2,9 @@ import Link from "next/link";
 import { core, CoreUnavailable, type Approval, type Briefing } from "../../lib/core";
 import { CoreDown } from "../../components/core-down";
 import { ApprovalCard } from "../../components/approval-card";
+import { UpcomingRuns } from "../../components/upcoming-runs";
 import { coffeeImportDetails, stripPayload } from "../../lib/approval-details";
+import { groupUpcoming, type UpcomingRow } from "../../lib/crons";
 import { when } from "../../lib/format";
 import { DOMAIN_LABELS } from "@mydon/shared";
 
@@ -35,6 +37,20 @@ export default async function Main() {
     queue = p.cards.length + new Set(p.fields.map((f) => f.entityId)).size;
   } catch {
     queue = 0;
+  }
+
+  // Что агенты сделают в ближайшие сутки. Доска рутин живёт снимком рантайма
+  // агентов, и её отказ (нет снимка, нет токена, лёг контейнер) не должен
+  // уносить с собой тревоги и очередь решений — главный экран остаётся.
+  let upcoming: UpcomingRow[] = [];
+  let cronNow = new Date();
+  try {
+    const board = await core.cronBoard();
+    cronNow = new Date(board.now);
+    const groups = groupUpcoming(board, cronNow);
+    upcoming = [...groups.today, ...groups.tomorrow].slice(0, 5);
+  } catch {
+    upcoming = [];
   }
 
   const list = alarms(briefing);
@@ -120,6 +136,18 @@ export default async function Main() {
         <div className="empty" style={{ marginTop: 16 }}>
           <b>Тревог нет</b>
           Просрочек, простоев и незакрытых согласований не найдено.
+        </div>
+      )}
+
+      {upcoming.length > 0 && (
+        <div className="sect" style={{ marginTop: 16 }}>
+          <div className="sect-h">
+            <h3 className="h2">Ближайшие 24 ч</h3>
+            <Link href="/crons" className="go">все рутины →</Link>
+          </div>
+          {/* `now` обязателен: строки склеены из «сегодня» и «завтра», и время
+              без дня прочиталось бы на сутки раньше. */}
+          <UpcomingRuns rows={upcoming} limit={5} now={cronNow} />
         </div>
       )}
 

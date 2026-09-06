@@ -71,6 +71,22 @@ describe("Проверка паспорта", () => {
     const r = checkPassport("a", { ...good, status: "включён" }, ["scan"]);
     assert.match(r.problems.join(), /неизвестный статус/);
   });
+
+  it("целые хуки замечаний не дают", () => {
+    const r = checkPassport("a", good, ["scan"], {
+      pre_run: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }],
+      post_run: [{ kind: "coach_lite" }],
+    });
+    assert.deepEqual(r.problems, []);
+  });
+
+  it("ловит чужой kind и битые параметры хука — иначе навык молча блокировался бы", () => {
+    const r = checkPassport("a", good, ["scan"], {
+      pre_run: [{ kind: "moon_phase" }, { kind: "source_fresh", run: "нет-слеша", max_age_hours: 6 }],
+    });
+    assert.match(r.problems.join(), /moon_phase/);
+    assert.match(r.problems.join(), /agent\/skill/);
+  });
 });
 
 describe("Связи паспорта с навыками и KB (checkLinks, спека llm-skill)", () => {

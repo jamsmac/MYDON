@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { AutonomyTier } from "@mydon/shared";
+import type { AutonomyTier, SkipReason } from "@mydon/shared";
 import {
   LlmBudgetDeniedError,
   LlmLedgerUnavailableError,
@@ -12,6 +12,7 @@ import type {
   AgentsCoreClient,
 } from "./core-client";
 import { EXECUTORS } from "./executors";
+import { runPostRunHooks, runPreRunHooks } from "./hooks";
 import { checkLimit, dailyCap, startOfTashkentDay } from "./limits";
 import { NO_SIGNAL_SIGNATURE, matchesSignature, signature } from "./memory";
 import { effectiveActionTier, explainPolicy, requiresApproval } from "./policy";
@@ -38,21 +39,18 @@ export interface RunResult {
   outcome: "approval_requested" | "executed" | "skipped";
   approvalId?: string;
   reason: string;
-  /** Почему пропущено — вызывающий отличает «нет повода» от «потолок исчерпан». */
-  skipReason?:
-    | "inactive"
-    | "not_implemented"
-    | "no_signal"
-    | "capped"
-    | "no_change"
-    | "budget_denied"
-    | "execution_unknown"
-    | "workflow_changed"
-    | "ledger_unavailable"
-    /** llm-навык: провайдер не дал ответа (не путать с «повода нет»). */
-    | "llm_failed"
-    /** llm-навык: ответ модели не по контракту — предложение не создаётся (R-LS-5). */
-    | "llm_invalid_output";
+  /**
+   * Почему пропущено — вызывающий отличает «нет повода» от «потолок исчерпан».
+   *
+   * Словарь один на три приложения (`@mydon/shared`, волна R): рантайм пишет
+   * значение в журнал, Core его валидирует, панель показывает подпись владельцу.
+   * Локальный union разошёлся бы с ними молча.
+   */
+  skipReason?: SkipReason;
+  /** Имя pre_run-хука, остановившего прогон (только при skipReason hook_blocked). */
+  hook?: string;
+  /** Короткая заметка разбора (coach_lite) — попадает в журнал прогона. */
+  review?: string;
   /** Предложение навыка (текст и факты) — чтобы отчёт по задаче не звал навык
    *  повторно (иначе первый прогон и отчёт могут разойтись). */
   action?: string;
@@ -114,8 +112,10 @@ function taskResultNote(proposal: { action: string; facts: Record<string, unknow
  * При текущем пороге (T0 — «всё вручную», ответ владельца Ф6) предложение
  * всегда идёт через согласование. Исполнение появится, когда владелец
  * поднимет порог.
+ *
+ * Хуки паспорта вокруг этого тела — в обёртке `runSkill` ниже.
  */
-export async function runSkill(
+async function runSkillInner(
   agent: AgentDefinition,
   skill: string,
   core: AgentsCoreClient,
@@ -463,4 +463,86 @@ export async function runSkill(
     ...(proposal.next && proposal.next.length ? { next: proposal.next } : {}),
     reason: approvalReason,
   };
+}
+
+/**
+ * Кому pre_run-хуки вообще адресованы (§4.4 спеки, решение волны R).
+ *
+ * Только ПЛАНОВОМУ прогону: легаси-колбэк крона и durable-задача из
+ * `agent-schedule` (обе приходят с `trigger: "cron"`). Поручение владельца
+ * (`task`) и запуск с деки (`manual`) хуки НЕ трогают: владелец попросил сам, и
+ * «Не запускал: тихие часы» закрыло бы его задачу как сделанную. Отсутствие
+ * trigger считаем кроном — так консервативнее.
+ *
+ * Takeover (в задаче уже есть checkpoint) тоже мимо хуков: хук охраняет СТАРТ
+ * прогона, а не возобновление уже начатой — и, возможно, уже оплаченной работы.
+ *
+ * Это ЕДИНСТВЕННОЕ место, где решается «кто проходит мимо хуков»: сами хуки
+ * повода прогона не знают и знать не должны — иначе правило раздваивается.
+ */
+function preRunApplies(invocation: SkillRunContext | undefined): boolean {
+  if (invocation === undefined) return true;
+  if (invocation.trigger !== undefined && invocation.trigger !== "cron") return false;
+  return invocation.task?.checkpoint === undefined;
+}
+
+/**
+ * Прогон навыка с хуками паспорта (волна R, Р-4): pre_run → навык → post_run.
+ *
+ * Хуки — правила ЭТОГО агента, а не движка, поэтому они снаружи тела: встроенные
+ * проверки (статус, бюджет, потолок, дельта-память) остаются внутри и здесь не
+ * дублируются. pre_run спрашиваем только у активного агента — неактивный и так
+ * не запускается, и незачем дёргать журнал ради заведомого пропуска.
+ */
+export async function runSkill(
+  agent: AgentDefinition,
+  skill: string,
+  core: AgentsCoreClient,
+  threshold: AutonomyTier,
+  skillFloor?: AutonomyTier,
+  invocation?: SkillRunContext,
+): Promise<RunResult> {
+  const hooks = agent.hooks;
+  if (hooks && hooks.preRun.length > 0 && agent.status === "active" && preRunApplies(invocation)) {
+    const verdict = await runPreRunHooks(hooks, { now: new Date(), core });
+    if (!verdict.ok) {
+      const note = `Не запускал: ${verdict.reason}.`;
+      const taskMode = invocation?.task;
+      if (taskMode) {
+        // Порядок как у ветки «повода нет» в теле: сперва CAS-чекпойнт, потом
+        // исход. Core принимает исход только под чекпойнтом, а сбой записи
+        // должен всплыть наверх (воркер запишет прогон как failed), а не
+        // превратиться в «пропущено» с потерянным коммитом.
+        await invocation?.assertLease?.();
+        await taskMode.saveCheckpoint({ skill, kind: "no_signal" });
+      }
+      return {
+        agent: agent.name,
+        skill,
+        outcome: "skipped",
+        skipReason: "hook_blocked",
+        hook: verdict.hook,
+        reason: verdict.reason,
+        // Core не знает kind hook_blocked (§7 спеки): task-режим коммитит как
+        // no_signal с причиной хука в примечании. В журнале прогона исход
+        // остаётся точным — hook_blocked + имя хука.
+        ...(taskMode ? { commit: { outcome: "no_signal", note } } : {}),
+      };
+    }
+  }
+
+  const result = await runSkillInner(agent, skill, core, threshold, skillFloor, invocation);
+
+  // Неактивный агент не работал — разбирать нечего, и незачем ходить в журнал.
+  if (hooks && hooks.postRun.length > 0 && result.skipReason !== "inactive") {
+    // Разбор до записи в журнал: заметка едет в той же строке прогона (review).
+    const { review } = await runPostRunHooks(hooks, {
+      agent: agent.name,
+      skill,
+      result: { outcome: result.outcome, skipReason: result.skipReason ?? null, reason: result.reason },
+      core,
+    });
+    return review === undefined ? result : { ...result, review };
+  }
+  return result;
 }

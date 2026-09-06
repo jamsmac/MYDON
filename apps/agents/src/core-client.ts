@@ -9,6 +9,8 @@ import type {
 } from "@mydon/shared";
 import type { ModelReasoningEffort } from "./model-gateway";
 import type { ClaimedOutboxDelivery } from "./outbox-dispatcher";
+import type { RunJournalEntry } from "./run-journal";
+import type { ScheduleSnapshot } from "./schedule-snapshot";
 import type { CatalogSkill } from "./skill-catalog";
 import type { TaskLlmJobKind, TaskLlmWorkflowPlan } from "./task-llm-workflow";
 
@@ -285,6 +287,33 @@ export interface CompleteAgentTaskLlmJobResult {
   result?: TaskLlmStoredResult;
 }
 
+/**
+ * Строка журнала прогонов в том виде, в каком её отдаёт Core (`toView`).
+ *
+ * Всё строками/ISO/null: это ответ HTTP, а не внутренняя модель — панель и хуки
+ * читают её как есть, без домысливания типов.
+ */
+export interface AgentRunView {
+  id: string;
+  agentName: string;
+  skill: string;
+  trigger: string;
+  cron: string | null;
+  scheduledAt: string | null;
+  requestKey: string;
+  traceKey: string | null;
+  taskId: string | null;
+  approvalId: string | null;
+  startedAt: string;
+  finishedAt: string;
+  outcome: string;
+  skipReason: string | null;
+  hook: string | null;
+  reason: string;
+  action: string | null;
+  review: string | null;
+}
+
 /** HTTP response from Core was explicit (and therefore not a lost response). */
 export class AgentsCoreHttpError extends Error {
   constructor(
@@ -482,6 +511,40 @@ export class AgentsCoreClient {
     });
   }
 
+  // ── Журнал прогонов и снимок расписаний (волна R) ─────────────────────────
+
+  /**
+   * Запись прогона навыка/монитора в журнал Core (Р-1).
+   *
+   * Идемпотентно по `requestKey`: повтор тика или вторая реплика обновляют ту же
+   * строку, а не плодят близнецов. Ошибку гасит `reportRun` из `run-journal`,
+   * здесь она честно бросается — клиент остаётся тонким.
+   */
+  reportRun(entry: RunJournalEntry): Promise<{ id: string; created: boolean }> {
+    return this.request("/routines/runs", { method: "POST", body: JSON.stringify(entry) });
+  }
+
+  /** Что рантайм реально запланировал — панель показывает это, а не паспорта. */
+  putScheduleSnapshot(snapshot: ScheduleSnapshot): Promise<{ storedAt: string }> {
+    return this.request("/routines/snapshot", { method: "PUT", body: JSON.stringify(snapshot) });
+  }
+
+  /** Последний прогон задания (нужен хукам волны R: свежесть, повтор). */
+  async lastRun(agent: string, skill: string): Promise<AgentRunView | null> {
+    const r = await this.request<{ run: AgentRunView | null }>(
+      `/routines/runs/last?agent=${encodeURIComponent(agent)}&skill=${encodeURIComponent(skill)}`,
+    );
+    return r.run;
+  }
+
+  /** Хвост журнала задания — от свежего к старому. */
+  async listRuns(agent: string, skill: string, limit = 6): Promise<AgentRunView[]> {
+    const r = await this.request<{ runs: AgentRunView[] }>(
+      `/routines/runs?agent=${encodeURIComponent(agent)}&skill=${encodeURIComponent(skill)}&limit=${limit}`,
+    );
+    return r.runs;
+  }
+
   /** Настройки агентов из базы — то, что владелец видит и меняет в карточке. */
   listAgents(): Promise<
     {
@@ -498,6 +561,11 @@ export class AgentsCoreClient {
       breakGlass: unknown;
       ideaChannels: unknown;
       kbPages?: unknown;
+      /**
+       * pre_run-хуки паспорта (волна R). Рантайм их пока только получает —
+       * применяет отдельный срез хуков.
+       */
+      hooks?: unknown;
       mission?: string | null;
       nonGoals?: unknown;
       archivedAt: string | null;
@@ -512,7 +580,23 @@ export class AgentsCoreClient {
   myTasks(
     agentName: string,
     invocation: AgentTaskInvocation = "assigned",
-  ): Promise<{ id: string; title: string; status: string; ownerRef: string | null }[]> {
+  ): Promise<
+    {
+      id: string;
+      title: string;
+      status: string;
+      ownerRef: string | null;
+      /**
+       * Источник задачи. Журнал по нему различает плановый тик
+       * (`agent-schedule` → trigger cron) и ручной запуск из деки
+       * (`skills-deck` → manual). Необязательное: Core отдаёт строку задачи
+       * целиком, но старая запись могла её не иметь.
+       */
+      source?: string | null;
+      /** Для планового тика — момент срабатывания cron. */
+      due?: string | null;
+    }[]
+  > {
     const qs = new URLSearchParams({
       ownerKind: "agent",
       ownerRef: agentName,

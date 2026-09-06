@@ -3193,6 +3193,89 @@ async function проверитьДокументыИГраф() {
   }
 }
 
+/**
+ * Рутины (волна R, R-R-8): снимок расписаний, журнал прогонов, доска и плейбэк.
+ *
+ * Здесь важен настоящий Postgres: `created` берётся у СУБД (`xmax = 0` в
+ * `returning` атомарного `insert … on conflict do update`), и заглушка такой
+ * ответ просто выдумала бы. Заодно проверяется, что журнал закрыт токеном и на
+ * ЧТЕНИЕ: глобальный `ServiceTokenGuard` GET пропускает, а прогоны агентов
+ * анонимно отдавать нельзя.
+ */
+async function проверитьРутины() {
+  const анонимно = await jsonRequest("GET", "/routines/board", undefined, false);
+  if (анонимно.r.status !== 401) throw new Error(`GET /routines/board без токена → ${анонимно.r.status}, ожидали 401`);
+
+  // Пауза на доске обязана приходить из `system_config`, а не из снимка
+  // рантайма: тумблер владельца действует сразу, а снимок мог сняться до
+  // правки. Проверить это можно ТОЛЬКО снимком с противоположными значениями —
+  // при совпадающих доска, читающая снимок, отвечала бы верно случайно.
+  const настройки = await jsonRequest("GET", "/system/config");
+  if (!настройки.r.ok) throw new Error(`GET /system/config → ${настройки.r.status}`);
+  const тумблер = (ключ) => {
+    const i = настройки.json.find((x) => x.key === ключ);
+    if (!i) throw new Error(`в /system/config нет ключа ${ключ} — доске неоткуда брать паузу`);
+    return i.value === "1";
+  };
+  const ожидаемаяПауза = { schedules: тумблер("AGENTS_SCHEDULES_PAUSED"), tasks: тумблер("AGENTS_TASKS_PAUSED") };
+  const паузаСнимка = { schedules: !ожидаемаяПауза.schedules, tasks: !ожидаемаяПауза.tasks };
+
+  const снимок = await jsonRequest("PUT", "/routines/snapshot", {
+    generatedAt: new Date().toISOString(), tz: "Asia/Tashkent", paused: паузаСнимка,
+    jobs: [
+      { agent: "vendhub-ops", skill: "monitor-stock", cron: "0 8 * * *", mode: "legacy" },
+      { agent: "vendhub-ops", skill: "parts-audit", cron: "30 8 * * 1", mode: "durable-task" },
+    ],
+    notWired: [{ agent: "vendhub-ceo", skill: "weekly-review", reason: "llm_route_off" }],
+    monitors: [{ name: "fx:refresh", cron: "5 9 * * *", enabled: true }],
+  });
+  if (!снимок.r.ok) throw new Error(`PUT /routines/snapshot → ${снимок.r.status}: ${снимок.text.slice(0, 200)}`);
+
+  const битый = await jsonRequest("PUT", "/routines/snapshot", { generatedAt: new Date().toISOString(), tz: "Asia/Tashkent", paused: {}, jobs: [{ agent: "a", skill: "b", cron: "99 99 * * *", mode: "legacy" }], notWired: [], monitors: [] });
+  if (битый.r.status !== 400) throw new Error(`битый cron в снимке → ${битый.r.status}, ожидали 400`);
+
+  const requestKey = `smoke:${Date.now()}`;
+  const запись = await jsonRequest("POST", "/routines/runs", {
+    agentName: "vendhub-ops", skill: "monitor-stock", trigger: "cron", cron: "0 8 * * *",
+    scheduledAt: new Date().toISOString(), requestKey, startedAt: new Date(Date.now() - 2000).toISOString(),
+    finishedAt: new Date().toISOString(), outcome: "skipped", skipReason: "no_signal", reason: "смоук: повода нет",
+  });
+  if (!запись.r.ok || запись.json.created !== true) throw new Error(`POST /routines/runs → ${запись.r.status} ${запись.text.slice(0, 200)}`);
+  const повтор = await jsonRequest("POST", "/routines/runs", { agentName: "vendhub-ops", skill: "monitor-stock", trigger: "cron", requestKey, startedAt: new Date(Date.now() - 2000).toISOString(), finishedAt: new Date().toISOString(), outcome: "executed", reason: "смоук: повтор" });
+  if (!повтор.r.ok || повтор.json.created !== false || повтор.json.id !== запись.json.id) throw new Error(`повтор requestKey не стал upsert: ${повтор.text.slice(0, 200)}`);
+  const плохой = await jsonRequest("POST", "/routines/runs", { agentName: "a", skill: "b", trigger: "cron", requestKey: `${requestKey}:bad`, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), outcome: "done", reason: "x" });
+  if (плохой.r.status !== 400) throw new Error(`битый outcome → ${плохой.r.status}, ожидали 400`);
+
+  const доска = await jsonRequest("GET", "/routines/board");
+  if (!доска.r.ok) throw new Error(`GET /routines/board → ${доска.r.status}`);
+  // Ключ строки навыка несёт cron: у навыка расписаний может быть несколько.
+  const job = доска.json.jobs.find((j) => j.id === "vendhub-ops/monitor-stock@0 8 * * *");
+  if (!job || typeof job.nextRun !== "string") throw new Error("на доске нет vendhub-ops/monitor-stock@0 8 * * * с nextRun");
+  if (!job.last || job.last.outcome !== "executed") throw new Error(`last на доске не обновился после upsert: ${JSON.stringify(job.last)}`);
+  if (!доска.json.jobs.some((j) => j.id === "system/fx:refresh" && j.kind === "monitor")) throw new Error("монитор fx:refresh не на доске");
+  if (!доска.json.jobs.some((j) => j.id === "vendhub-ceo/weekly-review" && j.enabled === false)) throw new Error("не подключённый навык не показан как disabled");
+  const ключи = доска.json.jobs.map((j) => j.id);
+  if (new Set(ключи).size !== ключи.length) throw new Error(`на доске повторяются id заданий: ${ключи.join(", ")}`);
+  if (доска.json.snapshot === null || доска.json.snapshot.stale !== false) throw new Error("снимок не свежий");
+  if (доска.json.paused.schedules !== ожидаемаяПауза.schedules || доска.json.paused.tasks !== ожидаемаяПауза.tasks) {
+    throw new Error(
+      `paused на доске ${JSON.stringify(доска.json.paused)} — не из system_config ` +
+        `(${JSON.stringify(ожидаемаяПауза)}); снимок присылал ${JSON.stringify(паузаСнимка)}`,
+    );
+  }
+  // Пауза расписаний доезжает до СТРОКИ задания, а не только до шапки доски.
+  if (job.paused !== ожидаемаяПауза.schedules) throw new Error(`строка задания paused=${job.paused}, тумблер ${ожидаемаяПауза.schedules}`);
+
+  const плейбэк = await jsonRequest("GET", `/routines/flows/${запись.json.id}`);
+  if (!плейбэк.r.ok) throw new Error(`GET /routines/flows/:id → ${плейбэк.r.status}`);
+  const фазы = плейбэк.json.phases.map((p) => `${p.name}:${p.state}`);
+  if (фазы[0] !== "trigger:ok" || фазы[3] !== "approval:skip" || фазы.length !== 6) throw new Error(`фазы плейбэка: ${фазы.join(" ")}`);
+  const список = await jsonRequest("GET", "/routines/flows?agent=vendhub-ops&limit=5");
+  if (!список.r.ok || !список.json.runs.some((r) => r.id === запись.json.id)) throw new Error("прогон не найден в списке /routines/flows");
+  const нет = await jsonRequest("GET", "/routines/flows/00000000-0000-4000-8000-000000000000");
+  if (нет.r.status !== 404) throw new Error(`несуществующий прогон → ${нет.r.status}, ожидали 404`);
+}
+
 async function ждатьЗдоровье(proc) {
   const дедлайн = Date.now() + СТАРТ_ТАЙМАУТ_МС;
   while (Date.now() < дедлайн) {
@@ -3527,6 +3610,15 @@ try {
   } catch (e) {
     провалы.push(`документы и граф: ${e.message}`);
   }
+
+  try {
+    await проверитьРутины();
+    console.log(
+      "  ok  сценарий: рутины — снимок, журнал (upsert), доска с nextRun/last, плейбэк 6 фаз, 401/400/404",
+    );
+  } catch (e) {
+    провалы.push(`рутины: ${e.message}`);
+  }
 } catch (e) {
   провалы.push(`старт: ${e.message}`);
 } finally {
@@ -3546,4 +3638,4 @@ if (провалы.length > 0) {
   process.exit(1);
 }
 
-console.log(`\nВсё прошло: ${ЧТЕНИЕ.length} чтений, ${ЗАПИСЬ.length} записей, 23 сценариев.`);
+console.log(`\nВсё прошло: ${ЧТЕНИЕ.length} чтений, ${ЗАПИСЬ.length} записей, 24 сценариев.`);

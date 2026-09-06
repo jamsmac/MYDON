@@ -146,6 +146,12 @@ export interface UpsertAgentInput {
   ideaChannels?: string[];
   /** Страницы знаний в контексте агента: пути внутри apps/agents/shared (R-LS-10). */
   kbPages?: string[];
+  /**
+   * Хуки паспорта (волна R, R-R-4): { preRun: [{kind,…}], postRun: [{kind}] }.
+   * Core их только хранит — состав проверяет рантайм (check:passports), потому
+   * что список реализаций хуков живёт вместе с исполнителем, а не в базе.
+   */
+  hooks?: Record<string, unknown>;
 }
 
 /**
@@ -210,6 +216,7 @@ export class AgentsService {
           breakGlass: input.breakGlass ?? [],
           ideaChannels: input.ideaChannels ?? [],
           kbPages: input.kbPages ?? [],
+          hooks: input.hooks ?? {},
         })
         .returning();
 
@@ -245,6 +252,7 @@ export class AgentsService {
     if (patch.breakGlass !== undefined) values.breakGlass = patch.breakGlass;
     if (patch.ideaChannels !== undefined) values.ideaChannels = patch.ideaChannels;
     if (patch.kbPages !== undefined) values.kbPages = patch.kbPages;
+    if (patch.hooks !== undefined) values.hooks = patch.hooks;
 
     return this.db.transaction(async (tx) => {
       const [updated] = await tx

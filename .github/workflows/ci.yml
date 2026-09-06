@@ -57,9 +57,11 @@ jobs:
       # tools/apply-passport-fields.mjs — иначе ошибка в нём всплыла бы только
       # на сервере, на живых карточках агентов. Там же дедуп находок Venture
       # Factory (tools/import-ventures.mjs): ошибка в сигнатуре «виденного»
-      # задвоила бы реестр кандидатов.
+      # задвоила бы реестр кандидатов. И недельный аудит репо
+      # (tools/repo-audit.mjs): он тоже на голом node, а цена ошибки в нём —
+      # секция «всё чисто» там, где git не отработал вовсе.
       - name: Tools (unit)
-        run: node --test tools/apply-passport-fields.test.mjs tools/import-ventures.test.mjs
+        run: node --test tools/apply-passport-fields.test.mjs tools/import-ventures.test.mjs tools/repo-audit.test.mjs
 
       - uses: pnpm/action-setup@v4
         with:

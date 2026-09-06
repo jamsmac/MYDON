@@ -98,3 +98,25 @@ export function desiredJobs(
   }
   return { jobs, notWired };
 }
+
+/**
+ * Расписания НЕАКТИВНЫХ агентов — ссылки вида «агент/навык».
+ *
+ * `desiredJobs` отсекает такого агента целиком (её контракт — «что реально
+ * заводить в croner»), и на доске от паузного паспорта не остаётся ни строки,
+ * ни причины: шесть паузных агентов прода — вместе с шестью расписаниями
+ * market-analyst — выглядят как «расписаний нет». Поэтому неактивных собираем
+ * ОТДЕЛЬНО и кладём в снимок причиной `inactive_agent`: владелец видит
+ * расписание и знает, почему оно молчит и где это чинится (статус в карточке).
+ *
+ * Дубли снимаем: строка доски опознаётся парой «агент/навык», и второй
+ * одинаковый пункт расписания дал бы её копию без единого нового слова.
+ */
+export function inactiveScheduleRefs(agents: readonly AgentDefinition[]): string[] {
+  const refs = new Set<string>();
+  for (const agent of agents) {
+    if (agent.status === "active") continue;
+    for (const item of agent.schedule) refs.add(`${agent.name}/${item.skill}`);
+  }
+  return [...refs];
+}

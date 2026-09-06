@@ -1,7 +1,8 @@
-import { LlmLedgerUnavailableError, type AutonomyTier } from "@mydon/shared";
+import { LlmLedgerUnavailableError, type AutonomyTier, type RunTrigger } from "@mydon/shared";
 import type { AgentsCoreClient, AgentTaskClaim, AgentTaskInvocation } from "./core-client";
 import { isLlmSkill, llmSkillFeature, llmSkillTriggers } from "./llm-skill";
 import type { AgentDefinition } from "./registry";
+import { journalFromRunResult, reportRun, type RunFrame, type RunLike } from "./run-journal";
 import { runSkill } from "./runner";
 import { hasSkill } from "./skills";
 import { TaskLlmSession } from "./task-llm-session";
@@ -35,6 +36,38 @@ export interface RunAgentTasksOptions {
 
 /** Заведомо меньше 15-минутного stale lease Core. */
 export const AGENT_RUN_HEARTBEAT_MS = 60_000;
+
+/** Источник задачи, которую Core завёл из планового тика крона. */
+const AGENT_SCHEDULE_SOURCE = "agent-schedule";
+/** Источник задачи, которую владелец запустил руками из деки навыков. */
+const SKILLS_DECK_SOURCE = "skills-deck";
+
+/**
+ * Кто запустил задачу — в терминах журнала прогонов (ruling волны R).
+ *
+ * Задача из `agent-schedule` — это ПЛАНОВОЕ срабатывание, просто исполненное
+ * durable-путём вместо in-process: в доске она обязана стоять рядом со своим
+ * расписанием, а не в общей куче поручений. Запуск из деки — воля владельца
+ * здесь и сейчас (`manual`), всё остальное — обычная порученная задача.
+ */
+export function triggerFromTaskSource(source?: string | null): RunTrigger {
+  if (source === AGENT_SCHEDULE_SOURCE) return "cron";
+  if (source === SKILLS_DECK_SOURCE) return "manual";
+  return "task";
+}
+
+/**
+ * Расписание планового запуска из описания задачи.
+ *
+ * Core пишет его строкой «Cron: <выражение>» (см. `agentScheduleIdentity`), и
+ * это единственный способ узнать расписание на стороне worker: в списке задач
+ * его нет. Без него запись журнала повисла бы без задания.
+ */
+export function cronFromDescription(description?: string): string | undefined {
+  const match = /^Cron: (.+)$/m.exec(description ?? "");
+  const cron = match?.[1]?.trim();
+  return cron ? cron : undefined;
+}
 
 /** В плане ровно один metered chat-шаг с этим ключом и непустой цепочкой моделей. */
 function hasChatStep(plan: TaskLlmWorkflowPlan, stepKey: string): boolean {
@@ -181,6 +214,49 @@ export async function runAgentTasks(
     const runId = claim.runId;
     const executionAttemptId = claim.executionAttemptId;
     let leaseLost = false;
+    // ── Журнал прогона (волна R) ─────────────────────────────────────────────
+    // Кадр собираем ДО try: сорвавшийся прогон обязан попасть в журнал тем же
+    // ключом, что и удавшийся, иначе доска показала бы две разные строки.
+    const trigger = triggerFromTaskSource(t.source);
+    const cron = cronFromDescription(claim.taskInput.description);
+    // Плановое время тика. Мусорная дата дала бы RangeError на toISOString —
+    // наблюдение уронило бы задачу, ради которой оно и ведётся.
+    const due = t.due ? new Date(t.due) : null;
+    const scheduledAt = due !== null && Number.isFinite(due.getTime()) ? due : undefined;
+    // executionAttemptId рождает Core один раз и переживает stale takeover.
+    // Новый lease не даёт второй metered dispatch; новую денежную
+    // попытку создаёт только явный redo/переназначение владельца. Ключ ДЕЙСТВИЙ
+    // (события, согласование, платные вызовы) поэтому остаётся ключом попытки:
+    // добавить в него прогон значило бы оплатить и разослать одно и то же дважды.
+    const requestKey = `task:${t.id}:execution:${executionAttemptId}`;
+    // А вот журнал наблюдает ПРОГОНЫ, и их у одной попытки бывает несколько:
+    // при `action_capped` и `budget_denied` Core попытку не вращает, а переносит
+    // задачу на следующие сутки. С ключом попытки завтрашний прогон пришёл бы
+    // тем же ключом, upsert переписал бы вчерашнюю строку и оставил бы ей чужой
+    // `startedAt` (это поле исключено из patch) — два прогона навсегда слились
+    // бы в один. `runId` различает их и НЕ ослабляет защиту от двух реплик: его
+    // выдаёт Core атомарно одному worker (claimAgentRun ставит новый UUID тем же
+    // UPDATE, что и lease), а повторный `reportRun` внутри одного claim идёт
+    // прежним ключом — он считается здесь один раз на claim.
+    const journalRequestKey = `${requestKey}:${runId}`;
+    const startedAt = new Date();
+    // Навык, известный ДО resolve: durable execution/checkpoint, а если их нет —
+    // навык, заданный владельцем в самой задаче. Авария до resolve (сорванный
+    // lease, недоступный Core) иначе записала бы прогон со `skill: "?"`, и это
+    // «?» осталось бы в строке навсегда: Core исключает `skill` из patch
+    // upsert-а. Не знаем ничего — остаётся честное «?», а не чужое имя.
+    let journalSkill: string | undefined =
+      claim.execution?.skill ?? claim.checkpoint?.skill ?? claim.taskInput.agentSkill;
+    const frame = (extra: Partial<RunFrame> = {}): RunFrame => ({
+      trigger,
+      ...(cron !== undefined ? { cron } : {}),
+      ...(scheduledAt !== undefined ? { scheduledAt } : {}),
+      requestKey: journalRequestKey,
+      taskId: t.id,
+      startedAt,
+      finishedAt: new Date(),
+      ...extra,
+    });
     let heartbeatRequest: Promise<boolean> | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -231,6 +307,9 @@ export async function runAgentTasks(
       const resolved =
         durableSkill !== undefined ? { skill: durableSkill } : resolveTaskSkill(agent, claim);
       const skill = resolved.skill;
+      // Навык не разобран (владелец назвал нереализованный) — сохраняем то, что
+      // просили: имя из задачи объясняет строку журнала лучше, чем «?».
+      journalSkill = skill ?? journalSkill;
       if (skill === null) {
         // Честный отказ пишем в durable block самой задачи.
         // Отдельный comment здесь неидемпотентен: потеря ответа
@@ -347,11 +426,9 @@ export async function runAgentTasks(
 
       const traceKey = `task:${t.id}:${agent.name}:${skill}`;
       const run = await runSkill(agent, skill, core, threshold, skillFloors?.get(skill), {
-        // executionAttemptId рождает Core один раз и переживает stale takeover.
-        // Новый lease не даёт второй metered dispatch; новую денежную
-        // попытку создаёт только явный redo/переназначение владельца.
-        requestKey: `task:${t.id}:execution:${executionAttemptId}`,
+        requestKey,
         traceKey,
+        trigger,
         assertLease,
         taskInput: claim.taskInput,
         task: {
@@ -406,21 +483,52 @@ export async function runAgentTasks(
             : {}),
         });
 
+        const cappedNote =
+          "Дневной потолок действий исчерпан — Core отложил задачу до следующих суток по Ташкенту.";
+        const blockedNote =
+          "Задача изменилась после сохранённого результата — выполнение заблокировано до явного повтора владельцем.";
+        // Журнал — ПОСЛЕ commit и ПО ЕГО ИСХОДУ: `run` знает лишь то, что навык
+        // ХОТЕЛ сделать, а окончателен ответ Core. Он мог упереться в дневной
+        // потолок (`capped`, перенос на завтра) или заблокировать выполнение
+        // (`blocked`, вход изменился после checkpoint) — записав тогда исходный
+        // `run`, доска показала бы «предложение отправлено», и владелец пошёл бы
+        // искать его в /inbox, где ничего нет. Ни действия, ни согласования у
+        // такого прогона не осталось, поэтому `action`/`approvalId` не переносим.
+        // Согласование создаёт Core, и его id знает только ответ commit — из
+        // `run` он в task-режиме не придёт.
+        const outcomeRun: RunLike =
+          committed.status === "capped"
+            ? {
+                agent: run.agent,
+                skill: run.skill,
+                outcome: "skipped",
+                skipReason: "capped",
+                reason: cappedNote,
+              }
+            : committed.status === "blocked"
+              ? {
+                  agent: run.agent,
+                  skill: run.skill,
+                  outcome: "skipped",
+                  skipReason: "workflow_changed",
+                  reason: blockedNote,
+                }
+              : committed.approvalId !== undefined
+                ? { ...run, approvalId: committed.approvalId }
+                : run;
+        await reportRun(core, journalFromRunResult(outcomeRun, frame({ traceKey })));
+
         if (committed.status === "capped") {
           // Core already atomically released the run and scheduled the retry;
           // a second release here could race a fresh generation.
-          const note =
-            "Дневной потолок действий исчерпан — Core отложил задачу до следующих суток по Ташкенту.";
-          results.push({ taskId: t.id, outcome: "skipped", note });
+          results.push({ taskId: t.id, outcome: "skipped", note: cappedNote });
           continue;
         }
         if (committed.status === "blocked") {
           // Core detected that task input changed after the checkpoint, fenced
           // this execution and cleared its lease. Only an owner retry may
           // rotate the execution attempt; releasing here would race that flow.
-          const note =
-            "Задача изменилась после сохранённого результата — выполнение заблокировано до явного повтора владельцем.";
-          results.push({ taskId: t.id, outcome: "skipped", note });
+          results.push({ taskId: t.id, outcome: "skipped", note: blockedNote });
           continue;
         }
 
@@ -458,9 +566,11 @@ export async function runAgentTasks(
         releaseReason,
         run.reason.slice(0, 1000),
       );
+      await reportRun(core, journalFromRunResult(run, frame({ traceKey })));
       results.push({ taskId: t.id, outcome: "skipped", note: run.reason });
     } catch (error) {
       if (leaseLost) {
+        // Прогон был не наш — чужую работу в журнал не пишем.
         results.push({
           taskId: t.id,
           outcome: "skipped",
@@ -468,6 +578,16 @@ export async function runAgentTasks(
         });
         continue;
       }
+      await reportRun(
+        core,
+        journalFromRunResult(
+          error instanceof Error ? error : new Error(String(error)),
+          frame({
+            agentName: agent.name,
+            ...(journalSkill !== undefined ? { skill: journalSkill } : {}),
+          }),
+        ),
+      );
       throw error;
     } finally {
       if (heartbeatTimer !== null) clearInterval(heartbeatTimer);

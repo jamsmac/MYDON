@@ -1743,3 +1743,89 @@ article.doc .doc-img { color: var(--tx-3); font-style: italic; }
   font-family: var(--fm); font-size: 11.5px; line-height: 1.5; color: var(--tx-2);
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/* ---- Рутины (волна R): доска расписаний и ближайшие срабатывания ---- */
+/* Ближайшие запуски — те же строки `.trow`, что у задач: список «что и когда»
+   владелец читает одинаково на доске и на главной. */
+.runs-strip { display: flex; flex-direction: column; }
+/* Исход прогона цветом ПЛЮС словом (`.led` печатает подпись): цвет не
+   единственный носитель смысла. «Пропущено» намеренно нейтральное — повода не
+   было, чинить нечего. */
+.run-led.ok { color: var(--ok); }
+.run-led.warn { color: var(--accent-tx); }
+.run-led.hot { color: var(--err); }
+.run-led.muted { color: var(--tx-2); }
+/* Таблица расписаний шире телефона — прокручивается внутри себя, а не тянет
+   всю страницу вбок. */
+.crons-wrap { overflow-x: auto; }
+.crons-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px; }
+.crons-table th {
+  text-align: left; padding: 9px 12px; white-space: nowrap;
+  color: var(--tx-2); font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--line);
+}
+.crons-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.crons-table tr:last-child td { border-bottom: none; }
+.crons-table .mono { font-family: var(--fm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.crons-table .dim { color: var(--tx-3); font-size: 11.5px; margin-top: 3px; }
+/* Задание на паузе гаснет, но остаётся на месте: убрать строку значило бы
+   ответить «такого расписания нет» на вопрос «почему оно не сработало». */
+.crons-table tr.is-paused td { opacity: 0.55; }
+
+/* ---- Плейбэк прогона (волна R): полоса шести фаз и лента ---- */
+/* Журнал слева, разбор справа — как дерево и документ на /docs. */
+.flows-layout { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(280px, 400px) 1fr; }
+/* min-width: 0 обязателен обеим колонкам: без него длинный payload в ленте
+   растягивает ячейку грида, и страница едет вбок. */
+.flow-list, .flow-detail { min-width: 0; }
+/* Ниже 900px — одна колонка. Когда прогон ВЫБРАН (`.reading`), разбор встаёт
+   первым: иначе переход по `?run=` высаживал бы владельца на верх журнала, а
+   не на плейбэк, за которым он и нажимал (то же решение, что на /docs). */
+@media (max-width: 900px) {
+  .flows-layout { grid-template-columns: 1fr; }
+  .flows-layout.reading .flow-detail { order: -1; }
+}
+.flows-filter select { height: 42px; background: var(--surf); border: 1px solid var(--line); border-radius: var(--r-s); color: var(--tx); padding: 0 11px; font-size: 14px; outline: none; }
+.flows-filter select:focus { border-color: var(--accent); }
+/* Выбранная строка журнала — оранжевой рамкой: единственный «выбор» на экране. */
+.trow.is-active { border-color: var(--accent-line); background: var(--accent-soft); }
+
+/* Полоса фаз: шесть равных клеток слева направо, как строка полёта. Клетки
+   всегда шесть — исчезнувшая фаза читалась бы как «всё прошло». */
+.flight { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; list-style: none; margin: 0 0 14px; padding: 0; }
+.ph {
+  min-width: 0; padding: 8px; background: var(--surf);
+  border: 1px solid var(--line); border-radius: var(--r-s);
+  font-family: var(--fm); font-size: 12px;
+}
+/* Состояние читаем ИЗ АТРИБУТА, а не из класса: `.warn` — глобальная утилита
+   цвета текста, и `.ph.warn` цеплял бы её заодно с рамкой фазы. Атрибут
+   `data-state` на клетке уже есть — его же проверяют тесты полосы. */
+.ph[data-state="ok"] { border-color: var(--ok); }
+.ph[data-state="warn"] { border-color: var(--accent-tx); }
+.ph[data-state="fail"] { border-color: var(--err); }
+/* «Не было» гаснет, но остаётся на месте: это ответ, а не поломка. */
+.ph[data-state="skip"] { opacity: 0.55; }
+.ph .pt { margin: 5px 0 3px; color: var(--tx-3); font-variant-numeric: tabular-nums; }
+.ph .tt { color: var(--tx); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+/* Ссылка фазы («ждёт решения» → /inbox) обязана отличаться от обычного
+   заголовка: у ссылок панели `text-decoration: none`, и без пунктира клетка
+   выглядела бы одинаково кликабельной и некликабельной. */
+.ph a { text-decoration: underline dotted; text-underline-offset: 2px; }
+.ph a:hover { color: var(--accent); }
+.ph .note { margin-top: 4px; color: var(--tx-2); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+/* На телефоне шесть колонок превращаются в шесть букв — ломаем на два ряда по три. */
+@media (max-width: 900px) { .flight { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+.flow-reason .card-top { margin-bottom: 8px; }
+.flow-review { margin: 0 0 8px; font-style: italic; font-size: 13px; color: var(--tx-2); }
+.flow-key { font-family: var(--fm); font-size: 11px; color: var(--tx-3); overflow-wrap: anywhere; }
+
+/* Лента: одна колонка по времени, источник строки — чипом. */
+.flow-timeline { list-style: none; margin: 0; padding: 0; }
+.flow-timeline li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.flow-timeline li:last-child { border-bottom: none; }
+.flow-timeline .at { font-family: var(--fm); font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--tx-3); }
+.flow-timeline .tl-title { overflow-wrap: anywhere; }
+/* Деталь — сырой payload: моно, приглушённо и переносом, чтобы длинный JSON
+   не тянул страницу вбок. */
+.flow-timeline code { font-family: var(--fm); font-size: 11.5px; color: var(--tx-2); overflow-wrap: anywhere; min-width: 0; }

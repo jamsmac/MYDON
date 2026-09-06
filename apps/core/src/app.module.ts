@@ -31,6 +31,7 @@ import { RawModule } from "./raw/raw.module";
 import { RegistryModule } from "./registry/registry.module";
 import { OurvendModule } from "./ourvend/ourvend.module";
 import { RegistryImportModule } from "./registry-import/registry-import.module";
+import { RoutinesModule } from "./routines/routines.module";
 import { RulesModule } from "./rules/rules.module";
 import { SalesModule } from "./sales/sales.module";
 import { StockModule } from "./stock/stock.module";
@@ -49,6 +50,7 @@ import { VerificationModule } from "./verification/verification.module";
     ]),
     DbModule,
     AgentsModule,
+    RoutinesModule,
     DocsModule,
     AttachmentsModule,
     AuditModule,
