@@ -306,18 +306,34 @@ mydon/
 
 ### 6.3 Волна R — рутины: доска, хуки, плейбэк
 
-1. **Доска срабатываний** (`/crons`): все `desiredJobs` на таймлайне (Tashkent), следующий запуск,
-   последний исход (`executed / approval_requested / skipped:<reason>`), тумблеры паузы
-   (system-config). Виджет «ближайшие 24 ч» — на главную.
-2. **Хуки** в `config.yaml`: `hooks.pre_run` (свежесть источника, бюджет, пауза, для фабрики —
-   реестр «виденного») и `hooks.post_run` (`coach-review lite`, запись памяти). Реализация — вокруг
-   существующих шагов `runner.ts`.
-3. **Плейбэк прогона** (`/flows`): `trigger → skill → proposal → approval → execution → event` из
-   аудита и outbox; донор — Run Inspector из `mydon_1`.
-4. Локальные рутины Claude Desktop (уровень 1 из видео) MYDON не нужны: сервер уже 24/7; для
-   dev-контура — недельный «аудит репо» как scheduled task Claude Code → `memory/open-questions.md`.
-5. **Критерий:** владелец с телефона видит, что запустится в ближайшие 24 ч и почему навык
-   промолчал вчера, без SSH.
+1. **Доска срабатываний** (`/crons`) — **СДЕЛАНО 06.09.2026**: `GET /routines/board` (за
+   `RoutinesTokenGuard`, токен обязателен и на GET) собирает снимок расписаний рантайма
+   (`PUT /routines/snapshot`) и журнал (`agent_run`) в «ближайшие 24 ч» (croner, Asia/Tashkent,
+   ≤ 200 occurrences) и таблицу всех заданий с последним исходом; снимок старше 900 с (15 мин) —
+   «агенты не отчитывались». Тумблеры паузы — существующие `AGENTS_SCHEDULES_PAUSED`/
+   `AGENTS_TASKS_PAUSED`. Виджет «Ближайшие 24 ч» — на главной (`/mydon`).
+2. **Хуки** в `config.yaml` — **СДЕЛАНО 06.09.2026**: `hooks.pre_run`/`hooks.post_run`, реестр по
+   `kind` в `apps/agents/src/hooks.ts`, обёртка вокруг `runSkill` (`runner.ts`). Реализованы
+   `source_fresh` (свежесть источника по журналу), `quiet_hours` (тихие часы Ташкента) и
+   `coach_lite` (заметка по серии прогонов, без LLM). Пауза, бюджет, потолок действий, дельта-память
+   и LLM-ledger — встроенные проверки движка, хуками не дублируются. Неизвестный `kind` в `pre_run`
+   блокирует навык (`skipReason: hook_blocked`); `pre_run` действует только для планового прогона
+   (`trigger: cron`) и не на takeover уже начатой задачи — ruling волны R, см.
+   `docs/decisions/2026-09-06-wave-r-crons-flows.md`.
+3. **Плейбэк прогона** (`/flows`) — **СДЕЛАНО 06.09.2026**: `GET /routines/flows/:id` — ровно шесть
+   фаз в фиксированном порядке `trigger → skill → proposal → approval → execution → delivery` из
+   `agent_run` + `task`/`task_agent_execution`/`approval`/`outbox_delivery`/`event`/`audit_log`
+   (донор идеи полосы фаз — Run Inspector из `mydon_1`, код не переносился).
+4. Локальные рутины Claude Desktop (уровень 1 из видео) MYDON не нужны: сервер уже 24/7 —
+   **СДЕЛАНО 06.09.2026**: `tools/repo-audit.mjs` (только чтение) + `.claude/skills/repo-audit/`,
+   недельный scheduled task Claude Code (владелец ставит `/schedule`, понедельник 09:00
+   Asia/Tashkent) → секция в `memory/open-questions.md`. Первый прогон нашёл 22 спеки без решения и
+   16 планов без леджера — решает владелец.
+5. **Критерий — ВЫПОЛНЕН 06.09.2026:** владелец с телефона видит на `/crons`, что запустится в
+   ближайшие 24 ч, и на `/flows` — почему навык промолчал вчера, без SSH. Спека
+   `docs/superpowers/specs/2026-09-06-wave-r-crons-flows-design.md` (R-R-1…R-R-9), решения —
+   `docs/decisions/2026-09-06-wave-r-crons-flows.md`, рунбук — `docs/AGENTS_ACTIVATION.md` →
+   «Рутины: доска `/crons`, плейбэк `/flows`, хуки паспорта».
 
 ### 6.4 Волна A — приложения и командный центр
 
@@ -467,6 +483,16 @@ Scout (`untrusted.ts`, вердикт только с доказательств
 > RAG не включён (решение владельца, сценарий 2 рунбука). Спека
 > `docs/superpowers/specs/2026-09-06-wave-m-docs-brain-design.md`, решения с причинами —
 > `docs/decisions/2026-09-06-wave-m-docs-brain.md`. Дальше — волна R (доска срабатываний, хуки, плейбэк).
+
+> **06.09.2026:** волна R закрыта — журнал прогонов (`agent_run`, миграция `0088_agent_run.sql`,
+> пишет рантайм best effort, идемпотентно по `request_key`), доска рутин `/crons` (снимок расписаний
+> + `croner` для «следующего запуска», тумблеры паузы, виджет «Ближайшие 24 ч» на `/mydon`), плейбэк
+> прогона `/flows` (шесть фаз `trigger → skill → proposal → approval → execution → delivery`), хуки
+> паспорта `hooks.pre_run`/`hooks.post_run` (`source_fresh`, `quiet_hours`, `coach_lite`; неизвестный
+> `pre_run` блокирует навык) и еженедельный `tools/repo-audit.mjs`. Все маршруты `/routines/*` — за
+> сервисным токеном и на GET. Видно на доске `/crons`, плейбэк — на `/flows`. Спека
+> `docs/superpowers/specs/2026-09-06-wave-r-crons-flows-design.md`, решения с причинами —
+> `docs/decisions/2026-09-06-wave-r-crons-flows.md`.
 
 1. `CLAUDE.md` → главный роутер (цели, карта) + `routers/{globerent,vendhub,personal,mydon,ventures,dev}.md`
    + `memory/` — без кода, 2–3 часа.
