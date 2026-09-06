@@ -17,6 +17,7 @@ const passport = {
     "shared/kb/globerent/lead-criteria.md",
   ],
   web_sources: [{ name: "Xarid", url: "https://xarid.uzex.uz" }, { name: "без url" }, "мусор"],
+  hooks: { pre_run: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }] },
   skills: ["qualify-lead", "intake-classify"],
 };
 
@@ -32,6 +33,17 @@ describe("passportFields — паспорт → поля карточки (зе�
     assert.equal(f.description, undefined);
   });
 
+  it("hooks едут как в паспорте (snake_case) — Core хранит как есть, рантайм понимает обе формы", () => {
+    const f = passportFields(passport);
+    assert.deepEqual(f.hooks, { pre_run: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }] });
+    // Раздела нет или он нечитаем — не отправляем ничего: об этом ругается
+    // check:passports, а карточка владельца мусор принимать не должна.
+    assert.equal("hooks" in passportFields({ name: "a" }), false);
+    assert.equal("hooks" in passportFields({ hooks: "каждый вторник" }), false);
+    assert.equal("hooks" in passportFields({ hooks: ["quiet_hours"] }), false);
+    assert.equal("hooks" in passportFields({ hooks: null }), false);
+  });
+
   it("isKbPagePath: только shared/**.md без ..", () => {
     assert.equal(isKbPagePath("shared/kb/globerent/faq.md"), true);
     assert.equal(isKbPagePath("shared/kb/../x.md"), false);
@@ -45,19 +57,24 @@ describe("planPatch — заполнить пустое, объединить sk
   const fields = passportFields(passport);
 
   it("пустая карточка получает все поля паспорта; skills — объединение", () => {
-    const row = { name: "globerent-sales", mission: null, nonGoals: [], breakGlass: [], kbPages: [], webSources: [], skills: ["qualify-lead"] };
+    // `hooks: {}` — ровно то, что кладёт в карточку сид (default столбца):
+    // «хуков нет», а не значение владельца. Иначе хук паспорта не доехал бы
+    // до существующей карточки никогда, и рантайм (он грузит агентов ИЗ базы)
+    // не охранял бы ни одного прогона.
+    const row = { name: "globerent-sales", mission: null, nonGoals: [], breakGlass: [], kbPages: [], webSources: [], hooks: {}, skills: ["qualify-lead"] };
     const { patch, kept } = planPatch(fields, row);
     assert.deepEqual(kept, []);
-    assert.deepEqual(Object.keys(patch).sort(), ["breakGlass", "kbPages", "mission", "nonGoals", "skills", "webSources"]);
+    assert.deepEqual(Object.keys(patch).sort(), ["breakGlass", "hooks", "kbPages", "mission", "nonGoals", "skills", "webSources"]);
+    assert.deepEqual(patch.hooks, fields.hooks, "хуки уходят в PATCH ровно как в паспорте");
     assert.deepEqual(patch.skills, ["qualify-lead", "intake-classify"], "навык из паспорта добавлен, порядок базы сохранён");
     assert.equal("description" in patch, false, "паспорт без description ничего не заполняет");
   });
 
   it("заданное в базе не переписывается, а печатается как расхождение", () => {
-    const row = { mission: "Своя миссия владельца", nonGoals: ["своё"], breakGlass: ["draft-quote"], kbPages: [], webSources: [], skills: ["qualify-lead", "intake-classify", "owner-added"] };
+    const row = { mission: "Своя миссия владельца", nonGoals: ["своё"], breakGlass: ["draft-quote"], kbPages: [], webSources: [], hooks: { preRun: [{ kind: "coach_lite" }] }, skills: ["qualify-lead", "intake-classify", "owner-added"] };
     const { patch, kept } = planPatch(fields, row);
     assert.deepEqual(Object.keys(patch).sort(), ["kbPages", "webSources"], "пустые поля заполнены, заданные — нет");
-    assert.deepEqual(kept.map((k) => k.field), ["mission", "nonGoals"]);
+    assert.deepEqual(kept.map((k) => k.field), ["mission", "nonGoals", "hooks"]);
     assert.equal("skills" in patch, false, "навык владельца owner-added остаётся, паспортные уже есть");
   });
 
@@ -70,7 +87,7 @@ describe("planPatch — заполнить пустое, объединить sk
   });
 
   it("идемпотентность: карточка, равная паспорту, даёт пустой patch", () => {
-    const row = { description: undefined, mission: fields.mission, nonGoals: fields.nonGoals, breakGlass: fields.breakGlass, kbPages: fields.kbPages, webSources: fields.webSources, ideaChannels: [], skills: [...fields.skills] };
+    const row = { description: undefined, mission: fields.mission, nonGoals: fields.nonGoals, breakGlass: fields.breakGlass, kbPages: fields.kbPages, webSources: fields.webSources, ideaChannels: [], hooks: fields.hooks, skills: [...fields.skills] };
     const { patch, kept } = planPatch(fields, row);
     assert.deepEqual(patch, {});
     assert.deepEqual(kept, []);

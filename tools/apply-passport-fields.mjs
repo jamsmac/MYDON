@@ -7,15 +7,16 @@
  * СУЩЕСТВУЮЩИХ агентов не трогает, иначе каждое обновление системы затирало бы
  * правки владельца в панели. Обратная сторона: поля, появившиеся в паспортах
  * ПОСЛЕ первого посева — mission, non_goals, break_glass, web_sources, kb_pages,
- * новые skills, — в базу не попадают. Карточка живёт без миссии, llm-навык
- * идёт к модели без KB, break-glass пуст, а в панели этого не видно.
+ * hooks, новые skills, — в базу не попадают. Карточка живёт без миссии, llm-навык
+ * идёт к модели без KB, break-glass пуст, хук паспорта не охраняет ни одного
+ * прогона (рантайм грузит агентов ИЗ базы), а в панели этого не видно.
  *
  * Правило. База — источник истины владельца. Скрипт ЗАПОЛНЯЕТ ПУСТОЕ и
  * ДОБАВЛЯЕТ навыки, но не переписывает то, что уже задано, — если явно не
  * попросить `--overwrite=<поле,поле>`:
  *
  *   заполняются, если в базе пусто:  description, mission, nonGoals, breakGlass,
- *                                     webSources, kbPages, ideaChannels
+ *                                     webSources, kbPages, ideaChannels, hooks
  *   объединяются (база ∪ паспорт):    skills
  *   НЕ трогаются никогда:             status, autonomyDefault, schedule, budget*
  *     — статус и тир меняет владелец в панели (тир вообще отдельным owner-
@@ -48,7 +49,7 @@ const CORE = process.env.CORE_API_URL ?? "http://127.0.0.1:3001";
 const TOKEN = process.env.SERVICE_TOKEN ?? "";
 
 /** Поля, которые заполняются только при пустом значении в базе. */
-export const FILL_FIELDS = ["description", "mission", "nonGoals", "breakGlass", "webSources", "kbPages", "ideaChannels"];
+export const FILL_FIELDS = ["description", "mission", "nonGoals", "breakGlass", "webSources", "kbPages", "ideaChannels", "hooks"];
 /** Поля-списки, которые объединяются: база ∪ паспорт. */
 export const MERGE_FIELDS = ["skills"];
 
@@ -74,6 +75,15 @@ export function passportFields(raw) {
   const webSources = (Array.isArray(raw.web_sources) ? raw.web_sources : [])
     .filter((s) => s && typeof s.name === "string" && typeof s.url === "string")
     .map((s) => ({ name: s.name, url: s.url }));
+  // Хуки уезжают в базу КАК В ПАСПОРТЕ (snake_case): Core хранит их как есть,
+  // а рантайм читает обеими формами (`hooksFromCore`). Разбирать их здесь
+  // второй реализацией — заводить развилку, на которой охрана однажды молча
+  // разойдётся с `parseHooks`. Нечитаемый раздел не отправляем вовсе: пусть
+  // о нём ругается `check:passports`, а не карточка владельца.
+  const hooks =
+    raw.hooks !== null && typeof raw.hooks === "object" && !Array.isArray(raw.hooks)
+      ? raw.hooks
+      : undefined;
   return {
     description: text(raw.description),
     mission: text(raw.mission),
@@ -82,12 +92,20 @@ export function passportFields(raw) {
     ideaChannels: strings(raw.idea_channels),
     kbPages,
     webSources,
+    ...(hooks !== undefined ? { hooks } : {}),
     skills: strings(raw.skills),
   };
 }
 
 const isEmpty = (v) =>
-  v === undefined || v === null || (typeof v === "string" && v.trim() === "") || (Array.isArray(v) && v.length === 0);
+  v === undefined ||
+  v === null ||
+  (typeof v === "string" && v.trim() === "") ||
+  (Array.isArray(v) && v.length === 0) ||
+  // Карточка после сида несёт `hooks: {}` (default столбца) — это «хуков нет»,
+  // а не заданное владельцем значение. Без этой ветки поле паспорта считалось бы
+  // расхождением и не доехало бы до существующей карточки НИКОГДА.
+  (typeof v === "object" && Object.keys(v).length === 0);
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /**
