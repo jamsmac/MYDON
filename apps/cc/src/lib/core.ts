@@ -1307,6 +1307,76 @@ export interface SkillDeck {
 }
 
 /**
+ * Состояние агента прямо сейчас (волна A2, R-A2-1) — словарь Core
+ * (`apps/core/src/agents/agent-state.ts`), а не второй набор слов панели.
+ *
+ * ЭТО НЕ ПАСПОРТНЫЙ СТАТУС. `passportStatus` (`active | paused | draft |
+ * deprecated`) говорит, введён ли агент в работу; `state` — занят ли он в эту
+ * минуту, и при системной паузе задач он `paused` у ВСЕХ, независимо от
+ * карточки (решение Р-2).
+ */
+export type AgentState = "working" | "blocked" | "paused" | "idle";
+
+/** Строка сетки агентов: состояние словами плюс то, из чего оно выведено. */
+export interface AgentStatusRow {
+  name: string;
+  business: string;
+  passportStatus: string;
+  state: AgentState;
+  /** Одна фраза по-русски: почему состояние такое. Считает Core, панель цитирует. */
+  reason: string;
+  /**
+   * `since`, `taskId`, `skill`, `lastRun` Core кладёт в JSON ТОЛЬКО когда они
+   * есть (спред по условию, `agents.service.ts`), поэтому они необязательные,
+   * а не nullable: пообещать `| null` значило бы соврать про провод.
+   */
+  since?: string;
+  taskId?: string;
+  skill?: string;
+  lastRun?: { at: string; outcome: string; skipReason: string | null; reason: string };
+}
+
+export interface AgentsStatus {
+  tz: string;
+  now: string;
+  /** Системные паузы: их источник — настройка, а не карточка агента (Р-2). */
+  paused: { schedules: boolean; tasks: boolean };
+  agents: AgentStatusRow[];
+}
+
+/**
+ * Три состояния источника (волна A2, R-A2-2, решение Р-4).
+ *
+ * `unknown` — НЕ разновидность `ok`: прогонов нет вовсе, монитор выключен или
+ * источник не настроен. Ноль прогонов и ноль ошибок выглядят одинаково
+ * спокойно, и на панели они обязаны различаться и словом, и видом.
+ */
+export type HealthState = "ok" | "bad" | "unknown";
+
+export interface AppsHealthRow {
+  key: string;
+  title: string;
+  state: HealthState;
+  /** Одна фраза по-русски: что именно известно об источнике. */
+  summary: string;
+  /** Цитата источника (итог прогона, ошибка доставки) — показывается текстом. */
+  detail?: string;
+  /** Момент последнего события строки (ISO); отсутствует, когда его честно нет. */
+  at?: string;
+  href?: string;
+}
+
+/** Ответ `GET /apps/health`: разделы по природе связи (решение Р-3). */
+export interface AppsHealth {
+  tz: string;
+  now: string;
+  /** «Снаружи» — то, что реально ходит в чужую систему. */
+  outside: AppsHealthRow[];
+  /** «Внутренние мониторы» — читают только Core: их здоровье — здоровье данных. */
+  internal: AppsHealthRow[];
+}
+
+/**
  * Заголовки записи в Core: тип тела и внутренний токен.
  *
  * Единственное место в панели, где подставляется SERVICE_TOKEN. Экспортируется
@@ -2755,6 +2825,23 @@ export const core = {
   agents: () => get<AgentCard[]>("/agents"),
   /** Витрина навыков: что агенты вообще умеют (R-SD-2). */
   skillDeck: () => get<SkillDeck>("/agents/skills"),
+  /**
+   * Состояние всех агентов одним запросом (R-A2-1). Считает Core: занятость
+   * выводится из задач и лизы claim, и повторять это правило в панели значило
+   * бы держать третью копию рядом с worker'ом и Core.
+   *
+   * `owner: true` — маршрут гейтит личный контур (`excludePersonal`), и без
+   * второго пояса при включённом ужесточении сетка владельца молча теряла бы
+   * его же личных агентов, а сводка «работают N» считала бы не всех. Токен
+   * проставится, только если серверный контекст подтвердил владельца.
+   */
+  agentsStatus: () => get<AgentsStatus>("/agents/status", { owner: true }),
+  /**
+   * Здоровье приложений одной дверью (R-A2-2, решение Р-6). До этого маршрута
+   * панели пришлось бы ходить по шести адресам и повторять правила оценки —
+   * вторая формулировка «не оценить» разошлась бы с первой на пустых данных.
+   */
+  appsHealth: () => get<AppsHealth>("/apps/health"),
 
   // ── Задачи ──
   // Личный контур (R-P5-4/R-P5-6): `/tasks?domain=personal` Core гейтит тем же

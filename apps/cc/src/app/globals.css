@@ -370,6 +370,63 @@ h1, h2, h3 { font-family: var(--fh); letter-spacing: -0.01em; margin: 0; }
    --agent, единственный внепалитровый токен (метка ИИ-исполнителя). */
 .av8 { display: inline-block; width: 16px; height: 16px; color: var(--agent); vertical-align: -3px; }
 .av8 svg { display: block; width: 100%; height: 100%; }
+/* Четвёртое состояние лампы — «не оценить» (волна A2, решение Р-4).
+   Отличается ФОРМОЙ, а не оттенком серого: квадрат пустой, со штриховкой.
+   Заливка значит «ответ есть», пустой контур — «ответа нет», и от «пропущено:
+   повода нет» (`.run-led.muted`, тоже залитый серый) он отличается даже на
+   монохромном экране. Зелёного (`--ok`) в нём нет ни в одной теме: ноль
+   прогонов не имеет права выглядеть как успешный прогон. */
+.led.unknown { color: var(--tx-3); }
+.led.unknown::before {
+  background: repeating-linear-gradient(45deg, currentColor 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* Сетка агентов на главной (волна A2, R-A2-4): двенадцать агентов на одном
+   экране — лицо, имя, состояние и причина. Плитка тревоги (`.tile`) для них не
+   годится: у агента нет числа, у него есть имя, лицо и причина. */
+.aggrid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.agtile {
+  display: flex; gap: 10px; align-items: flex-start; color: inherit;
+  background: var(--surf); border: 1px solid var(--line-strong); border-radius: var(--r-s);
+  box-shadow: 4px 4px 0 var(--line); padding: 12px 13px;
+}
+/* Лицо крупнее базовых 16px: в сетке агента находят глазом, а не чтением. */
+.agtile .av8 { width: 26px; height: 26px; flex: 0 0 auto; vertical-align: 0; }
+.agtile .agb { flex: 1; min-width: 0; }
+.agtile .agn { font-family: var(--fm); font-size: 12.5px; font-weight: 600; color: var(--tx); overflow-wrap: anywhere; }
+.agtile .agled { margin-top: 4px; }
+.agtile .agr { font-size: 11.5px; color: var(--tx-2); margin-top: 4px; line-height: 1.35; }
+/* Затык — левая полоса, как у `.trow.hot`: строку видно, не читая слов. */
+.agtile[data-state="blocked"] { border-left: 3px solid var(--err); }
+/* Пауза гаснет — та же грамматика, что у выключенного расписания
+   (`.crons-table tr.is-paused`) и у фазы, которой не было
+   (`.ph[data-state="skip"]`): состояние известно, но сам агент не проснётся. */
+.agtile[data-state="paused"] { opacity: 0.62; }
+/* Молчание ИЗ-ЗА ПОЛОМКИ (модель не ответила, ledger недоступен, исход
+   неизвестен, остановлено хуком) весит больше, чем «повода нет»: иначе
+   сломанный маршрут к модели неделю выглядит спокойным простоем. */
+.agtile[data-attention="true"] { border-left: 3px solid var(--accent-tx); }
+@media (max-width: 640px) { .aggrid { grid-template-columns: 1fr; } }
+
+/* Панель «Приложения» (волна A2, R-A2-3): строка источника — состояние словом,
+   заголовок, причина, время последнего события. */
+.apps-section > .hint { margin: -4px 0 10px; }
+.approw {
+  display: flex; align-items: flex-start; gap: 12px; color: inherit;
+  background: var(--surf); border: 1px solid var(--line); border-radius: var(--r-s);
+  padding: 12px 14px; margin-bottom: 8px;
+}
+.approw .led { margin-top: 2px; }
+.approw .ab { flex: 1; min-width: 0; }
+.approw .an { font-size: 14px; font-weight: 600; }
+.approw .as { font-size: 12.5px; color: var(--tx-2); margin-top: 2px; }
+.approw .aw { font-family: var(--fm); font-size: 11.5px; color: var(--tx-3); white-space: nowrap; }
+.approw[data-state="bad"] { border-left: 3px solid var(--err); }
+/* «Не оценить» — пунктирная рамка: пунктир в этой системе уже значит «данных
+   нет» (`.empty`). Строка при этом ОСТАЁТСЯ на месте: исчезнувшая читалась бы
+   как «всё прошло». */
+.approw[data-state="unknown"] { border-style: dashed; }
 /* Нажатый чип-фильтр. Намеренно без оранжевого: на витрине навыков заливок
    акцента ноль, «выбрано» показывает граница контрола, а не цвет бренда. */
 .chips .chip[aria-pressed="true"] { color: var(--tx); border-color: var(--line-strong); background: var(--surf); }

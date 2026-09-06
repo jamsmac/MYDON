@@ -106,6 +106,17 @@ describe("витрина навыков", () => {
     expect(mocks.refresh).toHaveBeenCalled();
   });
 
+  it("выключенный агент НЕ горит зелёным «всё в норме»", () => {
+    // Дефект дизайн-кита (`states.html` §1.1): `paused → .led.idle` красил
+    // выключенного агента тем же зелёным, что значит «повода нет, всё в
+    // норме». Слово рядом говорило «выключен» — цвет говорил обратное.
+    render(<SkillsDeck deck={deck([item({ agentStatus: "paused" })])} />);
+
+    const лампа = screen.getByText("выключен");
+    expect(лампа).toHaveClass("led");
+    expect(лампа).not.toHaveClass("idle");
+  });
+
   it("у выключенного агента запуск недоступен и подсказывает, что сделать", () => {
     render(<SkillsDeck deck={deck([item({ agentStatus: "paused" })])} />);
 
