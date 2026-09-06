@@ -740,17 +740,15 @@ async function main(): Promise<void> {
           `[ourvend:sync] ${r.status} — автоматов ${r.machinesOk}/${r.machinesTotal}, слотов ${r.slots}, продаж ${r.productSales}${детектор}, ${r.durationMs} мс` +
           (r.error ? ` — ${r.error}` : "");
         // Журнал прогона НЕ закрылся (finish упал даже после повтора):
-        // запись сбора висит «running», сторож застоя её не увидит. НЕ
-        // рапортуем чистый успех — отдельная error-строка, чтобы застревание
-        // было видно в логе крона, а не только во внутреннем error-логе finish.
-        // Ту же строку отдаём причиной прогона: исход остаётся `executed` —
-        // сбор состоялся, не закрылся только его собственный журнал.
+        // запись сбора висит «running», сторож застоя её не увидит. Такой
+        // прогон НЕ успех: он не доказан собственным журналом, и предъявлять
+        // его хуку `source_fresh` как подтверждённый сбор нельзя. Печать берёт
+        // на себя journaledMonitor — при `ok: false` это error-строка.
         if (r.journalError) {
-          const застряло = `${итог} — ЖУРНАЛ НЕ ЗАКРЫТ («running»): ${r.journalError}`;
-          console.error(застряло);
-          return застряло;
+          return { ok: false, reason: `${итог} — ЖУРНАЛ НЕ ЗАКРЫТ («running»): ${r.journalError}` };
         }
-        return итог;
+        // `partial` — часть автоматов собрана: данные обновились, прогон засчитан.
+        return { ok: r.status !== "failed", reason: итог };
       });
       monitorStates.push({ name: "ourvend:sync", cron: vendingCron, enabled: true });
       console.log(`Сбор вендинга (ourvend:sync) включён: "${vendingCron}" (${TZ}).`);
@@ -789,11 +787,13 @@ async function main(): Promise<void> {
     try {
       scheduleMonitor("ourvend:accounting", accountingCron, core, async () => {
         const r = await runOurvendAccounting(core, vendingConfig);
-        return (
-          `[ourvend:accounting] ${r.status} — автоматов ${r.machinesOk}/${r.machinesTotal}, ` +
-          `дней продаж ${r.saleDays} (строк ${r.saleRows}), остатков ${r.stockRows}, ${r.durationMs} мс` +
-          (r.error ? ` — ${r.error}` : "")
-        );
+        return {
+          ok: r.status !== "failed",
+          reason:
+            `[ourvend:accounting] ${r.status} — автоматов ${r.machinesOk}/${r.machinesTotal}, ` +
+            `дней продаж ${r.saleDays} (строк ${r.saleRows}), остатков ${r.stockRows}, ${r.durationMs} мс` +
+            (r.error ? ` — ${r.error}` : ""),
+        };
       });
       monitorStates.push({ name: "ourvend:accounting", cron: accountingCron, enabled: true });
       console.log(
@@ -828,10 +828,14 @@ async function main(): Promise<void> {
     try {
       scheduleMonitor("coffee:monitor", coffeeMonitorCron, core, async () => {
         const r = await runCoffeeMonitor(core);
-        return (
-          `[coffee:monitor] недолив ${r.underfillEvents}, расхождение ${r.anomalyEvents}` +
-          (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : "")
-        );
+        // Непрочитанный источник — провал прогона, даже если второй источник
+        // ответил: «расхождений нет» из половины данных ничего не значит.
+        return {
+          ok: r.errors.length === 0,
+          reason:
+            `[coffee:monitor] недолив ${r.underfillEvents}, расхождение ${r.anomalyEvents}` +
+            (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : ""),
+        };
       });
       monitorStates.push({ name: "coffee:monitor", cron: coffeeMonitorCron, enabled: true });
       console.log(
@@ -869,10 +873,12 @@ async function main(): Promise<void> {
     try {
       scheduleMonitor("maintenance:monitor", maintCron, core, async () => {
         const r = await runMaintenanceMonitor(core);
-        return (
-          `[maintenance:monitor] задач ${r.tasks}, просрочек ${r.overdue}, невзятых ${r.unclaimed}` +
-          (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : "")
-        );
+        return {
+          ok: r.errors.length === 0,
+          reason:
+            `[maintenance:monitor] задач ${r.tasks}, просрочек ${r.overdue}, невзятых ${r.unclaimed}` +
+            (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : ""),
+        };
       });
       monitorStates.push({ name: "maintenance:monitor", cron: maintCron, enabled: true });
       console.log(`Монитор графиков обслуживания: ${maintCron} (${TZ}).`);
@@ -900,10 +906,12 @@ async function main(): Promise<void> {
     try {
       scheduleMonitor("globerent:monitor", grMonitorCron, core, async () => {
         const r = await runGloberentMonitor(core);
-        return (
-          `[globerent:monitor] без ГТД ${r.unitsNoGtd}, оплачен-не-закрыт ${r.contractsPaidUnclosed}` +
-          (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : "")
-        );
+        return {
+          ok: r.errors.length === 0,
+          reason:
+            `[globerent:monitor] без ГТД ${r.unitsNoGtd}, оплачен-не-закрыт ${r.contractsPaidUnclosed}` +
+            (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : ""),
+        };
       });
       monitorStates.push({ name: "globerent:monitor", cron: grMonitorCron, enabled: true });
       console.log(
@@ -940,10 +948,16 @@ async function main(): Promise<void> {
       scheduleMonitor("fx:refresh", fxRefreshCron, core, async () => {
         const r = await core.refreshFx();
         const skipped = r.skipped.map((s) => `${s.currency} — ${s.reason}`).join(", ");
-        return (
+        const итог =
           `[fx:refresh] обновлено: ${r.updated.join(", ") || "ничего"}` +
-          (skipped ? `; пропущено: ${skipped}` : "")
-        );
+          (skipped ? `; пропущено: ${skipped}` : "");
+        // Неизменившийся курс попадает в `skipped` — это НЕ сбой. А вот пустой
+        // ответ (ни обновлений, ни пропусков) означает, что Core не рассмотрел
+        // ни одной валюты: засчитав такой прогон, мы предъявили бы хуку
+        // `source_fresh` пустоту как свежий курс. Недоступный ЦБ Core отдаёт
+        // ошибкой — она прилетает сюда исключением.
+        const ok = r.updated.length > 0 || r.skipped.length > 0;
+        return { ok, reason: ok ? итог : `${итог} — Core не вернул ни одной валюты` };
       });
       monitorStates.push({ name: "fx:refresh", cron: fxRefreshCron, enabled: true });
       console.log(`Автокурс ЦБ РУз (fx:refresh) включён: "${fxRefreshCron}" (${TZ}).`);
