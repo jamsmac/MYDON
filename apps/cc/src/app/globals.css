@@ -620,6 +620,14 @@ a.prow:hover { border-color: var(--accent-line); }
 .rows { background: var(--surf); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .row { display: flex; gap: 12px; align-items: center; padding: 12px 15px; border-bottom: 1px solid var(--line-soft); font-size: 14px; width: 100%; text-align: left; color: inherit; }
 .row:last-child { border-bottom: none; }
+/* `.row` писался под <div> и <a>: заливки и рамки он не задаёт вовсе. У
+   <button> их ставит сам браузер (серый `buttonface`, рамка, в Safari — своя
+   отделка), и строка-кнопка выезжала бы системной кнопкой поверх тёмного
+   экрана. Сброс живёт рядом с самим примитивом, а не в блоке конкретного
+   экрана: следующий, кто сделает строку кнопкой, в ту же яму не попадёт.
+   Шрифт не трогаем — семейство наследуется правилом для button/input выше,
+   размер задаёт сам `.row`, а `font: inherit` сбил бы его до 15px. */
+button.row { -webkit-appearance: none; appearance: none; background: none; border: 0; border-bottom: 1px solid var(--line-soft); }
 a.rowlink:hover { background: var(--surf-2); }
 .row .t { flex: 1; min-width: 0; }
 .row .t b { font-weight: 600; }
@@ -1556,7 +1564,14 @@ a.rowlink:hover { background: var(--surf-2); }
 .docs-tree .row .t b { font-size: 13px; font-weight: 500; }
 .docs-tree .row .t small { font-family: var(--fm); font-size: 11px; color: var(--tx-3); }
 /* Метка личного документа: содержимое Core отдаёт только владельцу. */
-.docs-personal { margin-left: 7px; font-family: var(--fu); font-style: normal; color: var(--hot); }
+/* «Личное» — не тревога, а свойство документа: раньше метка красилась `--hot`,
+   тем же токеном, что и просроченные задачи и расхождения, и владелец читал
+   бы её как «здесь что-то не так». Нейтральная пилюля семейства `.tag`
+   (токены --tx-3/--line) на инлайновом размере: сообщает, не пугая. */
+.docs-personal {
+  margin-left: 7px; font-family: var(--fu); font-style: normal; font-size: 10.5px;
+  color: var(--tx-3); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px;
+}
 .docs-tree .row[aria-current="page"] { background: var(--accent-soft); }
 .docs-tree .row[aria-current="page"] .t b { color: var(--accent-tx); font-weight: 600; }
 
@@ -1616,7 +1631,10 @@ article.doc .doc-img { color: var(--tx-3); font-style: italic; }
 }
 .brain-search { margin-bottom: 10px; }
 .brain-search input { height: 38px; font-size: 13.5px; }
-.brain-legend { padding: 0 0 10px; }
+/* Легенда — СВОЙ ряд, не `.chips`: тот примитив рисует фильтры (курсор-палец,
+   перекраска при наведении), а ключ цветов ни на что не нажимается. */
+.brain-legend { display: flex; gap: 7px; flex-wrap: wrap; margin: 0 0 12px; }
+.brain-legend .chip { cursor: default; }
 /* Кружок вида — та же метка, что и на графе: чип объясняет цвет холста.
    Цвета берём теми же токенами, что и `styleOf` в brain-layout.ts. */
 .brain-kind::before {
@@ -1637,10 +1655,17 @@ article.doc .doc-img { color: var(--tx-3); font-style: italic; }
 .brain-canvas {
   position: relative; height: min(58vh, 560px); margin-bottom: 14px;
   background: var(--surf); border: 1px solid var(--line-strong); border-radius: var(--r-s);
-  box-shadow: 4px 4px 0 var(--line); overflow: hidden; touch-action: none;
+  box-shadow: 4px 4px 0 var(--line); overflow: hidden;
+  /* НЕ `none`: на телефоне холст занимает пол-экрана, и полный запрет жестов
+     означал бы, что палец на графе не листает страницу — до списка результатов
+     под ним было бы не добраться. Вертикальную прокрутку и щипок отдаём
+     браузеру, горизонтальное движение остаётся перетаскиванием графа. */
+  touch-action: pan-y pinch-zoom;
 }
+/* `cursor` дальше ведёт сам компонент (над узлом — «нажми», над пустым местом
+   — «тащи»), поэтому правила `:active` здесь нет: инлайновый стиль всё равно
+   победил бы её, и вышло бы два хозяина у одного свойства. */
 .brain-canvas canvas { display: block; max-width: 100%; cursor: grab; }
-.brain-canvas canvas:active { cursor: grabbing; }
 .brain-results-title { margin: 0 0 8px; }
 .brain-results .row { padding: 9px 12px; }
 .brain-results .row .t { overflow-wrap: anywhere; }

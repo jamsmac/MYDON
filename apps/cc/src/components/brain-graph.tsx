@@ -43,6 +43,13 @@ const MAX_RESULTS = 30;
 const LABELS_ALL_BELOW = 40;
 /** Сколько тиков прогнать разом, когда анимация выключена в системе. */
 const SETTLE_TICKS = 240;
+/**
+ * Сколько пикселей считать дрожанием руки, а не перетаскиванием.
+ *
+ * Без порога любой клик по узлу с микросдвигом мыши читался как «тащил», и
+ * карточка не открывалась — попасть по узлу удавалось не с первого раза.
+ */
+const DRAG_SLOP = 4;
 
 /**
  * Экран «Мозг»: граф знаний репозитория (R-M-6).
@@ -69,6 +76,15 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
   // нельзя: пересоздание симуляции на каждый клик раскидывало бы узлы заново.
   const selectedRef = useRef<string | null>(selectedId);
   const redrawRef = useRef<(() => void) | null>(null);
+  /**
+   * Камера и координаты узлов ЖИВУТ ВНЕ эффекта.
+   *
+   * Эффект симуляции пересоздаётся на каждое изменение подграфа, то есть на
+   * каждую букву в поиске. Держи их внутри — и набор «vendhub» шесть раз
+   * сбрасывал бы масштаб к единице и раскидывал уже разложенный граф заново.
+   */
+  const cameraRef = useRef({ k: 1, x: 0, y: 0 });
+  const positionsRef = useRef(new Map<string, { x: number; y: number }>());
 
   // Тяжёлую часть (пересборку графа и симуляции) откладываем — так поле ввода
   // остаётся отзывчивым на графе в две сотни узлов, а список результатов
@@ -136,14 +152,20 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const nodes: SimNode[] = view.nodes.map((n) => ({ id: n.id, node: n }));
+    // Узлы садим на ПРЕЖНИЕ координаты: те же узлы после сужения поиска
+    // должны остаться там, где владелец их видел, а не прыгать по экрану.
+    const nodes: SimNode[] = view.nodes.map((n) => {
+      const prev = positionsRef.current.get(n.id);
+      return prev ? { id: n.id, node: n, x: prev.x, y: prev.y } : { id: n.id, node: n };
+    });
+    const fresh = nodes.filter((n) => typeof n.x !== "number").length;
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const links: SimLink[] = view.edges
       .filter((e) => byId.has(e.from) && byId.has(e.to))
       .map((e) => ({ source: e.from, target: e.to, kind: e.kind }));
 
     let size = { w: box.clientWidth || FALLBACK_SIZE.w, h: box.clientHeight || FALLBACK_SIZE.h };
-    const camera = { k: 1, x: 0, y: 0 };
+    const camera = cameraRef.current;
 
     const sim = forceSimulation(nodes)
       .force(
@@ -158,6 +180,10 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
     // Тики гоняем сами: свой цикл умеет останавливаться на осевшем графе и
     // соблюдать `prefers-reduced-motion`, а встроенный таймер d3 — нет.
     sim.stop();
+    // Все узлы пришли с координатами — греем чуть-чуть, только чтобы
+    // подтянулись новые связи. Иначе d3 стартует с alpha = 1 и раскидывает
+    // разложенный граф на каждой букве поиска.
+    sim.alpha(fresh === 0 ? 0.15 : 1);
 
     const css = getComputedStyle(document.documentElement);
     // Запасной цвет — не литерал, а вычисленный цвет текста страницы: он сам
@@ -257,13 +283,20 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
 
     const resize = (): void => {
       const dpr = window.devicePixelRatio || 1;
-      size = { w: box.clientWidth || FALLBACK_SIZE.w, h: box.clientHeight || FALLBACK_SIZE.h };
-      canvas.width = Math.round(size.w * dpr);
-      canvas.height = Math.round(size.h * dpr);
-      canvas.style.width = `${size.w}px`;
-      canvas.style.height = `${size.h}px`;
-      sim.force("center", forceCenter(size.w / 2, size.h / 2));
-      sim.alpha(0.3);
+      const w = box.clientWidth || FALLBACK_SIZE.w;
+      const h = box.clientHeight || FALLBACK_SIZE.h;
+      const changed = w !== size.w || h !== size.h;
+      size = { w, h };
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      sim.force("center", forceCenter(w / 2, h / 2));
+      // Перегреваем симуляцию только при НАСТОЯЩЕМ изменении холста:
+      // ResizeObserver зовёт колбэк и сразу после observe(), то есть на каждом
+      // пересоздании эффекта, — без этой проверки любая буква в поиске снова
+      // раскидывала бы граф, и посадка узлов на прежние места была бы напрасной.
+      if (changed) sim.alpha(Math.max(sim.alpha(), 0.3));
       settle();
     };
 
@@ -301,10 +334,16 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
 
     let dragging: SimNode | null = null;
     let panFrom: { x: number; y: number } | null = null;
+    let downAt: { x: number; y: number } | null = null;
     let moved = false;
+
+    /** Ушли ли дальше дрожания руки — только тогда это перетаскивание. */
+    const past = (e: PointerEvent): boolean =>
+      downAt !== null && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > DRAG_SLOP;
 
     const onDown = (e: PointerEvent): void => {
       moved = false;
+      downAt = { x: e.clientX, y: e.clientY };
       const hit = nodeAt(toGraph(e));
       canvas.setPointerCapture(e.pointerId);
       if (hit) {
@@ -317,10 +356,12 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
         }
       } else {
         panFrom = { x: e.clientX - camera.x, y: e.clientY - camera.y };
+        canvas.style.cursor = "grabbing";
       }
     };
     const onMove = (e: PointerEvent): void => {
       if (dragging) {
+        if (!moved && !past(e)) return;
         moved = true;
         const p = toGraph(e);
         dragging.fx = p.x;
@@ -332,11 +373,16 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
         return;
       }
       if (panFrom) {
+        if (!moved && !past(e)) return;
         moved = true;
         camera.x = e.clientX - panFrom.x;
         camera.y = e.clientY - panFrom.y;
         draw();
+        return;
       }
+      // Мышь просто гуляет по холсту: курсор говорит, что под ней — узел
+      // (нажми) или пустое место (тащи холст).
+      canvas.style.cursor = nodeAt(toGraph(e)) ? "pointer" : "grab";
     };
     const onUp = (e: PointerEvent): void => {
       if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
@@ -352,6 +398,8 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
         setSelectedId(null);
       }
       panFrom = null;
+      downAt = null;
+      canvas.style.cursor = "grab";
     };
     const onWheel = (e: WheelEvent): void => {
       // Слушатель нативный и НЕ пассивный: React вешает wheel пассивно, и
@@ -369,6 +417,27 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
       draw();
     };
 
+    /**
+     * Смена темы — перерисовать холст.
+     *
+     * `getComputedStyle` возвращает ЖИВОЙ объект: значения токенов он отдаёт
+     * уже новые сам. Не хватает только кадра — на осевшем графе цикла нет, и
+     * после переключения темы граф остался бы нарисованным старой палитрой.
+     * Слушаем оба источника: `data-theme` на <html> (явный выбор,
+     * <ConsoleTheme/>) и системную настройку.
+     */
+    const themeWatcher = new MutationObserver(draw);
+    themeWatcher.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    const scheme =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-color-scheme: dark)")
+        : null;
+    const onScheme = (): void => draw();
+    scheme?.addEventListener("change", onScheme);
+
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
@@ -378,8 +447,17 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
       redrawRef.current = null;
+      // Запоминаем, где узлы осели: следующий прогон эффекта (буква в поиске)
+      // посадит их туда же, и граф не прыгнет.
+      for (const item of nodes) {
+        if (typeof item.x === "number" && typeof item.y === "number") {
+          positionsRef.current.set(item.id, { x: item.x, y: item.y });
+        }
+      }
       sim.stop();
       observer.disconnect();
+      themeWatcher.disconnect();
+      scheme?.removeEventListener("change", onScheme);
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
@@ -401,7 +479,10 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
           />
         </div>
 
-        <div className="chips brain-legend" role="group" aria-label="Виды узлов">
+        {/* Не `.chips`: тот примитив — ряд ФИЛЬТРОВ (курсор-палец, перекраска
+            при наведении), а легенда ключ цветов и ни на что не нажимается —
+            обещать клик, которого нет, хуже, чем не иметь наведения вовсе. */}
+        <div className="brain-legend" role="group" aria-label="Виды узлов">
           {legend.map(([kind, n]) => (
             <span key={kind} className="chip brain-kind" data-kind={kind}>
               {kindLabel(kind)} <b className="num">{n}</b>

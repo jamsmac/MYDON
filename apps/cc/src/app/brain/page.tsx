@@ -58,7 +58,16 @@ export default async function BrainPage({
           <span className="mono">routers/</span> связывать нечего.
         </div>
       ) : (
-        <BrainGraph graph={graph} focus={focus} />
+        /*
+         * `key` по `focus` — не украшение, а лечение известной ловушки:
+         * `?focus=` компонент читает В ИНИЦИАЛИЗАТОРАХ `useState`, а те
+         * выполняются только при монтировании. При переходе внутри App Router
+         * (`/brain?focus=A` → `/brain?focus=B`) React переиспользует тот же
+         * экземпляр, и владелец второй раз подряд смотрел бы на узел A. Ключ
+         * заставляет пересобрать компонент; заодно сбрасывается камера — что
+         * для прыжка на другой узел как раз правильно.
+         */
+        <BrainGraph key={focus ?? ""} graph={graph} focus={focus} />
       )}
     </>
   );

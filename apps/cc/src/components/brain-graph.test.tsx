@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { DocsGraph } from "../lib/core";
+import { stubCanvasEnvironment } from "../test/canvas";
 import { BrainGraph } from "./brain-graph";
 
 /**
@@ -34,55 +35,10 @@ const graph: DocsGraph = {
 };
 
 /**
- * jsdom не рисует: у canvas нет 2D-контекста, нет ResizeObserver и нет
- * matchMedia. Подменяем ровно то, чем пользуется компонент, — иначе тест
- * падал бы на отрисовке, ничего не сказав о поведении экрана.
+ * jsdom не рисует — заглушки холста, ResizeObserver и matchMedia общие с
+ * тестом страницы (`app/brain/page.test.tsx`).
  */
-beforeAll(() => {
-  const ctx = {
-    canvas: { width: 800, height: 520 },
-    fillStyle: "",
-    strokeStyle: "",
-    lineWidth: 1,
-    globalAlpha: 1,
-    font: "",
-    textAlign: "left",
-    textBaseline: "alphabetic",
-    clearRect: vi.fn(),
-    save: vi.fn(),
-    restore: vi.fn(),
-    translate: vi.fn(),
-    scale: vi.fn(),
-    setTransform: vi.fn(),
-    beginPath: vi.fn(),
-    moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    arc: vi.fn(),
-    fill: vi.fn(),
-    stroke: vi.fn(),
-    fillText: vi.fn(),
-    measureText: vi.fn(() => ({ width: 40 })),
-  };
-  HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-
-  class Stub {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
-  }
-  globalThis.ResizeObserver = Stub as unknown as typeof ResizeObserver;
-
-  window.matchMedia = vi.fn(() => ({
-    matches: false,
-    media: "",
-    onchange: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })) as unknown as typeof window.matchMedia;
-});
+beforeAll(stubCanvasEnvironment);
 
 const результаты = (): string[] =>
   screen
@@ -188,6 +144,16 @@ describe("Граф знаний: карточка узла", () => {
     expect(card).toHaveTextContent("направление");
     expect(screen.queryByRole("link", { name: /читать документ/i })).not.toBeInTheDocument();
     expect(previewDoc).not.toHaveBeenCalledWith("domain:vendhub");
+  });
+
+  it("поиск не закрывает уже открытую карточку", async () => {
+    // Узел ищется в ПОЛНОМ графе, а не в показанном: сузив поиск, владелец
+    // не должен терять карточку, которую только что открыл.
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: /^parts-keeper/ }));
+    await user.type(screen.getByLabelText(/поиск/i), "деплой");
+    expect(screen.getByRole("complementary", { name: /узел/i })).toHaveTextContent("parts-keeper");
   });
 
   it("Esc закрывает карточку", async () => {

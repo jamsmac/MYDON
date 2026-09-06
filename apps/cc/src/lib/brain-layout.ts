@@ -57,8 +57,13 @@ const NODE_STYLE: Readonly<Record<GraphNodeKind, NodeStyle>> = {
  * сетке упоминаний. Поэтому упоминания — самая тонкая и самая прозрачная
  * линия, структура — самая плотная.
  *
- * Цвета — только линейные токены: рёбра не текст и не бренд, им хватает
- * `--line-strong` (3,26:1 в светлой) и `--line` для шума.
+ * Цвета — только линейные токены: рёбра не текст и не бренд.
+ *
+ * Все три плотности на ОДНОМ токене `--line-strong` (3,26:1 в светлой,
+ * #6b7a5b в тёмной), разводит их прозрачность. `--line` для упоминаний не
+ * годится: это токен внутренних разделителей (#2c3324 на тёмном холсте
+ * #18211a), и на четверти прозрачности 478 рёбер из 522 просто не видно —
+ * граф выглядел бы горстью несвязанных точек.
  */
 const STRUCTURAL: EdgeStyle = { token: "--line-strong", width: 1.4, alpha: 0.85 };
 const EDGE_STYLE: Readonly<Record<GraphEdgeKind, EdgeStyle>> = {
@@ -69,7 +74,7 @@ const EDGE_STYLE: Readonly<Record<GraphEdgeKind, EdgeStyle>> = {
   reads_kb: STRUCTURAL,
   describes: STRUCTURAL,
   links: { token: "--line-strong", width: 1, alpha: 0.55 },
-  mentions: { token: "--line", width: 0.5, alpha: 0.22 },
+  mentions: { token: "--line-strong", width: 0.7, alpha: 0.3 },
 };
 
 /** Вид узла словами — легенда и карточка объясняют граф по-русски, а не кодами. */
