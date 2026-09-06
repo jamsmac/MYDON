@@ -66,7 +66,9 @@ export interface AppsHealthView {
  * Итог чтения источника: значение либо ЯРЛЫК того, что не прочиталось.
  *
  * Именно ярлык, а не текст исключения: сообщение драйвера несёт хост и
- * пользователя базы, а маршрут читается без токена (постановление ветки).
+ * пользователя базы (постановление ветки). Маршрут с тех пор закрыт токеном
+ * (`ReadTokenGuard`, круг починок C-1), но ярлык остаётся: сервисный токен
+ * держат ещё бот и агенты, а строка подключения к базе Core им ни к чему.
  */
 type Чтение<T> = { ok: true; value: T } | { ok: false; источник: string };
 
@@ -77,6 +79,9 @@ interface МониторСнимка extends MonitorSnapshotLite {
 interface СчётДоставок {
   counts: Record<string, number>;
   oldestPendingAt: Date | null;
+  lastSentAt: Date | null;
+  lastSkippedAt: Date | null;
+  lastFailedAt: Date | null;
 }
 
 @Injectable()
@@ -214,10 +219,16 @@ export class AppsHealthService {
     if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
     if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
     const h = ourvend.value;
+    const снимок = мониторы.get(face.key) ?? null;
+    const lastRun = последние.get(face.key) ?? null;
     return rowFromOurvendAccounting(face, {
       snapshotPublished: снимокЕсть,
-      monitor: мониторы.get(face.key) ?? null,
-      lastRun: последние.get(face.key) ?? null,
+      monitor: снимок,
+      lastRun,
+      // Проверка молчания — ТА ЖЕ, что у обычного монитора (круг починок, C-5).
+      // Своего сторожа у этой строки не было: `snapshotStale` вне режима `own`
+      // жёстко `false`, и мёртвый монитор учёта выглядел зелёным.
+      silentAfter: молчитПосле(снимок, lastRun),
       health: {
         snapshotStale: h.snapshotStale,
         salesLagShownH: h.salesLagH,
@@ -238,6 +249,12 @@ export class AppsHealthService {
    *
    * Возраст самой старой неразобранной строки берём тут же (`min` по группе),
    * а не вторым запросом: два раунда к одной таблице ради одного поля.
+   *
+   * И `max(completed_at)` ПО КАЖДОМУ ИСХОДУ (круг починок, A-2): по одним
+   * счётчикам «в таблице есть `skipped`» и «в таблице есть `dead`» вердикт
+   * врал в обе стороны — таблица бесконечна, ретенция её не чистит. Правило
+   * строки — «случилось ли это после последнего успеха», и порядок исходов
+   * стоит ровно столько же, сколько сами числа.
    */
   private async счётДоставок(): Promise<СчётДоставок> {
     const rows = await this.db
@@ -245,6 +262,7 @@ export class AppsHealthService {
         status: outboxDelivery.status,
         n: sql<number>`count(*)::int`,
         oldest: sql<Date | string | null>`min(${outboxDelivery.createdAt})`,
+        newest: sql<Date | string | null>`max(${outboxDelivery.completedAt})`,
       })
       .from(outboxDelivery)
       .where(eq(outboxDelivery.destination, NOTION_DESTINATION))
@@ -252,18 +270,27 @@ export class AppsHealthService {
 
     const counts: Record<string, number> = {};
     let oldestPendingAt: Date | null = null;
+    let lastSentAt: Date | null = null;
+    let lastSkippedAt: Date | null = null;
+    let lastFailedAt: Date | null = null;
     for (const r of rows) {
       counts[r.status] = Number(r.n);
+      const newest = дата(r.newest);
+      if (r.status === "sent") lastSentAt = позднее(lastSentAt, newest);
+      if (r.status === "skipped") lastSkippedAt = позднее(lastSkippedAt, newest);
+      // `dead` и `unknown` — один терминальный отказ на два статуса: в обоих
+      // случаях запись до Notion не дошла (у `unknown` — неизвестно, дошла ли).
+      if (r.status === "dead" || r.status === "unknown") lastFailedAt = позднее(lastFailedAt, newest);
       if (r.status !== "pending" && r.status !== "dispatching") continue;
-      const at = r.oldest instanceof Date ? r.oldest : typeof r.oldest === "string" ? new Date(r.oldest) : null;
+      const at = дата(r.oldest);
       // Битую дату отбрасываем здесь: ниже она ушла бы в `toISOString()` и
       // уронила бы ВЕСЬ ответ на строке, которая всего лишь показывает возраст.
-      if (at === null || !Number.isFinite(at.getTime())) continue;
+      if (at === null) continue;
       if (oldestPendingAt === null || at.getTime() < oldestPendingAt.getTime()) {
         oldestPendingAt = at;
       }
     }
-    return { counts, oldestPendingAt };
+    return { counts, oldestPendingAt, lastSentAt, lastSkippedAt, lastFailedAt };
   }
 
   /**
@@ -289,6 +316,19 @@ const ИЗВЕСТНЫЕ_МОНИТОРЫ = new Set<string>([
   FACES.ourvendAccounting.key,
   ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => face.key),
 ]);
+
+/** Момент из СУБД в `Date`; битое или пустое значение — `null`, а не NaN-дата. */
+function дата(value: Date | string | null): Date | null {
+  const at = value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
+  return at !== null && Number.isFinite(at.getTime()) ? at : null;
+}
+
+/** Более поздний из двух моментов (любой может отсутствовать). */
+function позднее(a: Date | null, b: Date | null): Date | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return b.getTime() > a.getTime() ? b : a;
+}
 
 /** Ярлык не прочитавшегося источника (не текст исключения) либо `null`. */
 function отказ(чтение: Чтение<unknown>): string | null {
@@ -355,6 +395,11 @@ function ledgerСловами(m: Awaited<ReturnType<LlmLedgerService["monitoring
     provider: m.catalogPrice.provider,
     model: m.catalogPrice.model,
     latestCompletedAt: m.latestCompleted?.completedAt ?? null,
+    // ИСХОД, А НЕ ТОЛЬКО ДАТА (круг починок, A-3): `latestCompleted` принимает
+    // и `failed`, и без статуса строка объявляла «вызовы проходят» над
+    // отозванным ключом провайдера.
+    latestCompletedStatus: m.latestCompleted?.status ?? null,
+    latestCompletedOutcome: m.latestCompleted?.outcome ?? null,
     stuckCount: m.stuckReservations.count,
     openCircuits: m.openCircuits.length,
     failuresToday: m.failuresToday.count,

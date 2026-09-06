@@ -18,6 +18,7 @@ import {
   type OurvendAccountingInput,
   type OurvendSyncHealthLite,
   type OurvendSyncInput,
+  type OutboxRowInput,
 } from "./apps-health";
 
 const NOW = new Date("2026-09-06T09:00:00.000Z");
@@ -69,6 +70,8 @@ function учёт(over: Partial<OurvendAccountingInput> = {}): OurvendAccounting
     monitor: { enabled: true },
     lastRun: { at: new Date(NOW.getTime() - ЧАС), outcome: "executed", reason: "[ourvend:accounting] success" },
     health: ЗДОРОВЬЕ_УЧЁТА,
+    // По умолчанию монитор тикает: второй плановый запуск ещё впереди.
+    silentAfter: new Date(NOW.getTime() + ЧАС),
     now: NOW,
     ...over,
   };
@@ -81,6 +84,8 @@ function ledger(over: Partial<LlmMonitoringLite> = {}): LlmMonitoringLite {
     provider: "anthropic",
     model: "claude-sonnet-4",
     latestCompletedAt: new Date(NOW.getTime() - ЧАС).toISOString(),
+    latestCompletedStatus: "settled",
+    latestCompletedOutcome: null,
     stuckCount: 0,
     openCircuits: 0,
     failuresToday: 0,
@@ -286,28 +291,97 @@ describe("Здоровье приложений: OurVend", () => {
     assert.equal(row.state, "ok");
     assert.match(row.summary, /зеркал/);
   });
+
+  it("МОНИТОР УЧЁТА ВСТАЛ В РЕЖИМЕ `stock` — «сломано», а не «сверка сходится» (C-5)", () => {
+    // Штатный откат катовера: `OURVEND_ACCOUNTING_SOURCE=stock`. Тогда
+    // `snapshotStale` жёстко `false` по построению
+    // (`ourvend-health.service.ts`: `источник === "own" && …`), режим паритета
+    // — `mirror`, окно сверки 7 суток ещё держит `checked > 0` и `stockOk`.
+    // Без проверки молчания строка отдавала `ok` над мёртвым монитором.
+    const row = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        health: {
+          snapshotStale: false,
+          salesLagShownH: 1,
+          parity: { mode: "mirror", checked: 34, mismatches: 0, stockOk: true, stockChecked: 12 },
+        },
+        lastRun: { at: new Date(NOW.getTime() - 48 * ЧАС), outcome: "executed", reason: "[ourvend:accounting] success" },
+        silentAfter: new Date(NOW.getTime() - ЧАС),
+      }),
+    );
+    assert.equal(row.state, "bad");
+    assert.match(row.summary, /молчит/);
+  });
+
+  it("монитор учёта тикает — молчание не выдумывается: тот же вход, `silentAfter` впереди", () => {
+    // Граница правила: без неё «сломано» выше проходило бы по любой причине.
+    const row = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        health: {
+          snapshotStale: false,
+          salesLagShownH: 1,
+          parity: { mode: "mirror", checked: 34, mismatches: 0, stockOk: true, stockChecked: 12 },
+        },
+        lastRun: { at: new Date(NOW.getTime() - 48 * ЧАС), outcome: "executed", reason: "[ourvend:accounting] success" },
+        silentAfter: new Date(NOW.getTime() + ЧАС),
+      }),
+    );
+    assert.equal(row.state, "ok");
+  });
+
+  it("расписание монитора учёта неизвестно (`silentAfter: null`) — о молчании судить нечем", () => {
+    const row = rowFromOurvendAccounting(FACES.ourvendAccounting, учёт({ silentAfter: null }));
+    assert.equal(row.state, "ok");
+  });
 });
+
+/**
+ * Очередь доставок наружу.
+ *
+ * ВЕРДИКТ СУДИТ ПО ПОРЯДКУ ИСХОДОВ, А НЕ ПО НАЛИЧИЮ СТАТУСА (круг починок,
+ * A-2): таблица `outbox_delivery` бесконечна и ретенцией не чистится, поэтому
+ * «в ней есть skipped» и «в ней есть dead» — не утверждения о сегодняшнем дне.
+ */
+function доставки(over: Partial<OutboxRowInput> = {}): OutboxRowInput {
+  return {
+    counts: {},
+    oldestPendingAt: null,
+    lastSentAt: null,
+    lastSkippedAt: null,
+    lastFailedAt: null,
+    now: NOW,
+    ...over,
+  };
+}
+
+/** Момент «столько-то часов назад» — для порядка исходов. */
+const часНазад = (n: number): Date => new Date(NOW.getTime() - n * ЧАС);
 
 describe("Здоровье приложений: очередь доставок и heartbeat бота", () => {
   it("строк доставки нет вовсе — «не оценить»: «доставок ещё не было», а не «очередь пуста»", () => {
-    const row = rowFromOutbox(FACES.notion, { counts: {}, oldestPendingAt: null, now: NOW });
+    const row = rowFromOutbox(FACES.notion, доставки());
     assert.equal(row.state, "unknown");
     assert.match(row.summary, /доставок ещё не было/);
   });
 
   it("очередь разобрана (ничего не ждёт) — «в порядке» и так и сказано", () => {
-    const row = rowFromOutbox(FACES.notion, { counts: { sent: 12 }, oldestPendingAt: null, now: NOW });
+    const row = rowFromOutbox(FACES.notion, доставки({ counts: { sent: 12 }, lastSentAt: часНазад(1) }));
     assert.equal(row.state, "ok");
     assert.match(row.summary, /очередь разобрана/);
     assert.match(row.summary, /12/);
   });
 
   it("в очереди есть строки — «в порядке», но число названо", () => {
-    const row = rowFromOutbox(FACES.notion, {
-      counts: { sent: 12, pending: 2 },
-      oldestPendingAt: new Date(NOW.getTime() - 60_000),
-      now: NOW,
-    });
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({
+        counts: { sent: 12, pending: 2 },
+        oldestPendingAt: new Date(NOW.getTime() - 60_000),
+        lastSentAt: часНазад(1),
+      }),
+    );
     assert.equal(row.state, "ok");
     assert.match(row.summary, /в очереди 2/, "число в очереди обязано быть видно");
   });
@@ -316,18 +390,42 @@ describe("Здоровье приложений: очередь доставок
     // `skipped` в этом репозитории означает ровно одно: конфигурации Notion
     // нет (`apps/agents/src/outbox-dispatcher.ts`). Зелёная строка тут
     // показывала бы «доставлено 0» рядом с «всего 42».
-    const row = rowFromOutbox(FACES.notion, { counts: { skipped: 42 }, oldestPendingAt: null, now: NOW });
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({ counts: { skipped: 42 }, lastSkippedAt: часНазад(1) }),
+    );
     assert.equal(row.state, "unknown");
     assert.match(row.summary, /источник не настроен/);
     assert.match(row.summary, /42/, "число пропущенных обязано стоять рядом с «всего»");
   });
 
-  it("часть пропущена, часть доставлена — «в порядке», но пропуски названы числом", () => {
-    const row = rowFromOutbox(FACES.notion, {
-      counts: { sent: 10, skipped: 3 },
-      oldestPendingAt: null,
-      now: NOW,
-    });
+  it("КЛЮЧ УБРАЛИ У РАБОТАВШЕГО ИСТОЧНИКА — «не настроен», а не «доставлено 200» (A-2)", () => {
+    // Прежнее правило требовало `пропущено === всего` и молчало ровно в том
+    // случае, ради которого писалось: 200 старых успешных доставок навсегда
+    // отменяли вывод «не настроен», и строка зеленела над источником, куда
+    // сегодня не ушло ничего и не уйдёт больше никогда.
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({
+        counts: { sent: 200, skipped: 50 },
+        lastSentAt: часНазад(48),
+        lastSkippedAt: часНазад(1),
+      }),
+    );
+    assert.equal(row.state, "unknown");
+    assert.match(row.summary, /источник не настроен/);
+    assert.match(row.detail ?? "", /после последней успешной доставки не ушло ни одной/);
+  });
+
+  it("пропуски СТАРЫЕ, доставки пошли — «в порядке»: настройку вернули", () => {
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({
+        counts: { sent: 10, skipped: 3 },
+        lastSkippedAt: часНазад(48),
+        lastSentAt: часНазад(1),
+      }),
+    );
     assert.equal(row.state, "ok");
     assert.match(row.summary, /пропущено 3/);
     assert.match(row.detail ?? "", /13/, "сумма по статусам обязана сходиться с «всего»");
@@ -336,39 +434,64 @@ describe("Здоровье приложений: очередь доставок
   it("очередь не разбирается дольше часа — «сломано», хотя ни одна строка не отказала", () => {
     // Диспетчер не падает, а молчит: статусы остаются `pending` навсегда.
     const порог = OUTBOX_STUCK_MS;
-    const свежая = rowFromOutbox(FACES.notion, {
-      counts: { pending: 500, sent: 12 },
-      oldestPendingAt: new Date(NOW.getTime() - порог),
-      now: NOW,
-    });
+    const свежая = rowFromOutbox(
+      FACES.notion,
+      доставки({
+        counts: { pending: 500, sent: 12 },
+        oldestPendingAt: new Date(NOW.getTime() - порог),
+        lastSentAt: часНазад(1),
+      }),
+    );
     assert.equal(свежая.state, "ok", "ровно на пороге очередь ещё разбирается");
 
-    const вставшая = rowFromOutbox(FACES.notion, {
-      counts: { pending: 500, sent: 12 },
-      oldestPendingAt: new Date(NOW.getTime() - порог - 60_000),
-      now: NOW,
-    });
+    const вставшая = rowFromOutbox(
+      FACES.notion,
+      доставки({
+        counts: { pending: 500, sent: 12 },
+        oldestPendingAt: new Date(NOW.getTime() - порог - 60_000),
+        lastSentAt: часНазад(1),
+      }),
+    );
     assert.equal(вставшая.state, "bad");
     assert.match(вставшая.summary, /не разбирается/);
     assert.match(вставшая.summary, /500/);
   });
 
   it("доставка в тупике (dead) — «сломано», даже когда остальные ушли", () => {
-    const row = rowFromOutbox(FACES.notion, {
-      counts: { sent: 100, dead: 1 },
-      oldestPendingAt: null,
-      now: NOW,
-    });
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({ counts: { sent: 100, dead: 1 }, lastSentAt: часНазад(2), lastFailedAt: часНазад(1) }),
+    );
     assert.equal(row.state, "bad");
     assert.match(row.summary, /тупик/);
   });
 
   it("доставка с неизвестным исходом — «сломано»: повтор мог задвоить запись", () => {
-    const row = rowFromOutbox(FACES.notion, {
-      counts: { sent: 100, unknown: 2 },
-      oldestPendingAt: null,
-      now: NOW,
-    });
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({ counts: { sent: 100, unknown: 2 }, lastSentAt: часНазад(2), lastFailedAt: часНазад(1) }),
+    );
+    assert.equal(row.state, "bad");
+  });
+
+  it("СТАРЫЙ тупик, за которым доставки пошли, красным не держит — но и не пропадает (A-2)", () => {
+    // Вторая половина той же причины: по бесконечной выборке одна давняя
+    // `dead` красила строку вечно. Состояние отвечает про сегодня, а запись,
+    // не дошедшая до Notion, остаётся названа — иначе «зелено» прочиталось бы
+    // как «всё дошло».
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({ counts: { sent: 100, dead: 1 }, lastFailedAt: часНазад(48), lastSentAt: часНазад(1) }),
+    );
+    assert.equal(row.state, "ok");
+    assert.match(row.detail ?? "", /в тупике 1/);
+    assert.match(row.detail ?? "", /разбери вручную/);
+  });
+
+  it("успешных не было ни разу, а тупик есть — «сломано» независимо от моментов", () => {
+    // Страховка на случай строк без `completed_at`: порядок исходов неизвестен,
+    // но «ни одной успешной доставки и есть тупик» — это не «в порядке».
+    const row = rowFromOutbox(FACES.notion, доставки({ counts: { dead: 3 }, lastFailedAt: null }));
     assert.equal(row.state, "bad");
   });
 
@@ -426,6 +549,34 @@ describe("Здоровье приложений: ledger моделей", () => {
   it("предохранитель провайдера открыт — «сломано»", () => {
     const row = rowFromLlm(FACES.llm, { monitoring: ledger({ openCircuits: 1 }), now: NOW });
     assert.equal(row.state, "bad");
+  });
+
+  it("ОТОЗВАННЫЙ КЛЮЧ ПРОВАЙДЕРА: последний вызов отказал — не «вызовы проходят» (A-3)", () => {
+    // Предохранитель при обычной ошибке провайдера НЕ открывается
+    // (`monitoringOpenCircuits` строится по аномалиям модели), зависших
+    // резервов нет, потолок цел, а `latestCompleted` принимает и `failed` —
+    // значит все прежние проверки проходили, и строка объявляла «вызовы
+    // проходят, отказов сегодня 137» при 401 на каждый вызов.
+    const row = rowFromLlm(FACES.llm, {
+      monitoring: ledger({
+        latestCompletedStatus: "failed",
+        latestCompletedOutcome: "provider_error",
+        failuresToday: 137,
+      }),
+      now: NOW,
+    });
+    assert.equal(row.state, "bad");
+    assert.doesNotMatch(row.summary, /вызовы проходят/);
+    assert.match(row.summary, /отказал/);
+    assert.match(row.summary, /provider_error/);
+  });
+
+  it("последний вызов прошёл — «в порядке», даже если отказы сегодня были", () => {
+    // Граница: голое число отказов за день красным по-прежнему не красит —
+    // один 429 не авария, и красный на нём приучил бы не смотреть на красное.
+    const row = rowFromLlm(FACES.llm, { monitoring: ledger({ failuresToday: 3 }), now: NOW });
+    assert.equal(row.state, "ok");
+    assert.match(row.summary, /вызовы проходят/);
   });
 });
 
