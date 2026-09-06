@@ -180,6 +180,17 @@ describe("Экран «Прогоны»", () => {
     expect(screen.getByLabelText("Исход")).toHaveValue("executed");
   });
 
+  it("чужой исход в адресе: в Core не уходит, экран объясняет, что фильтр не применён", async () => {
+    // С волны A1 Core отвечает 400 на неизвестный исход. Если бы страница
+    // отправила его как есть, закладка с опечаткой давала бы «нет связи»
+    // вместо журнала — то есть авария вместо подсказки.
+    render(await FlowsPage({ searchParams: Promise.resolve({ outcome: "ok" }) }));
+
+    expect(flows).toHaveBeenCalledWith({ limit: "50" });
+    expect(screen.getByText("Фильтр по исходу не применён")).toBeInTheDocument();
+    expect(screen.getByLabelText("Исход")).toHaveValue("");
+  });
+
   it("журнал пуст — экран говорит, что прогонов ещё не было", async () => {
     flows.mockImplementation(async () => ({ runs: [] }));
     render(await FlowsPage({ searchParams: Promise.resolve({}) }));
