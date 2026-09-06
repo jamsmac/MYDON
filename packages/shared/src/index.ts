@@ -166,3 +166,6 @@ export * from "./llm-ledger";
 
 /** Subscription child не должен унаследовать credentials платных backend-ов. */
 export * from "./subscription-env";
+
+/** Исходы прогонов навыков/мониторов — словарь причин для доски рутин (волна R). */
+export * from "./agent-runs";
