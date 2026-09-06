@@ -53,7 +53,26 @@ export function parseHooks(raw: unknown): { hooks: AgentHooks; problems: string[
     return v;
   };
 
-  const preRunEntries = list(o.pre_run, "pre_run");
+  /**
+   * Один раздел в двух написаниях: `pre_run` из паспорта и `preRun`, который
+   * владелец видит в карточке Core. Читаем оба: иначе скопированная из карточки
+   * форма дала бы пустые списки И пустой `problems` — check:passports промолчал
+   * бы ровно там, где паспорт просил охрану. Берём ПЕРВОЕ НЕПУСТОЕ (та же
+   * причина, что и в `hooksFromCore`: `preRun: []` рядом с заполненным
+   * `pre_run` не должен съесть охрану), а нечитаемое любое из двух написаний
+   * делает нечитаемым весь раздел.
+   */
+  const section = (snake: "pre_run" | "post_run", camel: "preRun" | "postRun"): unknown[] | null => {
+    if (o[snake] !== undefined && o[camel] !== undefined) {
+      problems.push(`hooks: заданы и ${snake}, и ${camel} — оставь одно написание`);
+    }
+    const first = list(o[snake], snake);
+    const second = list(o[camel], camel);
+    if (first === null || second === null) return null;
+    return first.length > 0 ? first : second;
+  };
+
+  const preRunEntries = section("pre_run", "preRun");
   if (preRunEntries === null) hooks.preRun.push({ kind: "unknown", raw: "pre_run", broken: true });
   for (const entry of preRunEntries ?? []) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
@@ -93,7 +112,7 @@ export function parseHooks(raw: unknown): { hooks: AgentHooks; problems: string[
 
   // post_run — разбор ПОСЛЕ работы: нечитаемый пункт ничего не охраняет, поэтому
   // только замечание, без блокировки.
-  for (const entry of list(o.post_run, "post_run") ?? []) {
+  for (const entry of section("post_run", "postRun") ?? []) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
       problems.push(`hooks.post_run: пункт «${String(entry)}» должен быть объектом с полем kind`);
       continue;
@@ -113,9 +132,11 @@ export function parseHooks(raw: unknown): { hooks: AgentHooks; problems: string[
  *
  * Агенты грузятся из Core, а не из файлов, — без этой обратной дороги хуки
  * паспорта доехали бы до базы и там и остались. Форма в базе — уже разобранная
- * (`{preRun, postRun}`), но проверяем её заново: битую запись превращаем в
- * `unknown` (то есть в БЛОКИРОВКУ), а не в «хука нет». Потерянный параметр не
- * должен молча отключить проверку, ради которой хук и заводили.
+ * (`{preRun, postRun}`), но проверяем её заново ПО ТОМУ ЖЕ правилу, что и
+ * `parseHooks` в файле: битую запись превращаем в `unknown` (то есть в
+ * БЛОКИРОВКУ), а не в «хука нет». Потерянный параметр, нечитаемый раздел и
+ * пункт без `kind` не должны молча отключить проверку, ради которой хук и
+ * заводили, — и тем более здесь, где агентов читает прод.
  *
  * Понимаем и запись паспорта (`pre_run`/`max_age_hours`): `POST/PATCH /agents`
  * принимает `hooks` как произвольный объект, и владелец может вставить в
@@ -124,28 +145,56 @@ export function parseHooks(raw: unknown): { hooks: AgentHooks; problems: string[
 export function hooksFromCore(raw: unknown): AgentHooks | undefined {
   if (raw === undefined || raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const src = raw as { preRun?: unknown; postRun?: unknown; pre_run?: unknown; post_run?: unknown };
-  const items = (v: unknown): Record<string, unknown>[] =>
-    Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null) : [];
+  /** Записи раздела; `null` — сам раздел нечитаем (не список). */
+  const items = (v: unknown): unknown[] | null => {
+    if (v === undefined || v === null) return [];
+    return Array.isArray(v) ? v : null;
+  };
   /**
    * Из двух написаний берём ПЕРВОЕ НЕПУСТОЕ, а не первое присутствующее:
    * `preRun: []` рядом с заполненным `pre_run` (карточку правили текстом
    * config.yaml поверх разобранной формы) не должен молча съесть охрану —
    * `??` пропустил бы пустой список дальше, потому что `[]` не `null`.
+   * Нечитаемое любое из двух написаний делает нечитаемым весь раздел (`null`).
    */
-  const pick = (a: unknown, b: unknown): Record<string, unknown>[] => {
+  const pick = (a: unknown, b: unknown): unknown[] | null => {
     const first = items(a);
-    return first.length > 0 ? first : items(b);
+    const second = items(b);
+    if (first === null || second === null) return null;
+    return first.length > 0 ? first : second;
   };
   const o = { preRun: pick(src.preRun, src.pre_run), postRun: pick(src.postRun, src.post_run) };
 
-  const preRun: PreRunHook[] = o.preRun.map((h) => {
-    const kind = String(h.kind ?? "");
+  const preRun: PreRunHook[] = [];
+  if (o.preRun === null) {
+    // Fail closed, ровно как `parseHooks` на том же паспорте: нечитаемый
+    // раздел — это «охрана есть, но движок её не понял», а не «хуков нет».
+    // Прод читает агентов ИМЕННО из базы, и молчаливое «нет хуков» здесь
+    // отключало бы проверку, ради которой хук и заводили.
+    console.warn("[hooks] карточка агента: pre_run не список — навык блокируется");
+    preRun.push({ kind: "unknown", raw: "pre_run", broken: true });
+  }
+  for (const entry of o.preRun ?? []) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      console.warn(`[hooks] карточка агента: пункт pre_run «${String(entry)}» не объект — навык блокируется`);
+      preRun.push({ kind: "unknown", raw: String(entry) });
+      continue;
+    }
+    const h = entry as Record<string, unknown>;
+    if (typeof h.kind !== "string") {
+      console.warn(`[hooks] карточка агента: пункт pre_run без kind («${String(h.kind)}») — навык блокируется`);
+      preRun.push({ kind: "unknown", raw: h.kind === undefined || h.kind === null ? "без kind" : String(h.kind) });
+      continue;
+    }
+    const kind = h.kind;
     const maxAge = typeof h.maxAgeHours === "number" ? h.maxAgeHours : h.max_age_hours;
     if (kind === "source_fresh" && typeof h.run === "string" && RUN_REF.test(h.run) && typeof maxAge === "number" && maxAge > 0) {
-      return { kind, run: h.run, maxAgeHours: maxAge };
+      preRun.push({ kind, run: h.run, maxAgeHours: maxAge });
+      continue;
     }
     if (kind === "quiet_hours" && typeof h.from === "string" && HHMM.test(h.from) && typeof h.to === "string" && HHMM.test(h.to)) {
-      return { kind, from: h.from, to: h.to };
+      preRun.push({ kind, from: h.from, to: h.to });
+      continue;
     }
     // `broken` — ТОЛЬКО знакомый kind с битыми параметрами: «битые параметры
     // хука moon_phase» отправили бы владельца искать опечатку в параметрах
@@ -154,17 +203,32 @@ export function hooksFromCore(raw: unknown): AgentHooks | undefined {
     // (`kind: "unknown"`), не переоцениваем: её признак сохраняем как есть.
     const wasUnknown = kind === "unknown";
     const broken = wasUnknown ? h.broken === true : kind === "source_fresh" || kind === "quiet_hours";
-    return {
+    preRun.push({
       kind: "unknown",
       raw: wasUnknown && typeof h.raw === "string" ? h.raw : kind,
       ...(broken ? { broken: true as const } : {}),
-    };
-  });
-  const postRun: PostRunHook[] = o.postRun.map((h) => {
+    });
+  }
+
+  // post_run — разбор ПОСЛЕ работы: он ничего не охраняет, поэтому нечитаемое
+  // здесь только предупреждает и пропускается (то же правило, что в parseHooks).
+  const postRun: PostRunHook[] = [];
+  if (o.postRun === null) console.warn("[hooks] карточка агента: post_run не список — раздел пропущен");
+  for (const entry of o.postRun ?? []) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      console.warn(`[hooks] карточка агента: пункт post_run «${String(entry)}» не объект — пропущен`);
+      continue;
+    }
+    const h = entry as Record<string, unknown>;
+    // Не-строковый kind здесь не отдельный случай: он всё равно не `coach_lite`,
+    // а значит уйдёт в `unknown` — и в предупреждении назовёт себя как есть.
     const kind = String(h.kind ?? "");
-    if (kind === "coach_lite") return { kind };
-    return { kind: "unknown", raw: kind === "unknown" && typeof h.raw === "string" ? h.raw : kind };
-  });
+    if (kind === "coach_lite") {
+      postRun.push({ kind });
+      continue;
+    }
+    postRun.push({ kind: "unknown", raw: kind === "unknown" && typeof h.raw === "string" ? h.raw : kind });
+  }
 
   return preRun.length === 0 && postRun.length === 0 ? undefined : { preRun, postRun };
 }

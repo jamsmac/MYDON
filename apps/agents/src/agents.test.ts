@@ -1087,6 +1087,57 @@ describe("Задачи агента и дневной потолок", () => {
     assert.equal("approvalId" in runs[0]!, false, "согласования нет");
   });
 
+  it("повтор попытки на следующие сутки — отдельная строка журнала, а не затёртая вчерашняя", async () => {
+    // При `capped` (и `budget_denied`) Core попытку НЕ вращает, а переносит
+    // задачу на следующие сутки: завтрашний прогон приходит с тем же
+    // executionAttemptId. С ключом попытки upsert журнала переписал бы вчерашнюю
+    // запись И сохранил бы ей чужой `startedAt` (поле исключено из patch) — в
+    // журнале навсегда один прогон вместо двух.
+    const { client, runs, claims } = stub({
+      commitAgentTaskOutcome: async () => ({ status: "capped" as const, replay: false }),
+    });
+    await runAgentTasks(agent, client, "T0");
+    await runAgentTasks(agent, client, "T0");
+    assert.equal(claims.length, 2, "два физических claim одной попытки");
+    assert.notEqual(claims[0]?.runId, claims[1]?.runId, "Core выдаёт runId на каждый claim");
+    assert.equal(runs.length, 2);
+    assert.equal(runs[0]?.skipReason, "capped");
+    assert.equal(
+      new Set(runs.map((r) => String(r.requestKey))).size,
+      2,
+      "разные прогоны — разные ключи, значит две строки журнала",
+    );
+    assert.equal(runs[0]?.requestKey, `task:t1:execution:99999999-9999-4999-8999-999999999999:${claims[0]?.runId}`);
+    assert.equal(runs[1]?.requestKey, `task:t1:execution:99999999-9999-4999-8999-999999999999:${claims[1]?.runId}`);
+  });
+
+  it("авария ДО разрешения навыка пишет навык из задачи, а не «?» навсегда", async () => {
+    // `skill` исключён из patch upsert-а Core: «?», записанное аварийной веткой,
+    // осталось бы в строке и после успешного прогона. Явный `agentSkill` задачи
+    // известен ещё до resolve — журнал обязан назвать его.
+    const { client, runs } = stub({
+      claimAgentTask: async () => ({
+        runId: "11111111-1111-4111-8111-111111111111",
+        executionAttemptId: "22222222-2222-4222-8222-222222222222",
+        generation: 1,
+        claimedAt: "2026-09-06T03:00:01.000Z",
+        taskInputHash: "task-input-hash",
+        taskInput: { title: "проверь дебиторку", agentSkill: "watch-receivables" },
+      }),
+      // Первый же heartbeat (закрытие окна claim→timer) идёт ДО resolveTaskSkill.
+      heartbeatAgentTask: async () => {
+        throw new Error("core недоступен");
+      },
+    });
+
+    await assert.rejects(runAgentTasks(agent, client, "T0"), /core недоступен/);
+
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?.outcome, "failed");
+    assert.equal(runs[0]?.agentName, "receivables");
+    assert.equal(runs[0]?.skill, "watch-receivables", "навык задачи известен до resolve");
+  });
+
   it("пауза после текущей задачи запрещает следующий claim того же poll", async () => {
     let paused = false;
     const { client, claims } = stub({
@@ -1233,7 +1284,13 @@ describe("Задачи агента и дневной потолок", () => {
       assert.equal(runs[0]?.agentName, "receivables");
       assert.equal(runs[0]?.skill, "watch-receivables");
       assert.equal(runs[0]?.trigger, "task", "поручение владельца — не cron и не дека");
-      assert.equal(runs[0]?.requestKey, "task:t1:execution:99999999-9999-4999-8999-999999999999");
+      // Ключ журнала = ключ попытки + ФИЗИЧЕСКИЙ прогон (runId claim): повтор
+      // попытки на следующие сутки обязан стать отдельной строкой, а не затереть
+      // вчерашнюю.
+      assert.equal(
+        runs[0]?.requestKey,
+        "task:t1:execution:99999999-9999-4999-8999-999999999999:00000000-0000-4000-8000-000000000001",
+      );
       assert.equal(runs[0]?.taskId, "t1");
       assert.equal(runs[0]?.outcome, "approval_requested");
       assert.equal(runs[0]?.approvalId, "appr-1");
@@ -1526,7 +1583,10 @@ describe("Задачи агента и дневной потолок", () => {
       assert.equal(runs.length, 1);
       assert.equal(runs[0]?.outcome, "skipped");
       assert.equal(runs[0]?.skipReason, "budget_denied");
-      assert.equal(runs[0]?.requestKey, "task:t1:execution:99999999-9999-4999-8999-999999999999");
+      assert.equal(
+        runs[0]?.requestKey,
+        "task:t1:execution:99999999-9999-4999-8999-999999999999:00000000-0000-4000-8000-000000000001",
+      );
       assert.equal(runs[0]?.taskId, "t1");
     } finally {
       SKILLS["watch-receivables"] = original;
@@ -1688,7 +1748,10 @@ describe("Задачи агента и дневной потолок", () => {
     assert.equal(runs[0]?.cron, "0 8 * * *");
     assert.equal(runs[0]?.scheduledAt, "2026-09-06T03:00:00.000Z");
     assert.equal(runs[0]?.taskId, "t1");
-    assert.equal(runs[0]?.requestKey, "task:t1:execution:22222222-2222-4222-8222-222222222222");
+    assert.equal(
+      runs[0]?.requestKey,
+      "task:t1:execution:22222222-2222-4222-8222-222222222222:11111111-1111-4111-8111-111111111111",
+    );
   });
 
   it("запуск из деки навыков журналится как manual, без расписания", async () => {
@@ -1757,7 +1820,18 @@ describe("Задачи агента и дневной потолок", () => {
       assert.match(String(runs[0]?.reason), /commit response lost/);
       assert.equal(runs[0]?.skill, "watch-receivables", "навык уже был известен");
       assert.equal(runs[1]?.outcome, "approval_requested");
-      assert.equal(runs[0]?.requestKey, runs[1]?.requestKey, "та же попытка — тот же ключ");
+      // Та же попытка, но два физических прогона: в журнале это две строки со
+      // своим `startedAt`, а не одна перезаписанная. Ключ ДЕЙСТВИЙ при этом
+      // остался ключом попытки (contexts[0].requestKey выше) — платить и слать
+      // одно и то же дважды нельзя.
+      assert.notEqual(runs[0]?.requestKey, runs[1]?.requestKey, "разные прогоны — разные строки");
+      for (const r of runs) {
+        assert.match(
+          String(r.requestKey),
+          /^task:t1:execution:99999999-9999-4999-8999-999999999999:/,
+          "ключ попытки остаётся префиксом",
+        );
+      }
     } finally {
       SKILLS["watch-receivables"] = original;
     }

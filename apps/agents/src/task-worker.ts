@@ -225,17 +225,33 @@ export async function runAgentTasks(
     const scheduledAt = due !== null && Number.isFinite(due.getTime()) ? due : undefined;
     // executionAttemptId рождает Core один раз и переживает stale takeover.
     // Новый lease не даёт второй metered dispatch; новую денежную
-    // попытку создаёт только явный redo/переназначение владельца.
+    // попытку создаёт только явный redo/переназначение владельца. Ключ ДЕЙСТВИЙ
+    // (события, согласование, платные вызовы) поэтому остаётся ключом попытки:
+    // добавить в него прогон значило бы оплатить и разослать одно и то же дважды.
     const requestKey = `task:${t.id}:execution:${executionAttemptId}`;
+    // А вот журнал наблюдает ПРОГОНЫ, и их у одной попытки бывает несколько:
+    // при `action_capped` и `budget_denied` Core попытку не вращает, а переносит
+    // задачу на следующие сутки. С ключом попытки завтрашний прогон пришёл бы
+    // тем же ключом, upsert переписал бы вчерашнюю строку и оставил бы ей чужой
+    // `startedAt` (это поле исключено из patch) — два прогона навсегда слились
+    // бы в один. `runId` различает их и НЕ ослабляет защиту от двух реплик: его
+    // выдаёт Core атомарно одному worker (claimAgentRun ставит новый UUID тем же
+    // UPDATE, что и lease), а повторный `reportRun` внутри одного claim идёт
+    // прежним ключом — он считается здесь один раз на claim.
+    const journalRequestKey = `${requestKey}:${runId}`;
     const startedAt = new Date();
-    // Навык известен только после resolve; до него журнал честно пишет «?»,
-    // а не чужое имя.
-    let journalSkill: string | undefined;
+    // Навык, известный ДО resolve: durable execution/checkpoint, а если их нет —
+    // навык, заданный владельцем в самой задаче. Авария до resolve (сорванный
+    // lease, недоступный Core) иначе записала бы прогон со `skill: "?"`, и это
+    // «?» осталось бы в строке навсегда: Core исключает `skill` из patch
+    // upsert-а. Не знаем ничего — остаётся честное «?», а не чужое имя.
+    let journalSkill: string | undefined =
+      claim.execution?.skill ?? claim.checkpoint?.skill ?? claim.taskInput.agentSkill;
     const frame = (extra: Partial<RunFrame> = {}): RunFrame => ({
       trigger,
       ...(cron !== undefined ? { cron } : {}),
       ...(scheduledAt !== undefined ? { scheduledAt } : {}),
-      requestKey,
+      requestKey: journalRequestKey,
       taskId: t.id,
       startedAt,
       finishedAt: new Date(),
@@ -291,7 +307,9 @@ export async function runAgentTasks(
       const resolved =
         durableSkill !== undefined ? { skill: durableSkill } : resolveTaskSkill(agent, claim);
       const skill = resolved.skill;
-      journalSkill = skill ?? undefined;
+      // Навык не разобран (владелец назвал нереализованный) — сохраняем то, что
+      // просили: имя из задачи объясняет строку журнала лучше, чем «?».
+      journalSkill = skill ?? journalSkill;
       if (skill === null) {
         // Честный отказ пишем в durable block самой задачи.
         // Отдельный comment здесь неидемпотентен: потеря ответа

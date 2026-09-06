@@ -70,6 +70,46 @@ describe("parseHooks (R-R-4)", () => {
     assert.equal(post.problems.length, 1);
     assert.deepEqual(post.hooks.postRun, [], "разбор постфактум ничего не охраняет — блокировать нечего");
   });
+
+  it("camelCase-раздел из карточки Core читается как свой", () => {
+    // Владелец увидел в карточке форму `preRun` и написал её в config.yaml.
+    // До фикса это давало пустые списки И пустой problems — check:passports
+    // молчал ровно там, где паспорт просил охрану.
+    const { hooks, problems } = parseHooks({
+      preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }],
+      postRun: [{ kind: "coach_lite" }],
+    });
+    assert.deepEqual(hooks.preRun, [{ kind: "quiet_hours", from: "22:00", to: "07:00" }]);
+    assert.deepEqual(hooks.postRun, [{ kind: "coach_lite" }]);
+    assert.deepEqual(problems, []);
+  });
+
+  it("оба написания рядом: берём непустое и говорим владельцу оставить одно", () => {
+    const { hooks, problems } = parseHooks({
+      pre_run: [],
+      preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }],
+    });
+    assert.deepEqual(hooks.preRun, [{ kind: "quiet_hours", from: "22:00", to: "07:00" }]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0]!, /pre_run.*preRun/);
+  });
+
+  it("нечитаемый camelCase-раздел блокирует так же, как snake_case", () => {
+    const { hooks, problems } = parseHooks({ preRun: "источник" });
+    assert.deepEqual(hooks.preRun, [{ kind: "unknown", raw: "pre_run", broken: true }]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0]!, /hooks\.preRun/);
+  });
+
+  it("параметры хука остаются snake_case, но молчания больше нет", () => {
+    // `maxAgeHours` в паспорте — не «хука нет»: problem для check:passports
+    // плюс блокирующий хук, чтобы навык не пошёл без проверки свежести.
+    const { hooks, problems } = parseHooks({
+      preRun: [{ kind: "source_fresh", run: "system/ourvend:sync", maxAgeHours: 6 }],
+    });
+    assert.deepEqual(hooks.preRun, [{ kind: "unknown", raw: "source_fresh", broken: true }]);
+    assert.match(problems.join(" | "), /max_age_hours/);
+  });
 });
 
 describe("inQuietHours — Ташкент, переход через полночь", () => {
@@ -303,6 +343,41 @@ describe("паспорт → база → рантайм (хуки не долж
     const v = await runPreRunHooks(hooks!, { now: new Date(), core: { lastRun: async () => null } });
     assert.equal(v.ok, false);
     assert.match((v as { reason: string }).reason, /неизвестный хук moon_phase/);
+  });
+
+  it("битая форма из базы БЛОКИРУЕТ навык, а не означает «хуков нет» (fail-closed, как parseHooks)", async () => {
+    // Один и тот же паспорт не может быть fail-closed из файла и fail-open из
+    // базы: прод читает агентов ИМЕННО из базы, и молчаливое «хуков нет» здесь
+    // снимало бы охрану, ради которой хук и написан.
+    const cases: { raw: unknown; preRun: unknown }[] = [
+      { raw: { preRun: "quiet_hours" }, preRun: [{ kind: "unknown", raw: "pre_run", broken: true }] },
+      { raw: { preRun: [null] }, preRun: [{ kind: "unknown", raw: "null" }] },
+      { raw: { preRun: [{}] }, preRun: [{ kind: "unknown", raw: "без kind" }] },
+    ];
+    for (const c of cases) {
+      let hooks: ReturnType<typeof hooksFromCore>;
+      const warns = await captureWarn(async () => {
+        hooks = hooksFromCore(c.raw);
+      });
+      const label = JSON.stringify(c.raw);
+      assert.notEqual(hooks!, undefined, `${label}: раздел нечитаем — это не «хуков нет»`);
+      assert.deepEqual(hooks!.preRun, c.preRun, label);
+      assert.equal(warns.length, 1, `${label}: владелец обязан увидеть предупреждение`);
+      const v = await runPreRunHooks(hooks!, { now: new Date(), core: { lastRun: async () => null } });
+      assert.equal(v.ok, false, `${label}: навык обязан блокироваться`);
+    }
+  });
+
+  it("нечитаемый post_run из базы — предупреждение и пропуск: он ничего не охраняет", async () => {
+    let hooks: ReturnType<typeof hooksFromCore>;
+    const warns = await captureWarn(async () => {
+      hooks = hooksFromCore({ preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }], postRun: "coach_lite" });
+    });
+    assert.deepEqual(hooks!, {
+      preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }],
+      postRun: [],
+    });
+    assert.equal(warns.length, 1);
   });
 
   it("два написания рядом: берём НЕПУСТОЕ, а не первое присутствующее", () => {
