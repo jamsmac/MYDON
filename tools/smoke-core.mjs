@@ -3206,8 +3206,22 @@ async function проверитьРутины() {
   const анонимно = await jsonRequest("GET", "/routines/board", undefined, false);
   if (анонимно.r.status !== 401) throw new Error(`GET /routines/board без токена → ${анонимно.r.status}, ожидали 401`);
 
+  // Пауза на доске обязана приходить из `system_config`, а не из снимка
+  // рантайма: тумблер владельца действует сразу, а снимок мог сняться до
+  // правки. Проверить это можно ТОЛЬКО снимком с противоположными значениями —
+  // при совпадающих доска, читающая снимок, отвечала бы верно случайно.
+  const настройки = await jsonRequest("GET", "/system/config");
+  if (!настройки.r.ok) throw new Error(`GET /system/config → ${настройки.r.status}`);
+  const тумблер = (ключ) => {
+    const i = настройки.json.find((x) => x.key === ключ);
+    if (!i) throw new Error(`в /system/config нет ключа ${ключ} — доске неоткуда брать паузу`);
+    return i.value === "1";
+  };
+  const ожидаемаяПауза = { schedules: тумблер("AGENTS_SCHEDULES_PAUSED"), tasks: тумблер("AGENTS_TASKS_PAUSED") };
+  const паузаСнимка = { schedules: !ожидаемаяПауза.schedules, tasks: !ожидаемаяПауза.tasks };
+
   const снимок = await jsonRequest("PUT", "/routines/snapshot", {
-    generatedAt: new Date().toISOString(), tz: "Asia/Tashkent", paused: { schedules: false, tasks: true },
+    generatedAt: new Date().toISOString(), tz: "Asia/Tashkent", paused: паузаСнимка,
     jobs: [
       { agent: "vendhub-ops", skill: "monitor-stock", cron: "0 8 * * *", mode: "legacy" },
       { agent: "vendhub-ops", skill: "parts-audit", cron: "30 8 * * 1", mode: "durable-task" },
@@ -3234,13 +3248,23 @@ async function проверитьРутины() {
 
   const доска = await jsonRequest("GET", "/routines/board");
   if (!доска.r.ok) throw new Error(`GET /routines/board → ${доска.r.status}`);
-  const job = доска.json.jobs.find((j) => j.id === "vendhub-ops/monitor-stock");
-  if (!job || typeof job.nextRun !== "string") throw new Error("на доске нет vendhub-ops/monitor-stock с nextRun");
+  // Ключ строки навыка несёт cron: у навыка расписаний может быть несколько.
+  const job = доска.json.jobs.find((j) => j.id === "vendhub-ops/monitor-stock@0 8 * * *");
+  if (!job || typeof job.nextRun !== "string") throw new Error("на доске нет vendhub-ops/monitor-stock@0 8 * * * с nextRun");
   if (!job.last || job.last.outcome !== "executed") throw new Error(`last на доске не обновился после upsert: ${JSON.stringify(job.last)}`);
   if (!доска.json.jobs.some((j) => j.id === "system/fx:refresh" && j.kind === "monitor")) throw new Error("монитор fx:refresh не на доске");
   if (!доска.json.jobs.some((j) => j.id === "vendhub-ceo/weekly-review" && j.enabled === false)) throw new Error("не подключённый навык не показан как disabled");
+  const ключи = доска.json.jobs.map((j) => j.id);
+  if (new Set(ключи).size !== ключи.length) throw new Error(`на доске повторяются id заданий: ${ключи.join(", ")}`);
   if (доска.json.snapshot === null || доска.json.snapshot.stale !== false) throw new Error("снимок не свежий");
-  if (доска.json.paused.tasks !== true && доска.json.paused.tasks !== false) throw new Error("paused не из system_config");
+  if (доска.json.paused.schedules !== ожидаемаяПауза.schedules || доска.json.paused.tasks !== ожидаемаяПауза.tasks) {
+    throw new Error(
+      `paused на доске ${JSON.stringify(доска.json.paused)} — не из system_config ` +
+        `(${JSON.stringify(ожидаемаяПауза)}); снимок присылал ${JSON.stringify(паузаСнимка)}`,
+    );
+  }
+  // Пауза расписаний доезжает до СТРОКИ задания, а не только до шапки доски.
+  if (job.paused !== ожидаемаяПауза.schedules) throw new Error(`строка задания paused=${job.paused}, тумблер ${ожидаемаяПауза.schedules}`);
 
   const плейбэк = await jsonRequest("GET", `/routines/flows/${запись.json.id}`);
   if (!плейбэк.r.ok) throw new Error(`GET /routines/flows/:id → ${плейбэк.r.status}`);
