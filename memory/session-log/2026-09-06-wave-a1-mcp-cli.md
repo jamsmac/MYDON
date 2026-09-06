@@ -44,12 +44,12 @@ R-A1-1…R-A1-6 в §4, приёмка в §7), план `docs/superpowers/plans
   `kb_read`). Список по умолчанию — 50 записей (`MAX_LIST_ITEMS`), честная пометка при обрезке.
 - **MCP-сервер** (Р-2, Р-3, R-A1-2): `apps/mcp/src/server.ts` (stdio-транспорт,
   `@modelcontextprotocol/sdk`, `console.log` перехвачен в stderr — stdout занят протоколом) +
-  `apps/mcp/src/tools.ts` (`buildTools`, `registerTools`) — восемнадцать инструментов (ruling 3):
-  двенадцать читающих (`briefing_get`, `inbox_list`, `tasks_list`, `task_get`, `registry_search`,
-  `events_recent`, `memory_recall`, `kb_read`, `kb_tree`, `agents_list`, `runs_recent`,
-  `ventures_list`), шесть меняющих (`task_create`, `task_comment`, `task_status`,
-  `memory_remember`, `agent_upsert`, `approval_decide`). Личный контур отсеян на стороне MCP
-  (`hidePersonal`, Р-4). Описание `approval_decide` собирается динамически по состоянию
+  `apps/mcp/src/tools.ts` (`buildTools`, `registerTools`) — девятнадцать инструментов (ruling 3 +
+  ruling 6): тринадцать читающих (`briefing_get`, `inbox_list`, `tasks_list`, `task_get`,
+  `registry_search`, `events_recent`, `memory_recall`, `kb_read`, `kb_tree`, `agents_list`,
+  `skills_deck`, `runs_recent`, `ventures_list`), шесть меняющих (`task_create`, `task_comment`,
+  `task_status`, `memory_remember`, `agent_upsert`, `approval_decide`). Личный контур отсеян на
+  стороне MCP (`hidePersonal`, Р-4). Описание `approval_decide` собирается динамически по состоянию
   `OWNER_IDENTITY_ENFORCED`, прочитанному при старте (`readPosture`, Р-3). `.mcp.json` в корне
   репозитория — только имена переменных, `${VAR:-default}` подтверждён по докам Claude Code.
 - **CLI `mydon`** (Р-7, R-A1-3): `apps/mcp/src/cli.ts` (`runCommand`, чистая функция) +
@@ -65,18 +65,19 @@ R-A1-1…R-A1-6 в §4, приёмка в §7), план `docs/superpowers/plans
 - **Тесты** (R-A1-5): `apps/mcp` — итоговый гейт 145 pass / 0 fail (25 сьютов): env/клиент/переводы
   ошибок, форматтеры (снимки строк), разбор флагов CLI, CLI-команды (сухой прогон/`--yes`/`--json`),
   сборка описаний инструментов при включённом и выключенном поясе, фильтрация `domain != personal`
-  по умолчанию, stdio-смоук сервера (`tools/list` → 18, ошибка переведена, 0 не-JSON строк в
-  stdout). `tools/smoke-core.mjs`: новый сценарий `проверитьСобытияИДеку()` — `?source=&limit=`
+  по умолчанию, stdio-смоук сервера (`tools/list` → 19 после ruling 6, ошибка переведена, 0
+  не-JSON строк в stdout). `tools/smoke-core.mjs`: новый сценарий `проверитьСобытияИДеку()` —
+  `?source=&limit=`
   возвращает записи именно этого источника, `?typePrefix=` находит память агента и не даёт ложных
   срабатываний через `%`/`_` в пользовательском вводе (экранировано), `?agent=` уже деки, `?from=&to=`
   журнала.
 - **Документы** (эта задача, T6): `docs/MCP.md` — зачем, как включить (туннель/окружение/`.mcp.json`/
-  сборка), таблица восемнадцати инструментов «что делает — что меняет», пояс владельца и как
-  проверить его состояние, ограничения. `docs/AGENTS_ACTIVATION.md` — раздел «CLI `mydon` и
-  конвенция `--yes`». `docs/FIRST_LOGIN_CHECKLIST.md` — раздел 8 (туннель, токены, сборка, проверка
-  инструментов и пояса). `docs/AGENTIC_OS_ARMS_PLAN.md` §6.4 пп. 1–2 — помечены «СДЕЛАНО
-  06.09.2026», ссылка на спеку. `docs/decisions/2026-09-06-wave-a1-mcp-cli.md` — Р-1…Р-9 + три
-  ruling.
+  сборка), таблица инструментов «что делает — что меняет» (девятнадцать после ruling 6), пояс
+  владельца и как проверить его состояние, ограничения. `docs/AGENTS_ACTIVATION.md` — раздел
+  «CLI `mydon` и конвенция `--yes`». `docs/FIRST_LOGIN_CHECKLIST.md` — раздел 8 (туннель, токены,
+  сборка, проверка инструментов и пояса). `docs/AGENTIC_OS_ARMS_PLAN.md` §6.4 пп. 1–2 — помечены
+  «СДЕЛАНО 06.09.2026», ссылка на спеку. `docs/decisions/2026-09-06-wave-a1-mcp-cli.md` — Р-1…Р-9 +
+  шесть ruling.
 
 ## Как принять (§7 спеки)
 
@@ -90,9 +91,10 @@ R-A1-1…R-A1-6 в §4, приёмка в §7), план `docs/superpowers/plans
    ветки — тоже на владельце перед мержем.
 3. **Локально у владельца (ручная проверка, чек-лист `docs/FIRST_LOGIN_CHECKLIST.md` §8):** поднять
    туннель (`ssh -N -L 3001:127.0.0.1:3001 <прод-хост>`), положить `SERVICE_TOKEN`/
-   `OWNER_ACTION_TOKEN` в окружение своей машины, `pnpm --filter @mydon/mcp build`, открыть
+   `OWNER_ACTION_TOKEN` в окружение своей машины, `pnpm --filter "@mydon/mcp..." build` (тянет
+   зависимость `@mydon/shared` — adversarial-фикс B3), открыть
    репозиторий в Claude Code — `.mcp.json` уже в корне, инструменты `mydon-core` должны появиться в
-   списке (18 штук); `inbox_list` должен дать тот же список, что `/inbox`; `task_create` должен
+   списке (19 штук); `inbox_list` должен дать тот же список, что `/inbox`; `task_create` должен
    создать задачу, видимую на `/tasks`; `mydon inbox --json` должен напечатать то же, что вернул
    `inbox_list` (в JSON-форме).
 4. **Отрицательные проверки:** запуск без `SERVICE_TOKEN` в окружении → понятная ошибка при старте
@@ -109,8 +111,9 @@ R-A1-1…R-A1-6 в §4, приёмка в §7), план `docs/superpowers/plans
 - **Положить `SERVICE_TOKEN` и `OWNER_ACTION_TOKEN` в окружение своей машины** — тем же значением,
   что у панели/бота для сервисного, и существующим `OWNER_ACTION_TOKEN` прода для owner-действий
   (он уже задан на проде и не равен `SERVICE_TOKEN` — подходит без смены).
-- **Собрать пакет** (`pnpm --filter @mydon/mcp build`) и открыть репозиторий в Claude Code — `.mcp.json`
-  уже в корне, ничего добавлять не нужно.
+- **Собрать пакет** (`pnpm --filter "@mydon/mcp..." build` — суффикс `...` тянет `@mydon/shared`,
+  без него сборка падает на свежем чекауте, adversarial-фикс B3) и открыть репозиторий в
+  Claude Code — `.mcp.json` уже в корне, ничего добавлять не нужно.
 - **Пройти чек-лист §7 спеки** (раздел «Как принять» выше) на своей машине — это единственная
   проверка, которую нельзя выполнить из этой сессии (нужны реальный туннель и реальный Claude Code
   владельца).

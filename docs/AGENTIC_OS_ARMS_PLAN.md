@@ -337,11 +337,11 @@ mydon/
 
 ### 6.4 Волна A — приложения и командный центр
 
-1. **`apps/mcp` — MCP-сервер `mydon-core`** — **СДЕЛАНО 06.09.2026 (срез A1)**: восемнадцать
-   инструментов по stdio (`@modelcontextprotocol/sdk`) — двенадцать читающих (`briefing_get`,
+1. **`apps/mcp` — MCP-сервер `mydon-core`** — **СДЕЛАНО 06.09.2026 (срез A1)**: девятнадцать
+   инструментов по stdio (`@modelcontextprotocol/sdk`) — тринадцать читающих (`briefing_get`,
    `inbox_list`, `tasks_list`, `task_get`, `registry_search`, `events_recent`, `memory_recall`,
-   `kb_read`, `kb_tree`, `agents_list`, `runs_recent`, `ventures_list`) и шесть меняющих
-   (`task_create`, `task_comment`, `task_status`, `memory_remember`, `agent_upsert`,
+   `kb_read`, `kb_tree`, `agents_list`, `skills_deck`, `runs_recent`, `ventures_list`) и шесть
+   меняющих (`task_create`, `task_comment`, `task_status`, `memory_remember`, `agent_upsert`,
    `approval_decide`), одна операция за вызов. Личный контур скрыт по умолчанию (фильтр на стороне
    MCP, не гард Core); состояние пояса владельца (`OWNER_IDENTITY_ENFORCED`) читается при старте и
    честно описывается в `approval_decide`, а не подразумевается. `.mcp.json` в корне репозитория —
