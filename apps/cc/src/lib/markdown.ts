@@ -174,8 +174,14 @@ class DocRenderer extends Renderer {
     // Текст ссылки разбираем с поднятым флагом: вложенных `<a>` быть не должно.
     const wasInLink = this.inLink;
     this.inLink = true;
-    const text = this.parser.parseInline(token.tokens);
-    this.inLink = wasInLink;
+    let text: string;
+    try {
+      text = this.parser.parseInline(token.tokens);
+    } finally {
+      // Восстанавливаем флаг и при исключении: иначе один сбой внутри текста
+      // ссылки оставил бы весь остаток документа без живых путей в бэктиках.
+      this.inLink = wasInLink;
+    }
     const href = token.href.trim();
     const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
     // Якорь ведёт внутрь этого же документа — трогать нечего.

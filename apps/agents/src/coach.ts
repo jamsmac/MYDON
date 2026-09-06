@@ -96,10 +96,13 @@ export function isSafetyCritical(v: Verdict): boolean {
   return typeof s === "number" && s <= 2;
 }
 
-export type CoachOutcome = "excellent" | "acceptable" | "improve" | "safety-block";
-
-/** Рантайм-список значений `CoachOutcome` (тип стирается — тесту нужен массив). */
-export const COACH_OUTCOMES: readonly CoachOutcome[] = ["excellent", "acceptable", "improve", "safety-block"];
+/**
+ * Единственный источник исходов судьи: тип ВЫВОДИТСЯ из массива, а не
+ * дублирует его — иначе новый исход в типе мог бы не попасть в список, и тест
+ * дрейфа зеркала (`engine-mirror.test.ts`) проверял бы неполный набор.
+ */
+export const COACH_OUTCOMES = ["excellent", "acceptable", "improve", "safety-block"] as const;
+export type CoachOutcome = (typeof COACH_OUTCOMES)[number];
 
 /**
  * Решение по вердикту. Безопасность бьёт первой (жёсткий блок). Иначе по итогу:
