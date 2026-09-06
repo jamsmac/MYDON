@@ -1071,6 +1071,22 @@ describe("Задачи агента и дневной потолок", () => {
     }
   });
 
+  it("исход `capped` — в журнале пропуск с причиной, а не «предложение отправлено»", async () => {
+    // Журнал пишется ПО ответу commit: до него исход не окончателен. Со строкой
+    // исходного `run` доска сказала бы «предложение отправлено», и владелец
+    // пошёл бы искать его в /inbox, где ничего нет, — Core перенёс задачу.
+    const { client, runs } = stub({
+      commitAgentTaskOutcome: async () => ({ status: "capped" as const, replay: false }),
+    });
+    await runAgentTasks(agent, client, "T0");
+    assert.equal(runs.length, 1, "ровно одна запись журнала на прогон");
+    assert.equal(runs[0]?.outcome, "skipped");
+    assert.equal(runs[0]?.skipReason, "capped");
+    assert.match(String(runs[0]?.reason), /потолок действий исчерпан/i);
+    assert.equal("action" in runs[0]!, false, "действия не случилось — в журнал его не переносим");
+    assert.equal("approvalId" in runs[0]!, false, "согласования нет");
+  });
+
   it("пауза после текущей задачи запрещает следующий claim того же poll", async () => {
     let paused = false;
     const { client, claims } = stub({
@@ -1473,6 +1489,19 @@ describe("Задачи агента и дневной потолок", () => {
     assert.equal(checkpoints.length, 1);
     assert.deepEqual(statuses, []);
     assert.deepEqual(releases, []);
+  });
+
+  it("исход `blocked` — в журнале пропуск «план изменился», без действия", async () => {
+    const { client, runs } = stub({
+      commitAgentTaskOutcome: async () => ({ status: "blocked" as const, replay: false }),
+    });
+    await runAgentTasks(agent, client, "T0");
+    assert.equal(runs.length, 1, "ровно одна запись журнала на прогон");
+    assert.equal(runs[0]?.outcome, "skipped");
+    assert.equal(runs[0]?.skipReason, "workflow_changed");
+    assert.match(String(runs[0]?.reason), /задача изменилась/i);
+    assert.equal("action" in runs[0]!, false, "выполнение заблокировано — действия не было");
+    assert.equal("approvalId" in runs[0]!, false, "согласования нет");
   });
 
   it("LLM budget denial отличается от no_signal и не закрывает поручение", async () => {

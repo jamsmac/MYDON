@@ -26,7 +26,13 @@ import { hooksFromCore } from "./hooks";
 import { isKbPagePath, loadAgents, type AgentDefinition } from "./registry";
 import { journalFromRunResult, reportRun } from "./run-journal";
 import { runSkill } from "./runner";
-import { desiredJobs, jobKey, llmCronAdmitted, scheduledInvocationMode } from "./schedule";
+import {
+  desiredJobs,
+  inactiveScheduleRefs,
+  jobKey,
+  llmCronAdmitted,
+  scheduledInvocationMode,
+} from "./schedule";
 import { buildScheduleSnapshot, type MonitorState } from "./schedule-snapshot";
 import { ScheduledOccurrenceRetryQueue } from "./scheduled-occurrence-queue";
 import { catalogFromMetas } from "./skill-catalog";
@@ -514,6 +520,9 @@ async function main(): Promise<void> {
         now: new Date(),
         jobs,
         notWired,
+        // Паузные агенты в `desiredJobs` не доходят вовсе — их расписания
+        // собираем отдельно, иначе доска молчит и о них, и о причине.
+        inactive: inactiveScheduleRefs(agents),
         isLlmSkill,
         modeOf: (skill) =>
           scheduledInvocationMode(
@@ -695,6 +704,14 @@ async function main(): Promise<void> {
         );
       }
       if (changed || schedulesPauseFlipped || llmCronFlipped) reconcileSchedules();
+      // Ничего не поменялось — расписания перестраивать незачем, но снимок
+      // обязан уйти всё равно: доска считает его протухшим через 15 минут
+      // (STALE_AFTER_SEC = 900), и в устойчивом состоянии (ни правок карточек,
+      // ни смены тумблеров) панель вечно показывала бы «агенты не отчитывались
+      // N мин». Тик раз в 10 минут — это и есть heartbeat, он укладывается в
+      // окно. Записывать нечего только выше, при `loaded === null`: Core
+      // недоступен, и там снимок ОБЯЗАН стареть — это и есть сигнал «связи нет».
+      else queueScheduleSnapshot();
     })();
   }, 10 * 60_000).unref();
 

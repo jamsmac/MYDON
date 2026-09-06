@@ -22,7 +22,11 @@ export interface ScheduleSnapshot {
   tz: typeof TZ;
   paused: { schedules: boolean; tasks: boolean };
   jobs: { agent: string; skill: string; cron: string; mode: ScheduledInvocationMode }[];
-  notWired: { agent: string; skill: string; reason: "no_implementation" | "llm_route_off" }[];
+  notWired: {
+    agent: string;
+    skill: string;
+    reason: "no_implementation" | "llm_route_off" | "inactive_agent";
+  }[];
   monitors: MonitorState[];
 }
 
@@ -32,6 +36,8 @@ export interface SnapshotInput {
   modeOf: (skill: string) => ScheduledInvocationMode;
   /** Ссылки вида «агент/навык» из `desiredJobs`. */
   notWired: readonly string[];
+  /** Расписания неактивных агентов (`inactiveScheduleRefs`) — ссылки той же формы. */
+  inactive: readonly string[];
   isLlmSkill: (skill: string) => boolean;
   monitors: readonly MonitorState[];
   paused: { schedules: boolean; tasks: boolean };
@@ -51,6 +57,12 @@ function cronAccepted(cron: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Ссылка «агент/навык» → пара. Имя навыка без «/», поэтому режем по первому. */
+function splitRef(ref: string): { agent: string; skill: string } {
+  const at = ref.indexOf("/");
+  return { agent: ref.slice(0, at), skill: ref.slice(at + 1) };
 }
 
 /**
@@ -89,12 +101,15 @@ export function buildScheduleSnapshot(i: SnapshotInput): ScheduleSnapshot {
     paused: i.paused,
     jobs,
     // Навык без тела чинится файлом навыка, llm-навык без маршрута — ключом в
-    // окружении. Одна причина на оба случая заставляла бы владельца гадать.
-    notWired: i.notWired.map((ref) => {
-      const at = ref.indexOf("/");
-      const agent = ref.slice(0, at), skill = ref.slice(at + 1);
-      return { agent, skill, reason: i.isLlmSkill(skill) ? ("llm_route_off" as const) : ("no_implementation" as const) };
-    }),
+    // окружении, расписание паузного агента — статусом в карточке. Одна причина
+    // на все три случая заставляла бы владельца гадать, что именно чинить.
+    notWired: [
+      ...i.notWired.map((ref) => {
+        const { agent, skill } = splitRef(ref);
+        return { agent, skill, reason: i.isLlmSkill(skill) ? ("llm_route_off" as const) : ("no_implementation" as const) };
+      }),
+      ...i.inactive.map((ref) => ({ ...splitRef(ref), reason: "inactive_agent" as const })),
+    ],
     // Выключенный монитор может нести cron «off» — его Core не проверяет.
     // А вот ВКЛЮЧЁННЫЙ с битым выражением снова стоил бы всего снимка, поэтому
     // такой монитор честно показываем неработающим.

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { desiredJobs, jobKey, llmCronAdmitted, scheduledInvocationMode } from "./schedule";
+import {
+  desiredJobs,
+  inactiveScheduleRefs,
+  jobKey,
+  llmCronAdmitted,
+  scheduledInvocationMode,
+} from "./schedule";
 import type { AgentDefinition } from "./registry";
 
 const agent = (over: Partial<AgentDefinition> = {}): AgentDefinition => ({
@@ -43,6 +49,26 @@ describe("Планирование заданий агентов", () => {
       ],
     });
     assert.equal(desiredJobs([a], wiredAll).jobs.length, 1);
+  });
+
+  it("расписания неактивных агентов собираются отдельно, без дублей", () => {
+    // Доска обязана показать паузного агента строкой с причиной: `desiredJobs`
+    // отсекает его целиком, и иначе шесть паузных паспортов прода выглядели бы
+    // как «расписаний нет».
+    const paused = agent({
+      name: "market-analyst",
+      status: "paused",
+      schedule: [
+        { cron: "0 9 * * *", skill: "scan-market" },
+        { cron: "0 18 * * *", skill: "scan-market" },
+        { cron: "0 7 * * 1", skill: "weekly-digest" },
+      ],
+    });
+    assert.deepEqual(inactiveScheduleRefs([agent(), paused]), [
+      "market-analyst/scan-market",
+      "market-analyst/weekly-digest",
+    ]);
+    assert.deepEqual(inactiveScheduleRefs([agent()]), [], "активный агент сюда не попадает");
   });
 
   it("ключ различает агента, навык и расписание", () => {

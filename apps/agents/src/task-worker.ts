@@ -465,28 +465,52 @@ export async function runAgentTasks(
             : {}),
         });
 
-        // Журнал — ПОСЛЕ commit: до него исход не окончателен (Core мог упереться
-        // в потолок или заблокировать выполнение). Согласование создаёт Core, и
-        // его id знает только ответ commit — из `run` он в task-режиме не придёт.
+        const cappedNote =
+          "Дневной потолок действий исчерпан — Core отложил задачу до следующих суток по Ташкенту.";
+        const blockedNote =
+          "Задача изменилась после сохранённого результата — выполнение заблокировано до явного повтора владельцем.";
+        // Журнал — ПОСЛЕ commit и ПО ЕГО ИСХОДУ: `run` знает лишь то, что навык
+        // ХОТЕЛ сделать, а окончателен ответ Core. Он мог упереться в дневной
+        // потолок (`capped`, перенос на завтра) или заблокировать выполнение
+        // (`blocked`, вход изменился после checkpoint) — записав тогда исходный
+        // `run`, доска показала бы «предложение отправлено», и владелец пошёл бы
+        // искать его в /inbox, где ничего нет. Ни действия, ни согласования у
+        // такого прогона не осталось, поэтому `action`/`approvalId` не переносим.
+        // Согласование создаёт Core, и его id знает только ответ commit — из
+        // `run` он в task-режиме не придёт.
         const outcomeRun: RunLike =
-          committed.approvalId !== undefined ? { ...run, approvalId: committed.approvalId } : run;
+          committed.status === "capped"
+            ? {
+                agent: run.agent,
+                skill: run.skill,
+                outcome: "skipped",
+                skipReason: "capped",
+                reason: cappedNote,
+              }
+            : committed.status === "blocked"
+              ? {
+                  agent: run.agent,
+                  skill: run.skill,
+                  outcome: "skipped",
+                  skipReason: "workflow_changed",
+                  reason: blockedNote,
+                }
+              : committed.approvalId !== undefined
+                ? { ...run, approvalId: committed.approvalId }
+                : run;
         await reportRun(core, journalFromRunResult(outcomeRun, frame({ traceKey })));
 
         if (committed.status === "capped") {
           // Core already atomically released the run and scheduled the retry;
           // a second release here could race a fresh generation.
-          const note =
-            "Дневной потолок действий исчерпан — Core отложил задачу до следующих суток по Ташкенту.";
-          results.push({ taskId: t.id, outcome: "skipped", note });
+          results.push({ taskId: t.id, outcome: "skipped", note: cappedNote });
           continue;
         }
         if (committed.status === "blocked") {
           // Core detected that task input changed after the checkpoint, fenced
           // this execution and cleared its lease. Only an owner retry may
           // rotate the execution attempt; releasing here would race that flow.
-          const note =
-            "Задача изменилась после сохранённого результата — выполнение заблокировано до явного повтора владельцем.";
-          results.push({ taskId: t.id, outcome: "skipped", note });
+          results.push({ taskId: t.id, outcome: "skipped", note: blockedNote });
           continue;
         }
 

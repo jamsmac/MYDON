@@ -9,6 +9,7 @@ describe("buildScheduleSnapshot (R-R-2)", () => {
       jobs: [{ agent: "vendhub-ops", skill: "monitor-stock", cron: "0 8 * * *" }],
       modeOf: () => "legacy",
       notWired: ["vendhub-ceo/weekly-review", "x/y"],
+      inactive: ["market-analyst/scan-market"],
       isLlmSkill: (skill) => skill === "weekly-review",
       monitors: [{ name: "fx:refresh", cron: "5 9 * * *", enabled: true }, { name: "ourvend:sync", cron: "0 */3 * * *", enabled: false, reason: "no_credentials" }],
       paused: { schedules: true, tasks: false },
@@ -19,6 +20,9 @@ describe("buildScheduleSnapshot (R-R-2)", () => {
     assert.deepEqual(s.notWired, [
       { agent: "vendhub-ceo", skill: "weekly-review", reason: "llm_route_off" },
       { agent: "x", skill: "y", reason: "no_implementation" },
+      // Паузный агент до `desiredJobs` не доходит: без отдельной ветки его
+      // расписание не имело бы на доске ни строки, ни причины.
+      { agent: "market-analyst", skill: "scan-market", reason: "inactive_agent" },
     ]);
     assert.equal(s.monitors[1]!.reason, "no_credentials");
     assert.deepEqual(s.paused, { schedules: true, tasks: false });
@@ -42,6 +46,7 @@ function withWarnings<T>(fn: () => T): { result: T; warnings: string[] } {
 const BASE = {
   now: new Date("2026-09-06T03:00:00.000Z"),
   notWired: [] as string[],
+  inactive: [] as string[],
   isLlmSkill: () => false,
   monitors: [] as MonitorState[],
   paused: { schedules: false, tasks: false },
