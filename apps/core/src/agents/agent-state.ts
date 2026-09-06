@@ -101,6 +101,12 @@ function runWords(run: LastRunLite): string {
  *
  * Занятость стоит НИЖЕ пауз сознательно (Р-2): при выключенных задачах агент
  * не может взять работу, и «работает» было бы ложью на самом заметном экране.
+ *
+ * Внутри «blocked» есть уточнение (постановление ветки, раунд правок 1): затык
+ * перекрывает занятость, только если он относится к ТЕКУЩЕЙ работе (та же
+ * задача или отметка не старше живого claim) либо живой работы нет вовсе. Иначе
+ * один неразобранный затык недельной давности навсегда показывал бы агента
+ * заблокированным, пока тот в эту минуту выполняет другую задачу.
  */
 export function computeAgentState(input: AgentStateInput): AgentStateVerdict {
   // 1. Архив: карточка снята с работы, остальные признаки уже неважны.
@@ -124,9 +130,22 @@ export function computeAgentState(input: AgentStateInput): AgentStateVerdict {
     };
   }
 
-  // 4. Затык: Core остановил исполнение и записал причину — цитируем её.
+  // Живая работа: claim свежее лизы. Знак сравнения тот же, что в предикате
+  // `claimAgentRun` (`claimed_at <= now - lease` — уже свободна): свой знак
+  // здесь развёл бы показ с тем, что реально делает worker.
+  const staleBefore = input.now.getTime() - input.leaseMs;
+  const live = earliest(input.claimedTasks, (t) =>
+    t.claimedAt !== null && t.claimedAt.getTime() > staleBefore ? t.claimedAt : null,
+  );
   const blocked = earliest(input.claimedTasks, (t) => t.blockedAt);
-  if (blocked !== null) {
+
+  // 4. Затык: Core остановил исполнение и записал причину — цитируем её.
+  //    Перекрывает работу, только если относится к текущему заходу: та же
+  //    задача, отметка не старше живого claim, или живой работы нет.
+  const затыкОтноситсяКРаботе =
+    blocked !== null &&
+    (live === null || blocked.task.id === live.task.id || blocked.at.getTime() >= live.at.getTime());
+  if (blocked !== null && затыкОтноситсяКРаботе) {
     const { task, at } = blocked;
     return {
       state: "blocked",
@@ -137,18 +156,17 @@ export function computeAgentState(input: AgentStateInput): AgentStateVerdict {
     };
   }
 
-  // 5. Работает: claim свежее лизы. Знак сравнения тот же, что в предикате
-  //    `claimAgentRun` (`claimed_at <= now - lease` — уже свободна): свой знак
-  //    здесь развёл бы показ с тем, что реально делает worker.
-  const staleBefore = input.now.getTime() - input.leaseMs;
-  const live = earliest(input.claimedTasks, (t) =>
-    t.claimedAt !== null && t.claimedAt.getTime() > staleBefore ? t.claimedAt : null,
-  );
+  // 5. Работает. Если рядом висит СТАРЫЙ неразобранный затык — говорим и о нём:
+  //    состояние честное («работает»), но хвост не должен пропасть с экрана.
   if (live !== null) {
     const { task, at } = live;
+    const хвост =
+      blocked !== null
+        ? `; прежний затык Core не разобран (${skillWords(blocked.task.skill)})`
+        : "";
     return {
       state: "working",
-      reason: `выполняет задачу (${skillWords(task.skill)})`,
+      reason: `выполняет задачу (${skillWords(task.skill)})${хвост}`,
       since: at,
       taskId: task.id,
       ...(task.skill !== null ? { skill: task.skill } : {}),

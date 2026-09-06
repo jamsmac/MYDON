@@ -3439,6 +3439,8 @@ async function проверитьЛица() {
   const метка = Date.now();
   const агент = `smoke-faces-${метка}`;
   const навык = "faces-probe";
+  /** Заполняется, когда задача уже создана: уборка в finally должна её закрыть. */
+  let задачаId = null;
 
   /** Тумблер системы — owner-действие: нужен ВТОРОЙ токен, как у /system/config. */
   const записатьТумблер = async (key, value) => {
@@ -3531,6 +3533,7 @@ async function проверитьЛица() {
       agentSkill: навык, createdBy: "smoke", clientKey: `smoke-faces:${метка}:task`,
     });
     if (!задача.r.ok) throw new Error(`создание задачи → ${задача.r.status}: ${задача.text.slice(0, 200)}`);
+    задачаId = задача.json.id;
     const захват = await jsonRequest("POST", `/tasks/${задача.json.id}/agent-run/claim`, { agentName: агент });
     if (!захват.r.ok || захват.json?.claimed !== true) {
       throw new Error(`claim → ${захват.r.status}: ${захват.text.slice(0, 200)}`);
@@ -3554,15 +3557,39 @@ async function проверитьЛица() {
     if (работающие.length > 0) {
       throw new Error(`при выключенных задачах «работают» ${работающие.map((a) => a.name).join(", ")}`);
     }
+
+    // Архивация — ЧАСТЬ сценария, а не уборка: код ответа проверяем, как в
+    // сценарии карточки агента выше. Сравнение по ПРЕФИКСУ: archive()
+    // переименовывает строку в «<имя>#archived-<ts>», и проверка по точному
+    // имени молчала бы, даже если архивные полезли в сетку.
+    const снят = await jsonRequest("DELETE", `/agents/${агент}`);
+    if (!снят.r.ok) throw new Error(`архивация → ${снят.r.status}: ${снят.text.slice(0, 200)}`);
+    const остались = (await состояние()).agents.filter((a) => a.name.startsWith(агент));
+    if (остались.length > 0) {
+      throw new Error(`архивный агент остался в сетке: ${остались.map((a) => a.name).join(", ")}`);
+    }
   } finally {
-    await записатьТумблер("AGENTS_TASKS_PAUSED", вернутьКакБыло).catch(() => {});
+    // Тумблер обязан вернуться: оставить AGENTS_TASKS_PAUSED=1 — это молча
+    // остановленный парк агентов, поэтому провал уборки виден в итогах.
+    try {
+      await записатьТумблер("AGENTS_TASKS_PAUSED", вернутьКакБыло);
+    } catch (e) {
+      провалы.push(
+        `состояние агентов (уборка): AGENTS_TASKS_PAUSED не вернут в «${вернутьКакБыло || "env/дефолт"}» — ${e.message}`,
+      );
+    }
+    // Задача с живым claim закрывается: иначе каждый прогон оставлял бы в базе
+    // висящую in_progress-задачу мёртвого агента.
+    if (задачаId !== null) {
+      const отмена = await jsonRequest("PATCH", `/tasks/${задачаId}`, { status: "cancelled", actor: "smoke" });
+      if (!отмена.r.ok) {
+        провалы.push(`состояние агентов (уборка): задача ${задачаId} не отменена → ${отмена.r.status}`);
+      }
+    }
+    // Повторная архивация идемпотентна (archive() возвращает уже архивную
+    // строку): страховка на случай выхода из try до шага архивации.
     await jsonRequest("DELETE", `/agents/${агент}`).catch(() => {});
   }
-
-  // Архивный агент уходит из сетки: показывать его состояние значило бы
-  // обещать работу от того, кого сняли с работы.
-  const после = await состояние();
-  if (после.agents.some((a) => a.name === агент)) throw new Error("архивный агент остался в сетке состояний");
 }
 
 async function ждатьЗдоровье(proc) {

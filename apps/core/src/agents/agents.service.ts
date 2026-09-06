@@ -401,7 +401,12 @@ export class AgentsService {
     ]);
     // `value` — действующее значение тумблера; поле `effective` есть только у
     // источника учёта, у пауз его нет (прецедент — `BoardService.board`).
-    const flag = (key: string): boolean => config.find((i) => i.key === key)?.value === "1";
+    //
+    // ОТКАЗ В СТОРОНУ ПАУЗЫ: ключа нет или значение не «0» — считаем «на паузе».
+    // У обоих тумблеров дефолт в `config-spec` равен «1», и выключатель всего
+    // парка обязан ломаться в «выключено»: пустой или чужой ответ настроек не
+    // должен рисовать двенадцать работающих агентов там, где задачи стоят.
+    const flag = (key: string): boolean => config.find((i) => i.key === key)?.value !== "0";
     const paused = { schedules: flag("AGENTS_SCHEDULES_PAUSED"), tasks: flag("AGENTS_TASKS_PAUSED") };
 
     const agents = rows.map((row): AgentStatusRow => {

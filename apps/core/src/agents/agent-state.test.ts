@@ -107,6 +107,66 @@ describe("Состояние агента словами (R-A2-1, решения
     assert.equal(verdict.state, "working");
   });
 
+  it("затык старше текущего claim не перекрывает работу", () => {
+    // Неразобранный затык недельной давности иначе навсегда показывал бы агента
+    // заблокированным, пока тот в эту минуту выполняет другую задачу.
+    const verdict = computeAgentState(
+      input({
+        claimedTasks: [
+          task({
+            id: "старая",
+            skill: "stale-block",
+            claimedAt: null,
+            blockedAt: new Date(NOW.getTime() - 7 * 86_400_000),
+            blockedReason: "execution_unknown: нужен owner retry",
+          }),
+          task({ id: "текущая", skill: "parts-audit", claimedAt: new Date(NOW.getTime() - 60_000) }),
+        ],
+      }),
+    );
+    assert.equal(verdict.state, "working");
+    assert.equal(verdict.taskId, "текущая");
+    assert.match(verdict.reason, /parts-audit/);
+    // Хвост не исчезает с экрана: затык всё ещё ждёт разбора.
+    assert.match(verdict.reason, /прежний затык Core не разобран/);
+    assert.match(verdict.reason, /stale-block/);
+  });
+
+  it("затык текущей задачи перекрывает работу", () => {
+    // Та же задача: claim жив, но Core уже остановил исполнение — это затык.
+    const свой = computeAgentState(
+      input({
+        claimedTasks: [
+          task({
+            claimedAt: new Date(NOW.getTime() - 60_000),
+            blockedAt: new Date(NOW.getTime() - 30_000),
+            blockedReason: "workflow_changed: нужен owner retry",
+          }),
+        ],
+      }),
+    );
+    assert.equal(свой.state, "blocked");
+    assert.match(свой.reason, /workflow_changed/);
+
+    // Другая задача, но затык НОВЕЕ живого claim: агент упёрся в него сейчас.
+    const свежий = computeAgentState(
+      input({
+        claimedTasks: [
+          task({ id: "текущая", skill: "parts-audit", claimedAt: new Date(NOW.getTime() - 300_000) }),
+          task({
+            id: "свежий-затык",
+            skill: "stock-watch",
+            claimedAt: null,
+            blockedAt: new Date(NOW.getTime() - 60_000),
+            blockedReason: "skill_failed: нужен owner retry",
+          }),
+        ],
+      }),
+    );
+    assert.equal(свежий.state, "blocked");
+    assert.equal(свежий.taskId, "свежий-затык");
+  });
+
   it("на паузе по паспорту: причина называет статус карточки", () => {
     for (const status of ["paused", "draft", "deprecated"]) {
       const verdict = computeAgentState(input({ passportStatus: status, claimedTasks: [task()] }));

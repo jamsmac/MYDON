@@ -759,13 +759,37 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
   });
 
   it("отсутствие записи о паузе — это «пауза»: дефолт тумблера равен 1", async () => {
-    // Действующее значение приходит из `SystemService.effective()`; голая
-    // строка `system_config` соврала бы «работаем» на пустой таблице.
-    const { db } = statusDb({ agents: [card()] });
+    // ОТКАЗ В СТОРОНУ ПАУЗЫ. Дефолт обоих тумблеров в config-spec — «1», и
+    // выключатель всего парка обязан ломаться в «выключено»: пустой ответ
+    // настроек (сбой чтения, чужой набор ключей) не должен рисовать
+    // работающих агентов там, где задачи стоят.
+    const now = new Date("2026-09-06T09:00:00.000Z");
+    const { db } = statusDb({
+      agents: [card()],
+      tasks: [
+        {
+          id: "t1",
+          ownerRef: "vendhub-ops",
+          skill: "parts-audit",
+          claimedAt: new Date(now.getTime() - 60_000),
+          blockedAt: null,
+          blockedReason: null,
+        },
+      ],
+    });
     const пусто = { effective: async () => [] } as never;
-    const view = await new AgentsService(db, noTasks, пусто).statuses();
-    assert.deepEqual(view.paused, { schedules: false, tasks: false });
-    assert.equal(view.agents[0]?.state, "idle", "тумблеров нет — читаем то, что отдал SystemService");
+    const view = await new AgentsService(db, noTasks, пусто).statuses({ now });
+    assert.deepEqual(view.paused, { schedules: true, tasks: true });
+    assert.equal(view.agents[0]?.state, "paused");
+    assert.match(view.agents[0]?.reason ?? "", /настройка системы, а не агента/);
+
+    // Только явный «0» означает «работаем»: значение с опечаткой — тоже пауза.
+    const мусор = {
+      effective: async () => [{ key: "AGENTS_TASKS_PAUSED", value: "false" }],
+    } as never;
+    const второй = statusDb({ agents: [card()] });
+    const кривой = await new AgentsService(второй.db, noTasks, мусор).statuses({ now });
+    assert.equal(кривой.paused.tasks, true, "не «0» — значит пауза, а не «работаем»");
   });
 
   it("архивных в сетке нет: список берётся без них", async () => {
