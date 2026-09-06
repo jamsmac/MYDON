@@ -84,14 +84,78 @@ function список(каталог) {
 }
 
 /**
+ * Снятие кавычек git с пути.
+ *
+ * Имя с не-ASCII, кавычкой, обратным слэшем или управляющим символом git
+ * отдаёт в кавычках и с C-экранированием: `"\321\200\320\260..."`. Снять
+ * одни кавычки мало — восьмеричные последовательности это БАЙТЫ UTF-8, и
+ * склеивать их надо в буфер, а не в строку: посимвольная сборка дала бы
+ * «Ñ€Ð°Ð±...» вместо «работа». Вызов идёт с `core.quotepath=false`, поэтому
+ * кириллица обычно приходит как есть, но кавычка и пробел в имени экранируются
+ * при любом значении настройки.
+ */
+export function unquotePath(raw) {
+  if (raw.length < 2 || !raw.startsWith('"') || !raw.endsWith('"')) return raw;
+  const тело = raw.slice(1, -1);
+  const УПРАВЛЯЮЩИЕ = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+  const байты = [];
+  for (let i = 0; i < тело.length; i += 1) {
+    if (тело[i] !== "\\") {
+      байты.push(...Buffer.from(тело[i], "utf8"));
+      continue;
+    }
+    const знак = тело[i + 1];
+    if (знак === undefined) break;
+    i += 1;
+    if (знак >= "0" && знак <= "7") {
+      байты.push(parseInt(тело.slice(i, i + 3), 8) & 0xff);
+      i += 2;
+      continue;
+    }
+    if (знак in УПРАВЛЯЮЩИЕ) байты.push(УПРАВЛЯЮЩИЕ[знак]);
+    else байты.push(...Buffer.from(знак, "utf8"));
+  }
+  return Buffer.from(байты).toString("utf8");
+}
+
+/** Неотслеживаемые пути из `git status --porcelain`: только строки `??`. */
+export function parsePorcelainUntracked(text) {
+  return text
+    .split("\n")
+    .filter((s) => s.startsWith("?? "))
+    // `\r` режем, а обычные пробелы нет: хвостовой пробел — часть имени файла,
+    // и `trim()` превратил бы его в путь, которого на диске нет.
+    .map((s) => unquotePath(s.slice(3).replace(/\r$/, "")));
+}
+
+/**
+ * Вызов git с записью провала.
+ *
+ * ЗАЧЕМ ОТДЕЛЬНО. Аудит идёт по расписанию, без человека у экрана. Если git
+ * недоступен (не тот каталог, битый индекс, нет прав), пустой список читается
+ * как «всё чисто» — самый дорогой вид зелёного. Поэтому провал попадает в
+ * `errors`, а секция про него говорит вслух.
+ */
+function gitВызов(errors, exec, cwd, args) {
+  // `core.quotepath=false` — чтобы кириллица в путях приходила как UTF-8, а не
+  // восьмеричными escape-последовательностями.
+  const r = exec("git", ["-c", "core.quotepath=false", ...args], { cwd });
+  if (r.code !== 0) {
+    const хвост = r.stdout.split("\n").map((s) => s.trim()).filter(Boolean).slice(-1)[0] ?? "";
+    errors.push(`git ${args[0]} → exit ${r.code}${хвост ? `: ${хвост}` : ""}`);
+  }
+  return r;
+}
+
+/**
  * Ветки в `origin` старше 30 дней.
  *
  * `origin/main` и `origin/HEAD` пропускаются всегда: main живёт вечно по
  * определению, а HEAD — не ветка, а указатель на неё, и в списке он дал бы
  * дубль самой свежей ветки.
  */
-function ветки(now, exec, cwd) {
-  const r = exec("git", ["for-each-ref", "--format=%(refname:short) %(committerdate:unix)", "refs/remotes/origin"], { cwd });
+function ветки(now, errors, exec, cwd) {
+  const r = gitВызов(errors, exec, cwd, ["for-each-ref", "--format=%(refname:short) %(committerdate:unix)", "refs/remotes/origin"]);
   if (r.code !== 0) return [];
   const итог = [];
   for (const строка of r.stdout.split("\n")) {
@@ -108,8 +172,8 @@ function ветки(now, exec, cwd) {
  * Рабочие деревья, КРОМЕ того, из которого запущен аудит: сам репозиторий —
  * не находка, а место работы. Остальные — забытые разборы аварий.
  */
-function worktrees(exec, cwd) {
-  const r = exec("git", ["worktree", "list", "--porcelain"], { cwd });
+function worktrees(errors, exec, cwd) {
+  const r = gitВызов(errors, exec, cwd, ["worktree", "list", "--porcelain"]);
   if (r.code !== 0) return [];
   // git печатает РАЗЫМЕНОВАННЫЙ путь: на macOS `/tmp` — симлинк на `/private/tmp`,
   // и сравнение с сырым `cwd` не узнало бы собственное дерево.
@@ -122,20 +186,17 @@ function worktrees(exec, cwd) {
   return r.stdout
     .split("\n")
     .filter((s) => s.startsWith("worktree "))
-    .map((s) => s.slice("worktree ".length).trim())
+    // Тем же разбором, что и `status`: путь с кавычкой или не-ASCII git
+    // экранирует одинаково во всех `--porcelain`-выводах.
+    .map((s) => unquotePath(s.slice("worktree ".length).replace(/\r$/, "")))
     .filter((p) => p.length > 0 && p !== cwd && p !== свой);
 }
 
 /** Неотслеживаемые файлы: только `??`, счёт целиком и первые 10 путей. */
-function неотслеживаемые(exec, cwd) {
-  const r = exec("git", ["status", "--porcelain", "--untracked-files=all"], { cwd });
+function неотслеживаемые(errors, exec, cwd) {
+  const r = gitВызов(errors, exec, cwd, ["status", "--porcelain", "--untracked-files=all"]);
   if (r.code !== 0) return { count: 0, sample: [] };
-  const пути = r.stdout
-    .split("\n")
-    .filter((s) => s.startsWith("?? "))
-    // Пути с пробелами и кириллицей git отдаёт в кавычках — снимаем их, иначе
-    // отчёт читается как строка кода, а не как путь.
-    .map((s) => s.slice(3).trim().replace(/^"(.*)"$/, "$1"));
+  const пути = parsePorcelainUntracked(r.stdout);
   return { count: пути.length, sample: пути.slice(0, ОБРАЗЕЦ_ФАЙЛОВ) };
 }
 
@@ -197,7 +258,13 @@ function миграцииВнеЖурнала(root) {
     .filter((f) => f.endsWith(".sql") && !теги.has(f.slice(0, -4)));
 }
 
-/** `check:passports`: код возврата плюс последние 20 строк вывода. */
+/**
+ * `check:passports`: код возврата плюс последние 20 строк вывода.
+ *
+ * Идёт МИМО `gitВызов`: ненулевой код здесь — это САМА находка («Паспорта:
+ * ПРОБЛЕМЫ»), а не сорванная проверка, и дублировать её в `errors` значило бы
+ * сказать одно и то же дважды разными словами.
+ */
 function паспорта(exec, cwd) {
   const r = exec("pnpm", ["--filter", "@mydon/agents", "check:passports"], { cwd });
   const хвост = r.stdout.split("\n").filter((s) => s.trim().length > 0).slice(-ХВОСТ_ПАСПОРТОВ).join("\n");
@@ -226,16 +293,20 @@ function староеВВопросах(root, now) {
 }
 
 export async function collectFindings(root, { now = new Date(), exec = runCommand } = {}) {
+  const errors = [];
   return {
     date: датаТашкент(now),
-    staleBranches: ветки(now, exec, root),
-    worktrees: worktrees(exec, root),
-    untracked: неотслеживаемые(exec, root),
+    staleBranches: ветки(now, errors, exec, root),
+    worktrees: worktrees(errors, exec, root),
+    untracked: неотслеживаемые(errors, exec, root),
     specsWithoutDecision: спекиБезРешения(root),
     plansWithoutLedger: планыБезЛеджера(root),
     migrationsNotInJournal: миграцииВнеЖурнала(root),
     passports: паспорта(exec, root),
     staleQuestions: староеВВопросах(root, now),
+    // Собран последним намеренно: к этому моменту все проверки отработали, и
+    // список полон.
+    errors,
   };
 }
 
@@ -247,9 +318,13 @@ function группа(подпись, элементы, всего = элеме�
 
 /** Находки → секция markdown. Чистая функция: печать и запись её не касаются. */
 export function renderAudit(findings) {
+  // Сорванные проверки идут ПЕРВОЙ строкой: без них «(0): нет» ниже читается
+  // как «чисто», хотя на деле никто не смотрел.
+  const сорваны = findings.errors ?? [];
   const строки = [
     `## ${ЗАГОЛОВОК} ${findings.date}`,
     "",
+    ...(сорваны.length > 0 ? [`- ⚠️ Проверки не выполнены (${сорваны.length}): ${сорваны.join("; ")}`] : []),
     группа("Ветки старше 30 дней", findings.staleBranches.map((b) => `${b.name} — ${b.days} дн`)),
     группа("Worktrees", findings.worktrees),
     группа("Неотслеживаемые файлы", findings.untracked.sample, findings.untracked.count),

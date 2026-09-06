@@ -3227,7 +3227,7 @@ async function проверитьРутины() {
     finishedAt: new Date().toISOString(), outcome: "skipped", skipReason: "no_signal", reason: "смоук: повода нет",
   });
   if (!запись.r.ok || запись.json.created !== true) throw new Error(`POST /routines/runs → ${запись.r.status} ${запись.text.slice(0, 200)}`);
-  const повтор = await jsonRequest("POST", "/routines/runs", { ...JSON.parse(JSON.stringify({ agentName: "vendhub-ops", skill: "monitor-stock", trigger: "cron", requestKey, startedAt: new Date(Date.now() - 2000).toISOString(), finishedAt: new Date().toISOString(), outcome: "executed", reason: "смоук: повтор" })) });
+  const повтор = await jsonRequest("POST", "/routines/runs", { agentName: "vendhub-ops", skill: "monitor-stock", trigger: "cron", requestKey, startedAt: new Date(Date.now() - 2000).toISOString(), finishedAt: new Date().toISOString(), outcome: "executed", reason: "смоук: повтор" });
   if (!повтор.r.ok || повтор.json.created !== false || повтор.json.id !== запись.json.id) throw new Error(`повтор requestKey не стал upsert: ${повтор.text.slice(0, 200)}`);
   const плохой = await jsonRequest("POST", "/routines/runs", { agentName: "a", skill: "b", trigger: "cron", requestKey: `${requestKey}:bad`, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), outcome: "done", reason: "x" });
   if (плохой.r.status !== 400) throw new Error(`битый outcome → ${плохой.r.status}, ожидали 400`);
