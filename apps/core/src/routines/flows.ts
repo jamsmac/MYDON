@@ -65,10 +65,14 @@ export function buildPhases(c: FlowContext): FlowPhase[] {
   if (c.execution) {
     const e = c.execution;
     const href = c.task ? `/tasks/${c.task.id}` : undefined;
+    // Статусов у попытки ровно четыре (`task_agent_execution_status`):
+    // committed — сделано, abandoned — брошено (это провал), active и ready —
+    // работа ещё идёт. Пятого («blocked») в перечислении нет, и ветка под него
+    // была бы мёртвым кодом, который читается как поддержанный случай.
     execution =
       e.status === "committed"
         ? { name: "execution", state: "ok", ...(e.committedAt ? { at: e.committedAt.toISOString() } : {}), title: "результат зафиксирован Core", ...(href ? { href } : {}) }
-        : e.status === "blocked" || e.status === "abandoned"
+        : e.status === "abandoned"
           ? { name: "execution", state: "fail", title: e.status, ...(e.abandonReason ? { note: e.abandonReason } : {}), ...(href ? { href } : {}) }
           : { name: "execution", state: "warn", title: `выполнение: ${e.status}`, ...(href ? { href } : {}) };
   } else if (r.outcome === "executed") execution = { name: "execution", state: "ok", at: r.finishedAt.toISOString(), title: "выполнено напрямую" };
@@ -87,22 +91,4 @@ export function buildPhases(c: FlowContext): FlowPhase[] {
         : { name: "delivery", state: "ok", title: list };
   }
   return [trigger, skill, proposal, approval, execution, delivery];
-}
-
-export interface TimelineRow { at: string; kind: "event" | "audit"; title: string; detail?: unknown }
-
-/**
- * Лента прогона: события шины и аудит одной колонкой по времени. Core отдаёт
- * их раздельно (у каждой строки свой тип), а слить в один список — работа
- * панели; функция здесь, чтобы правило слияния было одно и покрыто тестом.
- */
-export function mergeContextless(
-  events: { at: string; type: string; payload: unknown }[],
-  audit: { at: string; action: string; actorRef: string | null; target: string | null }[],
-): TimelineRow[] {
-  const rows: TimelineRow[] = [
-    ...events.map((e) => ({ at: e.at, kind: "event" as const, title: e.type, detail: e.payload })),
-    ...audit.map((a) => ({ at: a.at, kind: "audit" as const, title: `${a.action}${a.actorRef ? ` · ${a.actorRef}` : ""}`, ...(a.target ? { detail: a.target } : {}) })),
-  ];
-  return rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }

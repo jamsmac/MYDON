@@ -55,8 +55,24 @@ describe("computeBoard (R-R-3)", () => {
     assert.equal(nw.nextRun, null);
     const off = b.jobs.find((x) => x.id === "system/coffee:monitor")!;
     assert.equal(off.enabled, false);
+    assert.match(off.disabledReason ?? "", /COFFEE_MONITOR_CRON=off/);
     assert.equal(b.jobs.at(-1)!.enabled, false);
     assert.equal(b.jobs[0]!.enabled, true);
+  });
+
+  it("незнакомая причина монитора не теряется: показываем её сырой, а не пустоту", () => {
+    // Снимок читается из jsonb: слово, которого нет в словаре, туда попасть
+    // может, а «выключен без объяснения» — худший из ответов доски.
+    const b = computeBoard({
+      ...input,
+      snapshot: {
+        ...input.snapshot!,
+        payload: { ...snapshot, monitors: [{ name: "ourvend:sync", cron: "off", enabled: false, reason: "потом" as never }] },
+      },
+    });
+    const j = b.jobs.find((x) => x.id === "system/ourvend:sync")!;
+    assert.equal(j.enabled, false);
+    assert.equal(j.disabledReason, "потом");
   });
 
   it("ближайшие 24 ч: */3 даёт 8 срабатываний, отсортировано, лимит 200", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildPhases, mergeContextless, type FlowContext } from "./flows";
+import { buildPhases, type FlowContext } from "./flows";
 
 const run = {
   id: "r1", agentName: "vendhub-ops", skill: "monitor-stock", trigger: "cron", cron: "0 8 * * *",
@@ -13,11 +13,15 @@ const ctx0: FlowContext = { run, catalog: { executor: "code", tier: "T1" }, task
 const names = (p: ReturnType<typeof buildPhases>) => p.map((x) => `${x.name}:${x.state}`);
 
 describe("buildPhases (R-R-5)", () => {
-  it("legacy skipped:no_signal — trigger ok, proposal skip с подписью словаря, остальное skip", () => {
-    const p = buildPhases(ctx0);
+  it("legacy skipped — trigger ok, proposal skip с подписью словаря, остальное skip", () => {
+    // Причина взята НЕ `no_signal`: у него подпись словаря («повода нет»)
+    // совпадает с `reason` фикстуры, и тест прошёл бы даже после удаления
+    // словарной ветки. У `capped` подпись («потолок действий») и сырая причина
+    // — разные строки, и подмена одного другим сразу видна.
+    const p = buildPhases({ ...ctx0, run: { ...run, skipReason: "capped", reason: "дневной лимит действий исчерпан" } });
     assert.deepEqual(names(p), ["trigger:ok", "skill:ok", "proposal:skip", "approval:skip", "execution:skip", "delivery:skip"]);
     assert.match(p[0]!.title, /0 8 \* \* \*/);
-    assert.equal(p[2]!.note, "повода нет");
+    assert.equal(p[2]!.note, "потолок действий");
     assert.match(p[1]!.title, /monitor-stock · code · T1/);
   });
 
@@ -65,14 +69,25 @@ describe("buildPhases (R-R-5)", () => {
     const ok = buildPhases({ ...ctx0, deliveries: [{ destination: "notion-report", status: "delivered", lastError: null, completedAt: new Date() }] });
     assert.equal(ok[5]!.state, "ok");
   });
-});
 
-describe("mergeContextless — лента событий и аудита по времени", () => {
-  it("сливает и сортирует по at", () => {
-    const rows = mergeContextless(
-      [{ at: "2026-09-06T03:00:02.000Z", type: "agent.run", payload: {} }],
-      [{ at: "2026-09-06T03:00:01.000Z", action: "task.claimed", actorRef: "vendhub-ops", target: "t" }],
-    );
-    assert.deepEqual(rows.map((r) => r.at), ["2026-09-06T03:00:01.000Z", "2026-09-06T03:00:02.000Z"]);
+  it("исполнение: abandoned → fail с причиной отказа; active/ready → warn «ещё идёт»", () => {
+    // Статусы берём из перечисления `task_agent_execution_status`
+    // (active | ready | committed | abandoned) — пятого там нет, и фаза не
+    // должна знать о статусах, которых база не отдаёт.
+    const base = { ...ctx0, task: { id: "11111111-1111-4111-8111-111111111111", status: "todo" } };
+    const dropped = buildPhases({
+      ...base,
+      execution: { id: "e1", status: "abandoned", committedAt: null, abandonReason: "лизинг не подтверждён" },
+    });
+    assert.equal(dropped[4]!.state, "fail");
+    assert.equal(dropped[4]!.title, "abandoned");
+    assert.equal(dropped[4]!.note, "лизинг не подтверждён");
+    assert.equal(dropped[4]!.href, "/tasks/11111111-1111-4111-8111-111111111111");
+
+    for (const status of ["active", "ready"]) {
+      const going = buildPhases({ ...base, execution: { id: "e1", status, committedAt: null, abandonReason: null } });
+      assert.equal(going[4]!.state, "warn", status);
+      assert.equal(going[4]!.title, `выполнение: ${status}`);
+    }
   });
 });

@@ -78,7 +78,11 @@ export function computeBoard(input: BoardInput): CronBoard {
 
   const push = (j: Omit<CronBoardJob, "nextRun" | "last">, includeUpcoming: boolean): void => {
     const last = lastByKey.get(j.id);
-    const next = j.enabled ? nextOccurrences(j.cron, now, 1)[0] ?? null : null;
+    // Один разбор cron на задание: «когда дальше» — это ПЕРВЫЙ элемент того же
+    // списка, из которого набираются ближайшие сутки. Два вызова croner (limit 1
+    // и limit 200) считали одно и то же дважды и могли разойтись между собой.
+    const occurrences = j.enabled ? nextOccurrences(j.cron, now, UPCOMING_LIMIT) : [];
+    const next = occurrences[0] ?? null;
     jobs.push({
       ...j,
       nextRun: next ? next.toISOString() : null,
@@ -86,8 +90,8 @@ export function computeBoard(input: BoardInput): CronBoard {
         ? { at: last.startedAt.toISOString(), outcome: last.outcome, skipReason: last.skipReason, hook: last.hook, reason: last.reason, runId: last.id }
         : null,
     });
-    if (j.enabled && includeUpcoming) {
-      for (const at of nextOccurrences(j.cron, now, UPCOMING_LIMIT)) {
+    if (includeUpcoming) {
+      for (const at of occurrences) {
         if (at > horizon) break;
         upcoming.push({ at: at.toISOString(), jobId: j.id });
       }
@@ -107,7 +111,13 @@ export function computeBoard(input: BoardInput): CronBoard {
     for (const m of p.monitors) {
       // Мониторы паузе агентов не подчиняются: она про навыки и задачи, а синк
       // источника продолжает идти — иначе доска обещала бы простой, которого нет.
-      const reason = m.enabled ? undefined : DISABLED[m.reason ?? "off"]?.replace("<NAME>", m.name.toUpperCase().replace(/[^A-Z]/g, "_"));
+      // Незнакомая причина не должна ОБНУЛЯТЬ объяснение: сырое слово из снимка
+      // хуже фразы, но несравнимо лучше пустоты, на которую владелец задаст тот
+      // же вопрос «почему выключен?». Фолбэк тот же, что у `notWired`.
+      const key = m.reason ?? "off";
+      const reason = m.enabled
+        ? undefined
+        : DISABLED[key]?.replace("<NAME>", m.name.toUpperCase().replace(/[^A-Z]/g, "_")) ?? key;
       push({ id: `system/${m.name}`, kind: "monitor", agent: "system", skill: m.name, cron: m.cron, mode: "monitor", enabled: m.enabled, ...(reason ? { disabledReason: reason } : {}), paused: false }, true);
     }
   }
