@@ -7,6 +7,7 @@ import { runSkill } from "../app/skills/actions";
 import type { SkillDeck, SkillDeckItem } from "../lib/core";
 import { plural, when } from "../lib/format";
 import { BUSINESS_LABEL, TIER_LABEL } from "../lib/labels";
+import { runnable } from "../lib/skills";
 import { Av8 } from "./av8";
 
 /** Состояние агента словами: цвет лампы дублируется текстом, а не заменяется им. */
@@ -139,20 +140,12 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
   const [taskId, setTaskId] = useState<string | null>(null);
 
   // Навык «реализован», если его есть чем исполнить: тело файла у модели или
-  // код в реестре агентов. `executor: code` без кода — строка каталога без
-  // исполнителя: раньше кнопка была активна, задача создавалась, а worker
-  // угадывал по заголовку СОСЕДНИЙ навык (решение Р-6).
+  // код в реестре агентов.
   const implemented = item.executor === "llm" || item.hasCode;
   // Запускается только закреплённый навык работающего агента: остальное Core
   // отклонит, и честнее не давать нажать, чем показать отказ после нажатия.
-  const canRun = item.agentStatus === "active" && item.enabled && implemented;
-  const hint = canRun
-    ? undefined
-    : !implemented
-      ? "Навык ещё не реализован"
-      : item.agentStatus === "active"
-        ? "Впиши навык агенту в его карточке"
-        : "Включи агента в его карточке";
+  // Само правило — в `lib/skills.ts`: та же кнопка стоит в карточке агента.
+  const { canRun, reason: hint } = runnable(item);
   // Архивный агент по расписанию не ходит, даже если строки в карточке остались.
   const crons = item.agentStatus === "deprecated" ? [] : item.crons;
 

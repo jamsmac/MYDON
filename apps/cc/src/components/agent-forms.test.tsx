@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   refresh: vi.fn(),
   saveAgent: vi.fn(),
+  setAgentAutonomy: vi.fn(),
   toggleAgent: vi.fn(),
 }));
 
@@ -22,6 +23,7 @@ vi.mock("../app/agents/actions", () => ({
   createAgent: mocks.createAgent,
   deleteAgent: mocks.deleteAgent,
   saveAgent: mocks.saveAgent,
+  setAgentAutonomy: mocks.setAgentAutonomy,
   toggleAgent: mocks.toggleAgent,
 }));
 
@@ -74,7 +76,7 @@ describe("формы агентов", () => {
   it("сохраняет отредактированную конфигурацию при отказе API", async () => {
     mocks.saveAgent.mockResolvedValue({ ok: false, error: "Некорректный cron" });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} />);
+    render(<AgentEditor agent={agent} autonomyMax="T0" />);
 
     const mission = screen.getByLabelText("Зачем нужен (миссия)");
     await user.clear(mission);
@@ -91,7 +93,7 @@ describe("формы агентов", () => {
   it("страницы знаний (kbPages) редактируются и уходят в сохранение по одной на строку", async () => {
     mocks.saveAgent.mockResolvedValue({ ok: true });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} />);
+    render(<AgentEditor agent={agent} autonomyMax="T0" />);
 
     const kb = screen.getByLabelText(/Страницы знаний \(KB\)/);
     expect(kb).toHaveValue("shared/kb/globerent/heli-models.md");
@@ -106,7 +108,7 @@ describe("формы агентов", () => {
   it("показывает ошибку включения агента", async () => {
     mocks.toggleAgent.mockResolvedValue({ ok: false, error: "Расписания на паузе" });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} />);
+    render(<AgentEditor agent={agent} autonomyMax="T0" />);
 
     await user.click(screen.getByRole("button", { name: "Включить" }));
 
@@ -117,7 +119,7 @@ describe("формы агентов", () => {
   it("удаляет агента только после второго подтверждающего действия", async () => {
     mocks.deleteAgent.mockResolvedValue({ ok: true, goTo: "/agents" });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} />);
+    render(<AgentEditor agent={agent} autonomyMax="T0" />);
 
     await user.click(screen.getByRole("button", { name: "Удалить агента" }));
     expect(mocks.deleteAgent).not.toHaveBeenCalled();
@@ -125,5 +127,67 @@ describe("формы агентов", () => {
 
     expect(mocks.deleteAgent).toHaveBeenCalledWith("finance");
     expect(mocks.push).toHaveBeenCalledWith("/agents");
+  });
+});
+
+/**
+ * Дефект Р-7: селект слал тир общим PATCH карточки, Core его сознательно
+ * отбрасывает (`agents.controller.ts`, `@Patch(":name")`), а панель писала
+ * «Сохранено». Экран врал о самом чувствительном поле карточки.
+ */
+describe("Самостоятельность агента", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("селект зовёт действие автономии, а не общее сохранение карточки", async () => {
+    mocks.setAgentAutonomy.mockResolvedValue({ ok: true });
+    const user = userEvent.setup();
+    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+
+    await user.selectOptions(screen.getByLabelText(/Самостоятельность/), "T3");
+
+    expect(mocks.setAgentAutonomy).toHaveBeenCalledWith("finance", "T3");
+    expect(mocks.saveAgent).not.toHaveBeenCalled();
+    expect(await screen.findByText("Самостоятельность изменена")).toBeVisible();
+    expect(mocks.refresh).toHaveBeenCalled();
+  });
+
+  it("общее сохранение карточки тир вообще не отправляет", async () => {
+    mocks.saveAgent.mockResolvedValue({ ok: true });
+    const user = userEvent.setup();
+    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    const form = mocks.saveAgent.mock.calls[0]?.[1] as FormData;
+    // Поле в форме = обещание, которого Core не исполняет: его там быть не должно.
+    expect(form.get("autonomyDefault")).toBeNull();
+  });
+
+  it("отказ Core возвращает селект к прежнему тиру — экран не обещает лишнего", async () => {
+    mocks.setAgentAutonomy.mockResolvedValue({ ok: false, error: "нужен OWNER_ACTION_TOKEN" });
+    const user = userEvent.setup();
+    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+
+    const select = screen.getByLabelText(/Самостоятельность/);
+    await user.selectOptions(select, "T3");
+
+    expect(await screen.findByText("нужен OWNER_ACTION_TOKEN")).toBeVisible();
+    expect(select).toHaveValue("T1");
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
+  it("подсказка печатает ДЕЙСТВУЮЩИЙ порог системы, а не захардкоженный T0", async () => {
+    render(<AgentEditor agent={agent} autonomyMax="T2" />);
+
+    expect(screen.getByText(/Общий порог системы сейчас T2/)).toBeVisible();
+    expect(screen.queryByText(/порог системы сейчас T0/)).toBeNull();
+  });
+
+  it("порог не прочитался — подсказка говорит это, а не называет число наугад", async () => {
+    render(<AgentEditor agent={agent} autonomyMax={null} />);
+
+    expect(screen.getByText(/порог системы прочитать не удалось/i)).toBeVisible();
   });
 });

@@ -409,6 +409,22 @@ h1, h2, h3 { font-family: var(--fh); letter-spacing: -0.01em; margin: 0; }
 .agtile[data-attention="true"] { border-left: 3px solid var(--accent-tx); }
 @media (max-width: 640px) { .aggrid { grid-template-columns: 1fr; } }
 
+/* Шапка карточки агента (волна A2, R-A2-5): та же грамматика, что у плитки в
+   сетке — лицо слева, имя, состояние словом и причина, — только крупнее: в
+   карточке агента опознают не глазом, а читают. Новых токенов нет, размеры
+   задаёт место (как `.agtile .av8`). */
+.aghead { display: flex; gap: 14px; align-items: flex-start; }
+.aghead .av8 { width: 40px; height: 40px; flex: 0 0 auto; vertical-align: 0; }
+.aghead .agb { flex: 1; min-width: 0; }
+.aghead .agn { font-family: var(--fm); font-size: 17px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.aghead .agled { margin-top: 6px; }
+.aghead .agr { font-size: 12.5px; color: var(--tx-2); margin-top: 4px; line-height: 1.35; }
+.aghead .tags { margin-top: 10px; }
+/* Кнопка запуска в строке навыка: ответ Core (отказ или ссылка на задачу)
+   встаёт рядом с ней, а не уводит взгляд в конец списка. */
+.run-skill { display: inline-flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.run-skill .warn-text { font-size: 12px; }
+
 /* Панель «Приложения» (волна A2, R-A2-3): строка источника — состояние словом,
    заголовок, причина, время последнего события. */
 .apps-section > .hint { margin: -4px 0 10px; }

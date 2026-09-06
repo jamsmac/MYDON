@@ -50,8 +50,15 @@ export const stamp = (iso: string): string =>
  * одном месте (`@mydon/shared`), и вторая её копия здесь разъехалась бы с
  * доской и ботом — урок П5a. Строка журнала отличается от строки доски двумя
  * полями, поэтому это переклад формы, а не повтор правила.
+ *
+ * Принимает ПОЛЯ ИСХОДА, а не весь `FlowSummary`: те же поля под теми же
+ * именами приходят и из журнала прогонов (`GET /routines/runs`, форма
+ * `AgentRun`), который читает карточка агента (R-A2-5). Иначе у неё завелась
+ * бы вторая формулировка исхода — ровно то, что этот файл запрещает.
  */
-export const runPhrase = (run: FlowSummary): string =>
+export const runPhrase = (
+  run: Pick<FlowSummary, "id" | "startedAt" | "outcome" | "skipReason" | "hook" | "reason">,
+): string =>
   describeLast({
     at: run.startedAt,
     outcome: run.outcome,

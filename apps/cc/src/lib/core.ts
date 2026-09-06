@@ -2762,6 +2762,50 @@ export interface FlowPlayback {
   audit: { at: string; action: string; actorRef: string | null; target: string | null }[];
 }
 
+/**
+ * Строка журнала прогонов (`GET /routines/runs`) — форма `AgentRunView` Core
+ * (`apps/core/src/routines/runs.service.ts`) ПОЛЕ В ПОЛЕ.
+ *
+ * Отличается от `FlowSummary` именем агента (`agentName`, а не `agent`) и
+ * набором полей: это ответ журнала, а не плейбэка. Переименовывать его здесь
+ * значило бы завести третье имя одному полю.
+ */
+export interface AgentRun {
+  id: string;
+  agentName: string;
+  skill: string;
+  trigger: string;
+  cron: string | null;
+  scheduledAt: string | null;
+  requestKey: string;
+  traceKey: string | null;
+  taskId: string | null;
+  approvalId: string | null;
+  startedAt: string;
+  finishedAt: string;
+  outcome: string;
+  skipReason: string | null;
+  hook: string | null;
+  reason: string;
+  action: string | null;
+  review: string | null;
+}
+
+/**
+ * Запись памяти агента: событие шины типа `agent.memory:<навык>`.
+ *
+ * Объявлены только те поля, которые карточка ЧИТАЕТ. Payload (сигнатура
+ * прошлого повода) сюда не заведён намеренно: он служебный для рантайма —
+ * по нему агент решает, изменилось ли что-то, — и на экране владельцу
+ * отвечает не он, а «какой навык и когда запомнил».
+ */
+export interface AgentMemoryEvent {
+  id: string;
+  source: string;
+  type: string;
+  occurredAt: string;
+}
+
 export const core = {
   briefing: () => get<Briefing>("/registry/briefing"),
 
@@ -2823,8 +2867,34 @@ export const core = {
   flow: (id: string) => getWithToken<FlowPlayback>(`/routines/flows/${encodeURIComponent(id)}`, { refused: [404] }),
 
   agents: () => get<AgentCard[]>("/agents"),
-  /** Витрина навыков: что агенты вообще умеют (R-SD-2). */
-  skillDeck: () => get<SkillDeck>("/agents/skills"),
+  /**
+   * Витрина навыков: что агенты вообще умеют (R-SD-2). С именем агента — дека
+   * одного агента для его карточки (фильтрует Core, а не панель: иначе на
+   * каждое открытие карточки приезжал бы весь каталог).
+   */
+  skillDeck: (agent?: string) =>
+    get<SkillDeck>(`/agents/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ""}`),
+  /**
+   * Журнал прогонов одного агента (R-A2-5). ТОЛЬКО `getWithToken`: на
+   * `/routines/*` висит классовый `RoutinesTokenGuard`, который GET анонимно
+   * не пропускает, — обычный `get()` получил бы 401 вместо прогонов.
+   */
+  agentRuns: (agent: string, limit = 8) =>
+    getWithToken<{ runs: AgentRun[] }>(
+      `/routines/runs?agent=${encodeURIComponent(agent)}&limit=${limit}`,
+    ),
+  /**
+   * Память агента: события `agent.memory:<навык>` одним префиксом (R-A2-5).
+   *
+   * Тоже с токеном: `EventsTokenGuard` закрывает ленту и на чтении — в ней
+   * память агентов и события личного контура. Префикс, а не перебор типов:
+   * имена навыков панель знать не обязана.
+   */
+  agentMemory: (agent: string, limit = 8) =>
+    getWithToken<AgentMemoryEvent[]>(
+      `/events?source=${encodeURIComponent(`agent:${agent}`)}` +
+        `&typePrefix=${encodeURIComponent("agent.memory:")}&limit=${limit}`,
+    ),
   /**
    * Состояние всех агентов одним запросом (R-A2-1). Считает Core: занятость
    * выводится из задач и лизы claim, и повторять это правило в панели значило
@@ -2992,6 +3062,19 @@ export const core = {
     send<AgentCard>("/agents", "POST", input, { owner: true }),
   updateAgent: (name: string, patch: Record<string, unknown>) =>
     send<AgentCard>(`/agents/${encodeURIComponent(name)}`, "PATCH", patch, { owner: true }),
+  /**
+   * Смена самостоятельности агента — ОТДЕЛЬНЫМ маршрутом (R-P5-5, дефект Р-7).
+   *
+   * Общий `PATCH /agents/:name` поле `autonomyDefault` сознательно отбрасывает
+   * (`agents.controller.ts`): под owner-гардом должно быть только изменение
+   * тира, а не любая правка карточки. Панель слала тир общим patch'ем и писала
+   * «Сохранено» — экран врал о самом чувствительном поле агента.
+   */
+  setAgentAutonomy: (name: string, autonomyDefault: string, actor = "owner") =>
+    send<AgentCard>(`/agents/${encodeURIComponent(name)}/autonomy`, "PATCH", {
+      autonomyDefault,
+      actor,
+    }, { owner: true }),
   archiveAgent: (name: string) => send<AgentCard>(`/agents/${encodeURIComponent(name)}`, "DELETE"),
   /**
    * Ручной запуск навыка из панели. Обычная мутация под сервисным токеном:
@@ -3229,7 +3312,19 @@ export const core = {
     send<LlmProfileSaveResult>("/system/config/llm-profile", "PUT", input, { owner: true }),
   pendingApprovals: () => get<Approval[]>("/approvals/pending"),
   allApprovals: () => get<Approval[]>("/approvals"),
-  audit: (limit = 40) => get<AuditEntry[]>(`/audit?limit=${limit}`),
+  /**
+   * Журнал действий. `filter.actor` — ПОДСТРОКА `actorRef` (так фильтрует
+   * Core: в колонке живут и `agent:<имя>`, и голое имя агента), `filter.action`
+   * — код действия целиком. Фильтровать на стороне панели, выгрузив «последние
+   * N», нельзя: в шумный день записи агента не попадают в окно вовсе, и блок
+   * «Что делал» показывал бы пустоту над работавшим агентом.
+   */
+  audit: (limit = 40, filter: { actor?: string; action?: string } = {}) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    if (filter.actor) qs.set("actor", filter.actor);
+    if (filter.action) qs.set("action", filter.action);
+    return get<AuditEntry[]>(`/audit?${qs.toString()}`);
+  },
   /** Лента действий сотрудников: «кто что сделал» за период (даты по Ташкенту). */
   actions: (from: string, to: string, personId?: string) =>
     get<ActionRow[]>(
