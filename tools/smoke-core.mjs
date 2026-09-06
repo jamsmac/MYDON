@@ -3590,6 +3590,165 @@ async function проверитьЛица() {
     // строку): страховка на случай выхода из try до шага архивации.
     await jsonRequest("DELETE", `/agents/${агент}`).catch(() => {});
   }
+
+  // Вторая половина сценария — здоровье приложений на том же живом Core.
+  await проверитьЗдоровьеПриложений();
+}
+
+/**
+ * Здоровье приложений: `GET /apps/health` (волна A2, R-A2-2; решения Р-3…Р-6).
+ *
+ * ЗДЕСЬ ВАЖЕН НАСТОЯЩИЙ POSTGRES И НАСТОЯЩИЙ CRONER. Строку монитора собирают
+ * три источника разом: снимок расписаний (`agent_runtime_snapshot`, одна
+ * строка на систему), последний прогон (`distinct on` по `agent_run`) и
+ * арифметика расписания. Заглушка каждый из них выдумала бы, а разъезд между
+ * ними — ровно та ошибка, которую панель показывает владельцу зелёным.
+ *
+ * СНИМОК ПЕРЕЗАПИСЫВАЕТСЯ (ключ `schedules` один на систему), поэтому блок
+ * стоит ПОСЛЕ сценария рутин, который проверяет доску по своему снимку.
+ */
+async function проверитьЗдоровьеПриложений() {
+  const метка = Date.now();
+  const момент = (сдвигМс) => new Date(метка - сдвигМс).toISOString();
+  const МОНИТОРЫ = [
+    "ourvend:sync",
+    "ourvend:accounting",
+    "fx:refresh",
+    "coffee:monitor",
+    "maintenance:monitor",
+    "globerent:monitor",
+  ];
+
+  // ПОВТОРЯЕМОСТЬ, А НЕ УБОРКА ЗА СОБОЙ. Прогоны мониторов и heartbeat живут в
+  // общих таблицах, и следы прошлого запуска превратили бы «прогонов нет» в
+  // ложь: первый прогон зелёный, второй красный — и виноват смоук, а не Core.
+  // Чистим ровно свои строки: `agent_name = 'system'` — это мониторы, прогоны
+  // агентов из соседних сценариев не трогаем.
+  await sql`delete from agent_run where agent_name = 'system' and skill in ${sql(МОНИТОРЫ)}`;
+  await sql`delete from event where source = 'bot' and type = 'bot.heartbeat'`;
+
+  const здоровье = async () => {
+    const { r, text, json } = await jsonRequest("GET", "/apps/health");
+    if (!r.ok) throw new Error(`GET /apps/health → ${r.status}: ${text.slice(0, 200)}`);
+    if (
+      json.tz !== "Asia/Tashkent" ||
+      typeof json.now !== "string" ||
+      !Array.isArray(json.outside) ||
+      !Array.isArray(json.internal)
+    ) {
+      throw new Error(`форма ответа: ${text.slice(0, 200)}`);
+    }
+    if (json.outside.length === 0 || json.internal.length === 0) {
+      throw new Error(`пустая группа: снаружи ${json.outside.length}, внутренних ${json.internal.length}`);
+    }
+    return json;
+  };
+  const строка = (json, key) => {
+    const все = [...json.outside, ...json.internal];
+    const найдена = все.find((s) => s.key === key);
+    if (!найдена) throw new Error(`строки ${key} нет в ответе (есть: ${все.map((s) => s.key).join(", ")})`);
+    if (!["ok", "bad", "unknown"].includes(найдена.state)) {
+      throw new Error(`${key}: состояние «${найдена.state}» вне трёх допустимых`);
+    }
+    return найдена;
+  };
+  const прогонМонитора = async (skill, { at, outcome, reason }) => {
+    const { r, text } = await jsonRequest("POST", "/routines/runs", {
+      agentName: "system", skill, trigger: "cron", cron: "0 */3 * * *",
+      requestKey: `smoke-apps:${метка}:${skill}:${outcome}`,
+      startedAt: at, finishedAt: at, outcome, reason,
+    });
+    if (!r.ok) throw new Error(`POST /routines/runs (${skill}) → ${r.status}: ${text.slice(0, 200)}`);
+  };
+
+  // Снимок с ТРЕМЯ разными состояниями монитора сразу: выключен без учётки,
+  // включён, и — отдельно — монитор, которого в снимке нет вовсе.
+  const снимок = await jsonRequest("PUT", "/routines/snapshot", {
+    generatedAt: new Date(метка).toISOString(), tz: "Asia/Tashkent",
+    paused: { schedules: false, tasks: false }, jobs: [], notWired: [],
+    monitors: [
+      { name: "ourvend:sync", cron: "0 */3 * * *", enabled: false, reason: "no_credentials" },
+      { name: "ourvend:accounting", cron: "5 8 * * *", enabled: false, reason: "no_credentials" },
+      { name: "fx:refresh", cron: "5 9 * * *", enabled: true },
+      { name: "coffee:monitor", cron: "0 */3 * * *", enabled: true },
+      { name: "maintenance:monitor", cron: "0 6 * * *", enabled: true },
+    ],
+  });
+  if (!снимок.r.ok) throw new Error(`PUT /routines/snapshot → ${снимок.r.status}: ${снимок.text.slice(0, 200)}`);
+
+  const до = await здоровье();
+  // Ненастроенный источник — «не оценить» словами, а не зелёным.
+  const сбор = строка(до, "ourvend:sync");
+  if (сбор.state !== "unknown" || !/источник не настроен/.test(сбор.summary)) {
+    throw new Error(`ourvend:sync без учётки: ${сбор.state} — «${сбор.summary}»`);
+  }
+  // Включённый монитор без единого прогона — «не оценить», НИКОГДА не «ок».
+  for (const key of ["fx:refresh", "coffee:monitor", "maintenance:monitor"]) {
+    const r = строка(до, key);
+    if (r.state === "ok") throw new Error(`${key}: прогонов нет, а строка зелёная — «${r.summary}»`);
+    if (!/не запускался|журнал прогонов пуст/.test(r.summary)) {
+      throw new Error(`${key}: ждали «прогонов нет», получили «${r.summary}»`);
+    }
+  }
+  // Монитора нет в опубликованном снимке — это НЕ «агенты не отчитывались».
+  const globerent = строка(до, "globerent:monitor");
+  if (globerent.state !== "unknown" || !/не заявлен в снимке/.test(globerent.summary)) {
+    throw new Error(`globerent:monitor вне снимка: ${globerent.state} — «${globerent.summary}»`);
+  }
+  // Р-3: внутренние мониторы читают только Core и в «снаружи» не попадают.
+  const снаружи = new Set(до.outside.map((r) => r.key));
+  for (const key of ["coffee:monitor", "maintenance:monitor", "globerent:monitor"]) {
+    if (снаружи.has(key)) throw new Error(`внутренний монитор ${key} оказался в разделе «снаружи»`);
+  }
+  for (const key of ["ourvend:sync", "fx:refresh", "notion", "bot", "llm"]) {
+    if (!снаружи.has(key)) throw new Error(`внешний источник ${key} не попал в раздел «снаружи»`);
+  }
+  // Бот ещё не присылал heartbeat — «не оценить», а не «молчит».
+  const тишина = строка(до, "bot");
+  if (тишина.state !== "unknown" || !/не отчитывался/.test(тишина.summary)) {
+    throw new Error(`бот без heartbeat: ${тишина.state} — «${тишина.summary}»`);
+  }
+
+  // Успешный прогон в срок красит строку зелёным и цитирует итог монитора.
+  await прогонМонитора("fx:refresh", { at: момент(60_000), outcome: "executed", reason: "[fx:refresh] обновлено: USD" });
+  // Упавший прогон — «сломано» с причиной из журнала.
+  await прогонМонитора("coffee:monitor", { at: момент(60_000), outcome: "failed", reason: "[coffee:monitor] источник не прочитан" });
+  // Прогон двухдневной давности при суточном кроне: два пропущенных запуска.
+  // `failedStreak = 0` держится вечно, если крон перестал ЗАПУСКАТЬСЯ.
+  await прогонМонитора("maintenance:monitor", { at: момент(2 * 24 * 3_600_000), outcome: "executed", reason: "[maintenance:monitor] задач 0" });
+
+  const после = await здоровье();
+  const курс = строка(после, "fx:refresh");
+  if (курс.state !== "ok" || !/обновлено: USD/.test(курс.detail ?? "")) {
+    throw new Error(`fx:refresh после успешного прогона: ${курс.state} — «${курс.summary}» / «${курс.detail}»`);
+  }
+  const кофе = строка(после, "coffee:monitor");
+  if (кофе.state !== "bad" || !/источник не прочитан/.test(кофе.detail ?? "")) {
+    throw new Error(`coffee:monitor после отказа: ${кофе.state} — «${кофе.summary}» / «${кофе.detail}»`);
+  }
+  const то = строка(после, "maintenance:monitor");
+  if (то.state !== "bad" || !/молчит/.test(то.summary)) {
+    throw new Error(`maintenance:monitor через двое суток при суточном кроне: ${то.state} — «${то.summary}»`);
+  }
+
+  // Р-5: heartbeat — событие, а не таблица. Старый сигнал (больше пяти
+  // интервалов) — «сломано», свежий — «в порядке».
+  const heartbeat = async (сдвигМс) => {
+    const at = момент(сдвигМс);
+    const { r, text } = await jsonRequest("POST", "/events", {
+      source: "bot", type: "bot.heartbeat", occurredAt: at,
+      payload: { at }, clientKey: `smoke-apps:${метка}:heartbeat:${сдвигМс}`,
+    });
+    if (!r.ok) throw new Error(`POST /events (heartbeat) → ${r.status}: ${text.slice(0, 200)}`);
+  };
+  await heartbeat(40 * 60_000);
+  const молчит = строка(await здоровье(), "bot");
+  if (молчит.state !== "bad" || !/молчит/.test(молчит.summary)) {
+    throw new Error(`бот с сигналом 40-минутной давности: ${молчит.state} — «${молчит.summary}»`);
+  }
+  await heartbeat(60_000);
+  const живой = строка(await здоровье(), "bot");
+  if (живой.state !== "ok") throw new Error(`бот со свежим сигналом: ${живой.state} — «${живой.summary}»`);
 }
 
 async function ждатьЗдоровье(proc) {
@@ -3939,10 +4098,11 @@ try {
   try {
     await проверитьЛица();
     console.log(
-      "  ok  сценарий: состояние агентов — idle/blocked/working словами, distinct on берёт последний прогон, системная пауза перекрывает занятость",
+      "  ok  сценарий: состояние агентов — idle/blocked/working словами, distinct on берёт последний прогон, системная пауза перекрывает занятость; " +
+        "здоровье приложений — три состояния, ноль прогонов не «ок», внутренние мониторы не «снаружи», heartbeat бота",
     );
   } catch (e) {
-    провалы.push(`состояние агентов: ${e.message}`);
+    провалы.push(`лица (состояние агентов и здоровье приложений): ${e.message}`);
   }
 
   try {
