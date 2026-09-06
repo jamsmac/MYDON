@@ -16,7 +16,13 @@ export class BoardService {
     // `value` — действующее значение тумблера (база > env > дефолт). Поле
     // `effective` есть только у источника учёта (второй слой фолбэков кода);
     // у пауз его нет, и `value` здесь и означает «действует».
-    const flag = (key: string): boolean => config.find((i) => i.key === key)?.value === "1";
+    //
+    // ОТКАЗ В СТОРОНУ ПАУЗЫ: ключа нет или значение не «0» — считаем «на паузе».
+    // Дефолт обоих тумблеров в `config-spec` равен «1», рантайм агентов читает
+    // их так же (`apps/agents/src/polling.ts`), и `GET /agents/status` — тоже.
+    // Разойтись эти три двери не должны: два экрана, по-разному отвечающих на
+    // вопрос «парк на паузе?», хуже, чем один неправильный.
+    const flag = (key: string): boolean => config.find((i) => i.key === key)?.value !== "0";
     return computeBoard({
       now,
       snapshot,

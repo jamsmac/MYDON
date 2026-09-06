@@ -68,17 +68,29 @@ describe("BoardService.board (R-R-3)", () => {
     assert.equal(b.upcoming24h.some((u) => u.jobId === job.id), true);
   });
 
-  it("ключа нет в конфиге — считаем «не на паузе», а не гадаем по снимку", async () => {
-    // `effective()` отдаёт весь белый список, но ключ могли из него убрать.
-    // Тогда доска обязана ответить «работает»: обещание запуска, которого не
-    // будет, чинится быстрее молчания, выданного за паузу.
+  it("ключа нет в конфиге — доска говорит «на паузе», а не обещает запуск", async () => {
+    // Отказ в сторону паузы. Дефолт обоих тумблеров в `config-spec` равен «1»,
+    // рантайм агентов читает их так же (`apps/agents/src/polling.ts`), и
+    // `GET /agents/status` — тоже. Пустой ответ настроек не должен рисовать
+    // расписания работающими: обещанный и не случившийся запуск владелец
+    // истолкует как поломку агентов, а не как молчание таблицы настроек.
     const b = await board({}, { schedules: false, tasks: false });
 
-    assert.deepEqual(b.paused, { schedules: false, tasks: false });
-    assert.equal(b.jobs.find((j) => j.agent === "vendhub-ops")!.paused, false);
+    assert.deepEqual(b.paused, { schedules: true, tasks: true });
+    assert.equal(b.jobs.find((j) => j.agent === "vendhub-ops")!.paused, true);
   });
 
-  it("значение не «1» паузой не считается", async () => {
+  it("чужое значение тумблера тоже считается паузой", async () => {
+    // «false», «off», опечатка — всё, что не «0», трактуется как пауза: у
+    // выключателя всего парка направление отказа только одно.
+    const b = await board(
+      { AGENTS_SCHEDULES_PAUSED: "false", AGENTS_TASKS_PAUSED: "выкл" },
+      { schedules: false, tasks: false },
+    );
+    assert.deepEqual(b.paused, { schedules: true, tasks: true });
+  });
+
+  it("явный «0» снимает паузу", async () => {
     const b = await board({ AGENTS_SCHEDULES_PAUSED: "0", AGENTS_TASKS_PAUSED: "0" }, { schedules: false, tasks: false });
     assert.deepEqual(b.paused, { schedules: false, tasks: false });
   });
