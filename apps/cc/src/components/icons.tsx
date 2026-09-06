@@ -24,6 +24,7 @@ const PATHS: Record<string, string> = {
   spark: 'M12 3v6M12 15v6M3 12h6M15 12h6M6.4 6.4l3 3M14.6 14.6l3 3M17.6 6.4l-3 3M9.4 14.6l-3 3',
   send: 'M22 2 11 13M22 2l-7 20-4-9-9-4z',
   box: 'm12 3 9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v9',
+  clock: 'M12 12m-9 0a9 9 0 1 0 18 0 9 9 0 1 0-18 0M12 7v5l3.5 2',
 };
 
 export function Ic({ name, size }: { name: string; size?: number }) {

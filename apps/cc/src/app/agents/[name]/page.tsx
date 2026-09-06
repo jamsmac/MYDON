@@ -13,6 +13,27 @@ function ownTrail(all: AuditEntry[], name: string): AuditEntry[] {
     .slice(0, 12);
 }
 
+/** Параметры хука одной строкой: сам `kind` стоит заголовком. */
+function hookParams(hook: Record<string, unknown>): string {
+  return Object.entries(hook)
+    .filter(([key]) => key !== "kind")
+    .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+    .join(" · ");
+}
+
+/**
+ * Хуки прогона паспорта (волна R): что проверяется ДО навыка и что делается
+ * ПОСЛЕ. Показываем списком, потому что именно они объясняют исход
+ * «остановлено хуком» в журнале прогонов — иначе владелец видит отказ без
+ * причины. Правка — в паспорте агента, панель их только читает.
+ */
+function runHooks(agent: AgentCard): { phase: string; kind: string; params: string }[] {
+  return [
+    ...(agent.hooks?.preRun ?? []).map((h) => ({ phase: "до прогона", kind: h.kind, params: hookParams(h) })),
+    ...(agent.hooks?.postRun ?? []).map((h) => ({ phase: "после прогона", kind: h.kind, params: hookParams(h) })),
+  ];
+}
+
 const ACTION_LABEL: Record<string, string> = {
   "agent.create": "заведён",
   "agent.update": "изменены настройки",
@@ -39,6 +60,8 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
     return <CoreDown detail={err instanceof CoreUnavailable ? err.detail : String(err)} />;
   }
 
+  const hooks = runHooks(agent);
+
   return (
     <>
       <div className="page-head">
@@ -50,6 +73,28 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
       </div>
 
       <AgentEditor agent={agent} />
+
+      {hooks.length > 0 && (
+        <>
+          <div className="section-title">Хуки прогона</div>
+          <div className="rows">
+            {hooks.map((h, i) => (
+              <div className="row" key={`${h.phase}/${h.kind}/${i}`}>
+                <div className="t">
+                  <b>{h.kind}</b>
+                  <small>{h.params || "без параметров"}</small>
+                </div>
+                <span className="when">{h.phase}</span>
+              </div>
+            ))}
+          </div>
+          <p className="hint" style={{ marginTop: 8 }}>
+            Хуки приходят из паспорта агента и хранятся в его карточке — здесь только просмотр.
+            Сработавший pre-run хук виден в <Link href="/crons">рутинах</Link> как «остановлено
+            хуком».
+          </p>
+        </>
+      )}
 
       <div className="section-title">Что делал</div>
       {trail.length === 0 ? (

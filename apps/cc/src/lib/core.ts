@@ -1224,6 +1224,14 @@ export interface AgentCard {
   ideaChannels: string[];
   /** Страницы знаний — пути внутри apps/agents/shared (например shared/kb/globerent/heli-models.md). */
   kbPages: string[];
+  /**
+   * Хуки прогона (волна R, R-R-4): что проверяется ДО навыка и что делается
+   * ПОСЛЕ. Core их только хранит (колонка json, состав проверяет рантайм), и
+   * у карточки без хуков там лежит `{}` — поэтому обе ветки объявлены
+   * НЕОБЯЗАТЕЛЬНЫМИ, хотя паспорт пишет обе. Пообещать здесь массивы значило
+   * бы уронить карточку агента на `.map` первого же агента без хуков.
+   */
+  hooks?: { preRun?: { kind: string; [k: string]: unknown }[]; postRun?: { kind: string }[] };
   archivedAt: string | null;
   updatedAt: string;
 }
@@ -2618,6 +2626,54 @@ export interface DocsGraph {
   builtAt: string;
 }
 
+/**
+ * ── Рутины (волна R) ───────────────────────────────────────────────────────
+ *
+ * Формы скопированы с Core (`apps/core/src/routines/board.ts`,
+ * `flows.ts`, `flows.service.ts`) ПОЛЕ В ПОЛЕ. Ни одного поля панель не
+ * переименовывает и не «уточняет»: доска про то, когда сработают агенты, и
+ * разъехавшаяся копия формы врала бы владельцу о времени (урок П5a — три
+ * копии одного числа).
+ */
+export interface CronBoardJob {
+  id: string;
+  kind: "skill" | "monitor";
+  agent: string;
+  skill: string;
+  cron: string;
+  mode: "durable-task" | "legacy" | "monitor";
+  enabled: boolean;
+  disabledReason?: string;
+  paused: boolean;
+  nextRun: string | null;
+  last: null | { at: string; outcome: string; skipReason: string | null; hook: string | null; reason: string; runId: string };
+}
+export interface CronBoard {
+  tz: "Asia/Tashkent";
+  now: string;
+  snapshot: { generatedAt: string; ageSec: number; stale: boolean } | null;
+  paused: { schedules: boolean; tasks: boolean };
+  jobs: CronBoardJob[];
+  upcoming24h: { at: string; jobId: string }[];
+}
+
+/** Строка журнала прогонов в форме плейбэка. */
+export interface FlowSummary {
+  id: string; agent: string; skill: string; trigger: string; startedAt: string; finishedAt: string;
+  outcome: string; skipReason: string | null; hook: string | null; reason: string;
+  action: string | null; taskId: string | null; approvalId: string | null;
+}
+/** Шесть фаз прогона: их всегда шесть и всегда в одном порядке (`skip` — тоже ответ). */
+export type PhaseState = "ok" | "warn" | "fail" | "skip";
+export type PhaseName = "trigger" | "skill" | "proposal" | "approval" | "execution" | "delivery";
+export interface FlowPhase { name: PhaseName; state: PhaseState; at?: string; title: string; note?: string; href?: string }
+export interface FlowPlayback {
+  run: FlowSummary & { cron: string | null; scheduledAt: string | null; review: string | null; requestKey: string };
+  phases: FlowPhase[];
+  events: { at: string; type: string; payload: unknown }[];
+  audit: { at: string; action: string; actorRef: string | null; target: string | null }[];
+}
+
 export const core = {
   briefing: () => get<Briefing>("/registry/briefing"),
 
@@ -2656,6 +2712,22 @@ export const core = {
    * здесь действительно авария Core, а не «такого узла нет».
    */
   docsGraph: () => getWithToken<DocsGraph>("/docs/graph"),
+
+  // ── Рутины: доска расписаний и плейбэк прогонов (волна R) ──
+  /**
+   * ВСЕ чтения `/routines/*` идут С ТОКЕНОМ: на контроллере висит
+   * классовый `RoutinesTokenGuard`, который — в отличие от глобального
+   * `ServiceTokenGuard` — GET анонимно не пропускает (журнал прогонов
+   * открывать без ключа нельзя). Обычный `get()` токен не несёт, и доска
+   * отвечала бы 401 вместо расписаний.
+   */
+  cronBoard: () => getWithToken<CronBoard>("/routines/board"),
+  flows: (params: Record<string, string> = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return getWithToken<{ runs: FlowSummary[] }>(`/routines/flows${q ? `?${q}` : ""}`);
+  },
+  flow: (id: string) => getWithToken<FlowPlayback>(`/routines/flows/${encodeURIComponent(id)}`),
+
   agents: () => get<AgentCard[]>("/agents"),
   /** Витрина навыков: что агенты вообще умеют (R-SD-2). */
   skillDeck: () => get<SkillDeck>("/agents/skills"),
