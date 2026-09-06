@@ -165,18 +165,16 @@ Hetzner никогда не запускается. MCP живёт исключ�
 клавиатурой — сам владелец, и подписывать его действие «mcp» было бы такой же ложью — задача из
 `mydon task-create` приходит с источником `mydon-cli`, а не `mcp` (`docs/AGENTS_ACTIVATION.md`).
 
-Два исключения — не пропуск, а факт устройства маршрута:
+Одно исключение — не пропуск, а факт устройства маршрута:
 
 - **`memory_remember`** пишет `event` с `source: agent:<имя>` — у события в принципе нет поля
   «актор», которое могло бы молча стать «owner»: там нечего перепутывать.
-- **`agent_upsert`** пока ложится в `audit_log` карточки агента как `owner`. Core
-  (`POST /agents`, `PATCH /agents/:name`, `PATCH /agents/:name/autonomy`) с 06.09.2026 принимает
-  необязательный `actor` (≤ 64 символов, `apps/core/src/agents/agents.controller.ts`), но
-  `apps/mcp/src/core-client.ts` (`createAgent`/`updateAgent`/`setAutonomy`) его пока не передаёт —
-  известный, сознательно не закрытый в этом срезе хвост (Ruling 11,
-  `docs/decisions/2026-09-06-wave-a1-mcp-cli.md`). Если владельцу важно отличать в журнале правку
-  карточки агента моделью от своей — это отдельная маленькая правка `apps/mcp`, тем же приёмом, что
-  у остальных пяти меняющих инструментов.
+
+`agent_upsert` подписывается наравне с остальными: Core принимает необязательный `actor`
+(≤ 64 символов) на `POST /agents`, `PATCH /agents/:name` и `PATCH /agents/:name/autonomy`
+(`apps/core/src/agents/agents.controller.ts`), а `apps/mcp/src/core-client.ts`
+(`createAgent`/`updateAgent`/`setAutonomy`) шлёт `mcp`. Это важнее прочих подписей: карточка
+агента задаёт тир автономии, и в журнале должно быть видно, кто его поднял.
 
 ## Пояс владельца (owner belt)
 
