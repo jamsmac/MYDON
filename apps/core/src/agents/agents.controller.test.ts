@@ -151,3 +151,43 @@ describe("Порядок маршрутов: «skills» не должен уех
     );
   });
 });
+
+describe("Подпись правки карточки агента (волна A1, adversarial)", () => {
+  /** Стаб сервиса: копит подпись, с которой пришёл вызов. */
+  function stub() {
+    const calls: { method: string; actorRef: unknown }[] = [];
+    const agents = {
+      create: async (_input: unknown, actorRef?: string) => {
+        calls.push({ method: "create", actorRef });
+        return { name: "a" };
+      },
+      update: async (_name: string, _patch: unknown, actorRef?: string) => {
+        calls.push({ method: "update", actorRef });
+        return { name: "a" };
+      },
+    } as never;
+    return { controller: new AgentsController(agents), calls };
+  }
+
+  it("правка через инструмент подписана им, а не владельцем", async () => {
+    const { controller, calls } = stub();
+    await controller.create(plainToInstance(CreateAgentDto, { name: "vendhub-ops", actor: "mcp" }));
+    await controller.update("vendhub-ops", plainToInstance(UpdateAgentDto, { name: "vendhub-ops", actor: "mcp" }));
+    assert.deepEqual(
+      calls.map((c) => c.actorRef),
+      ["mcp", "mcp"],
+      "иначе в журнале правка модели неотличима от нажатия владельца",
+    );
+  });
+
+  it("без подписи поведение прежнее: решает Core (owner по умолчанию)", async () => {
+    const { controller, calls } = stub();
+    await controller.create(plainToInstance(CreateAgentDto, { name: "vendhub-ops" }));
+    assert.equal(calls[0]!.actorRef, undefined);
+  });
+
+  it("подпись — короткая строка, а не что угодно", async () => {
+    const long = plainToInstance(CreateAgentDto, { name: "vendhub-ops", actor: "x".repeat(65) });
+    assert.ok((await problems(long)).some((m) => /actor/.test(m)));
+  });
+});
