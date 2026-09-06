@@ -154,6 +154,34 @@ describe("GET /events — фильтры доходят до сервиса", ()
   });
 });
 
+describe("GET /events/count и /events/latest — since доходит до сервиса", () => {
+  // Регресс волны A1 (adversarial-фикс B1): `latest` объявляло `since` в ДТО
+  // (узкое ДТО существует именно затем, чтобы неподдерживаемое поле давало
+  // 400), но фильтр по времени в сервисе не применяло — поле принималось и
+  // молча ничего не делало. `count` эту же проверку уже проходил.
+  it("count: since доезжает до фильтра датой, а не строкой", async () => {
+    const { controller, calls } = stub();
+    await controller.count({ since: "2026-09-01T00:00:00.000Z" });
+    const filter = calls[0]!;
+    assert.ok(filter.since instanceof Date, "since уходит датой, а не строкой");
+    assert.equal((filter.since as Date).toISOString(), "2026-09-01T00:00:00.000Z");
+  });
+
+  it("latest: since доезжает до фильтра датой — раньше терялось молча", async () => {
+    const { controller, calls } = stub();
+    await controller.latest({ since: "2026-09-01T00:00:00.000Z" });
+    const filter = calls[0]!;
+    assert.ok(filter.since instanceof Date, "since уходит датой, а не строкой");
+    assert.equal((filter.since as Date).toISOString(), "2026-09-01T00:00:00.000Z");
+  });
+
+  it("latest: без since поле в фильтр не попадает", async () => {
+    const { controller, calls } = stub();
+    await controller.latest({ source: "agent:vendhub-ops" });
+    assert.equal("since" in calls[0]!, false);
+  });
+});
+
 describe("ListEventsDto через ValidationPipe (main.ts: whitelist + forbidNonWhitelisted)", () => {
   it("строка запроса приводится к типам: limit становится числом", async () => {
     const dto = await черезПайп({ source: "agent:a", typePrefix: "agent.memory:", limit: "50", order: "desc" });

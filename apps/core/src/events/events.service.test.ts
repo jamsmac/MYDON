@@ -188,3 +188,26 @@ describe("EventsService.list — отбор ленты", () => {
     assert.equal(captured.where, undefined);
   });
 });
+
+describe("EventsService.latest — отбор «самого свежего»", () => {
+  // Adversarial-фикс B1 (волна A1): `since` объявлялось в узком ДТО контроллера
+  // и принималось валидацией, но фильтр по времени здесь не применялся —
+  // «самое свежее» отдавалось без учёта since, хотя ответ выглядел здоровым.
+  it("since доходит до SQL тем же условием, что у ленты", async () => {
+    const { db, captured } = listStub();
+    await new EventsService(db).latest({ since: new Date("2026-09-01T00:00:00.000Z") });
+    const { sql, params } = renderQuery(captured.where);
+    assert.match(sql, /"event"\."occurred_at" >= \$\d/);
+    assert.ok(
+      params.includes("2026-09-01T00:00:00.000Z"),
+      `параметры: ${JSON.stringify(params)}`,
+    );
+  });
+
+  it("без since условия нет — «самое свежее» не сужается само по себе", async () => {
+    const { db, captured } = listStub();
+    await new EventsService(db).latest({ source: "agent:vendhub-ops" });
+    const { sql } = renderQuery(captured.where);
+    assert.doesNotMatch(sql, /occurred_at/);
+  });
+});

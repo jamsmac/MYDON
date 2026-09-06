@@ -181,12 +181,13 @@ export class EventsController {
     return { count };
   }
 
-  /** Самое свежее событие под фильтр (источник/тип) — для дельта-памяти агента. */
+  /** Самое свежее событие под фильтр (источник/тип/с даты) — для дельта-памяти агента. */
   @Get("latest")
   async latest(@Query() filter: FilterEventsDto) {
     const row = await this.events.latest({
       ...(filter.source ? { source: filter.source } : {}),
       ...(filter.type ? { type: filter.type } : {}),
+      ...(filter.since ? { since: new Date(filter.since) } : {}),
     });
     return { event: row ?? null };
   }
