@@ -17,6 +17,33 @@ function secretEquals(a: string, b: string): boolean {
 }
 
 /**
+ * Требует внутренний токен в запросе или бросает 401.
+ *
+ * Вынесено из `ServiceTokenGuard` отдельной функцией, потому что маршруты
+ * ДОКУМЕНТОВ (R-M-8) закрывают токеном и чтение тоже: в `memory/` лежит личное
+ * владельца, и «GET открыт всем в сети Core» там неприемлемо. Копировать ради
+ * этого сравнение в постоянное время и разбор двух заголовков нельзя — разошлись
+ * бы две двери с одним ключом.
+ */
+export function assertServiceToken(req: Pick<Request, "headers">): void {
+  const expected = appConfig.serviceToken;
+  const header = req.headers["x-service-token"];
+  const bearer = req.headers.authorization;
+  const provided =
+    typeof header === "string" && header.length > 0
+      ? header
+      : typeof bearer === "string" && bearer.startsWith("Bearer ")
+        ? bearer.slice("Bearer ".length)
+        : "";
+
+  // !expected — токен не настроен вообще: ни одна пара secretEquals("", "")
+  // не должна тут случайно пройти, поэтому проверяем явно и первым.
+  if (!expected || provided.length === 0 || !secretEquals(provided, expected)) {
+    throw new UnauthorizedException("Нужен внутренний токен доступа к Core");
+  }
+}
+
+/**
  * Граница доступа Core: мутации требуют внутренний токен.
  *
  * Раньше любой, кто дотянулся до сети Core, мог менять данные — защита держалась
@@ -46,21 +73,7 @@ export class ServiceTokenGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
-    const expected = appConfig.serviceToken;
-    const header = req.headers["x-service-token"];
-    const bearer = req.headers.authorization;
-    const provided =
-      typeof header === "string" && header.length > 0
-        ? header
-        : typeof bearer === "string" && bearer.startsWith("Bearer ")
-          ? bearer.slice("Bearer ".length)
-          : "";
-
-    // !expected — токен не настроен вообще: ни одна пара secretEquals("", "")
-    // не должна тут случайно пройти, поэтому проверяем явно и первым.
-    if (!expected || provided.length === 0 || !secretEquals(provided, expected)) {
-      throw new UnauthorizedException("Нужен внутренний токен доступа к Core");
-    }
+    assertServiceToken(req);
     return true;
   }
 }

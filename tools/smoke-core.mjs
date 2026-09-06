@@ -3097,6 +3097,102 @@ async function проверитьRateLimit() {
   throw new Error("после 70 быстрых запросов Core ни разу не вернул 429");
 }
 
+/**
+ * Документы и граф знаний (волна M, Р-2/Р-3): дерево и файл читаются с диска
+ * образа за сервисным токеном (R-M-8, `DocsTokenGuard` закрывает и GET), граф —
+ * документы + живые агенты + каталог навыков (R-M-4).
+ *
+ * `kind=skill` берём от НАСТОЯЩИХ файлов навыков в репозитории — они лежат в
+ * `apps/agents/agents/*​/skills/*.md` независимо от прогона и БД. `kind=agent`
+ * так не получить: `проверитьКаталогНавыковИDeck` и `проверитьКарточкуАгента`
+ * архивируют своих агентов в `finally`, а граф видит только живых
+ * (`WHERE archivedAt IS NULL`) — к моменту этого сценария в базе не остаётся ни
+ * одного. Поэтому здесь заводится СВОЙ агент и архивируется тем же способом
+ * после проверки, а не наследуется чужой.
+ */
+async function проверитьДокументыИГраф() {
+  const анонимно = await jsonRequest("GET", "/docs/tree", undefined, false);
+  if (анонимно.r.status !== 401) {
+    throw new Error(`GET /docs/tree без сервисного токена → ${анонимно.r.status}, ожидали 401`);
+  }
+
+  const дерево = await jsonRequest("GET", "/docs/tree");
+  if (!дерево.r.ok) {
+    throw new Error(`/docs/tree → ${дерево.r.status}: ${дерево.text.slice(0, 200)}`);
+  }
+  if (!Array.isArray(дерево.json) || дерево.json.length === 0) {
+    throw new Error("дерево документов пусто — образ собран без docs/memory/routers?");
+  }
+  if (!дерево.json.some((item) => item.path === "CLAUDE.md")) {
+    throw new Error("в дереве документов нет CLAUDE.md — белый список корней не включает корень репо");
+  }
+
+  const claude = await jsonRequest("GET", `/docs/file?path=${encodeURIComponent("CLAUDE.md")}`);
+  if (!claude.r.ok) throw new Error(`/docs/file?path=CLAUDE.md → ${claude.r.status}`);
+  if (typeof claude.json.title !== "string" || !claude.json.title.includes("MYDON")) {
+    throw new Error(`заголовок CLAUDE.md не содержит «MYDON»: ${JSON.stringify(claude.json.title)}`);
+  }
+
+  const наружу = await jsonRequest("GET", `/docs/file?path=${encodeURIComponent("../package.json")}`);
+  if (наружу.r.status !== 400) {
+    throw new Error(`выход за корень репо (../package.json) → ${наружу.r.status}, ожидали 400`);
+  }
+
+  // Настоящий файл репозитория, но не из белого списка корней (не markdown/yaml
+  // документ) — обязан отказать, а не отдать исходник Core наружу.
+  const внеБелого = await jsonRequest(
+    "GET",
+    `/docs/file?path=${encodeURIComponent("apps/core/src/main.ts")}`,
+  );
+  if (внеБелого.r.status === 200 || ![400, 404].includes(внеБелого.r.status)) {
+    throw new Error(`файл вне белого списка (main.ts) → ${внеБелого.r.status}, ожидали 400 или 404`);
+  }
+
+  const агент = `smoke-docs-graph-${Date.now()}`;
+  const создан = await jsonRequest("POST", "/agents", {
+    name: агент,
+    business: "mydon",
+    status: "active",
+    mission: "Дымовая проверка графа документов «Мозг»",
+  });
+  if (!создан.r.ok) {
+    throw new Error(`создание агента для графа → ${создан.r.status}: ${создан.text.slice(0, 200)}`);
+  }
+
+  try {
+    const граф = await jsonRequest("GET", "/docs/graph");
+    if (!граф.r.ok) throw new Error(`/docs/graph → ${граф.r.status}: ${граф.text.slice(0, 200)}`);
+    const { nodes, edges } = граф.json ?? {};
+    if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+      throw new Error(`граф без массивов nodes/edges: ${граф.text.slice(0, 200)}`);
+    }
+
+    const ids = new Set();
+    for (const node of nodes) {
+      if (ids.has(node.id)) throw new Error(`дубль узла графа: ${node.id}`);
+      ids.add(node.id);
+    }
+    for (const edge of edges) {
+      if (!ids.has(edge.from) || !ids.has(edge.to)) {
+        throw new Error(`висячее ребро графа: ${edge.from} -> ${edge.to} (${edge.kind})`);
+      }
+    }
+
+    if (!nodes.some((n) => n.kind === "root")) {
+      throw new Error("в графе нет узла kind=root (CLAUDE.md)");
+    }
+    if (!nodes.some((n) => n.kind === "agent")) {
+      throw new Error(`в графе нет ни одного узла kind=agent — свежесозданный «${агент}» не увиден`);
+    }
+    if (!nodes.some((n) => n.kind === "skill")) {
+      throw new Error("в графе нет ни одного узла kind=skill — файлы навыков в репозитории не увидены");
+    }
+  } finally {
+    // Убираем за собой при любом исходе, как остальные agent-сценарии выше.
+    await jsonRequest("DELETE", `/agents/${агент}`).catch(() => {});
+  }
+}
+
 async function ждатьЗдоровье(proc) {
   const дедлайн = Date.now() + СТАРТ_ТАЙМАУТ_МС;
   while (Date.now() < дедлайн) {
@@ -3422,6 +3518,15 @@ try {
   } catch (e) {
     провалы.push(`agent execution/outbox: ${e.message}`);
   }
+
+  try {
+    await проверитьДокументыИГраф();
+    console.log(
+      "  ok  сценарий: документы и граф — дерево/файл за токеном, traversal и файл вне списка отказаны, граф без дублей и висячих рёбер",
+    );
+  } catch (e) {
+    провалы.push(`документы и граф: ${e.message}`);
+  }
 } catch (e) {
   провалы.push(`старт: ${e.message}`);
 } finally {
@@ -3441,4 +3546,4 @@ if (провалы.length > 0) {
   process.exit(1);
 }
 
-console.log(`\nВсё прошло: ${ЧТЕНИЕ.length} чтений, ${ЗАПИСЬ.length} записей, 22 сценариев.`);
+console.log(`\nВсё прошло: ${ЧТЕНИЕ.length} чтений, ${ЗАПИСЬ.length} записей, 23 сценариев.`);

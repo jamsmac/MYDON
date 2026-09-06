@@ -325,6 +325,33 @@ R-SD-1…10: [`superpowers/specs/2026-09-05-skills-deck-cron-llm-design.md`](sup
 в панели — задачи ему перестают раздаваться. Убрать `executor: llm` из
 frontmatter → навык снова `not_implemented`.
 
+## Документы и Мозг
+
+Панели `/docs` и `/brain` (волна M, `docs/decisions/2026-09-06-wave-m-docs-brain.md`) читают Core, а
+не файловую систему CC и не GitHub: `GET /docs/tree|file|graph` отдаёт документы с диска ОБРАЗА
+Core — того же, куда `COPY . .` кладёт паспорта агентов.
+
+- **Что читают.** Белый список корней: `CLAUDE.md`; `docs/**/*.md` (кроме
+  `docs/agentic-os-starter/_backup/**`); `memory/**/*.md`; `routers/*.md`; `engine/*.{yaml,md}`;
+  `apps/agents/shared/**/*.md`; `apps/agents/agents/*/ROLE.md` и `.../skills/*.md`;
+  `.claude/skills/*/SKILL.md` и `references/**/*.md`. Файл вне списка — 404 (`GET /docs/file`), путь с
+  `..` за пределы репозитория — 400 (`normalizeDocPath`).
+- **Токен — обязателен и на чтение.** Все три маршрута `docs/*` — за `DocsTokenGuard`: без
+  `x-service-token` (или `Authorization: Bearer`) — 401, в отличие от остального read-only API Core,
+  где GET открыт всем в закрытой сети.
+- **Личные корни.** `memory/**`, `routers/personal.md` и профиль владельца из навыка фабрики
+  направлений — личный контур: при включённом ужесточении owner-identity содержимое (не заголовок в
+  дереве) отдаётся только по owner-токену (`x-owner-action-token`, 403 без него), теми же правилами,
+  что остальной API (`personalVisible`).
+- **Граф.** `/brain` рисует то, что построил `GET /docs/graph` в Core: документы + живые агенты
+  (`archivedAt IS NULL`) + каталог навыков. Рёбра — markdown-ссылки (`links`) и пути в обратных
+  кавычках на существующие файлы белого списка (`mentions` — на 208 файлов настоящих ссылок всего 25,
+  без `mentions` граф распадался бы на острова). Оба ответа кэшируются в памяти Core 60 с.
+- **Рендер.** `/docs` рендерит markdown через `marked` в панели: сырой HTML экранируется, ссылки на
+  `.md` внутри белого списка ведут на `/docs?path=…`, внешние — `target=_blank`. Панель не тянет сеть
+  и не исполняет чужой HTML — источник доверенный (свой репозиторий), но правило то же, что для любого
+  чужого текста.
+
 ## Preflight перед включением Bot / CC / Documents
 
 Эти три поверхности используют `MYDON_ASSISTANT_MODEL` и Anthropic. Перед

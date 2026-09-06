@@ -12,6 +12,7 @@ import { CoffeeModule } from "./coffee/coffee.module";
 import { ContractsModule } from "./contracts/contracts.module";
 import { CollectionsModule } from "./collections/collections.module";
 import { DbModule } from "./db/db.module";
+import { DocsModule } from "./docs/docs.module";
 import { EntitiesModule } from "./entities/entities.module";
 import { EventsModule } from "./events/events.module";
 import { FinanceModule } from "./finance/finance.module";
@@ -48,6 +49,7 @@ import { VerificationModule } from "./verification/verification.module";
     ]),
     DbModule,
     AgentsModule,
+    DocsModule,
     AttachmentsModule,
     AuditModule,
     CatalogModule,

@@ -620,6 +620,14 @@ a.prow:hover { border-color: var(--accent-line); }
 .rows { background: var(--surf); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .row { display: flex; gap: 12px; align-items: center; padding: 12px 15px; border-bottom: 1px solid var(--line-soft); font-size: 14px; width: 100%; text-align: left; color: inherit; }
 .row:last-child { border-bottom: none; }
+/* `.row` писался под <div> и <a>: заливки и рамки он не задаёт вовсе. У
+   <button> их ставит сам браузер (серый `buttonface`, рамка, в Safari — своя
+   отделка), и строка-кнопка выезжала бы системной кнопкой поверх тёмного
+   экрана. Сброс живёт рядом с самим примитивом, а не в блоке конкретного
+   экрана: следующий, кто сделает строку кнопкой, в ту же яму не попадёт.
+   Шрифт не трогаем — семейство наследуется правилом для button/input выше,
+   размер задаёт сам `.row`, а `font: inherit` сбил бы его до 15px. */
+button.row { -webkit-appearance: none; appearance: none; background: none; border: 0; border-bottom: 1px solid var(--line-soft); }
 a.rowlink:hover { background: var(--surf-2); }
 .row .t { flex: 1; min-width: 0; }
 .row .t b { font-weight: 600; }
@@ -1518,3 +1526,220 @@ a.rowlink:hover { background: var(--surf-2); }
 .bnk-bar i { display: block; height: 100%; border-radius: 4px; background: var(--ok); }
 .bnk-bar i.low { background: var(--hot); }
 .bnk-foot { font-size: 11px; color: var(--tx-3); }
+
+/* ── Документы: дерево слева, чтение справа (R-M-5) ── */
+.docs-layout {
+  display: grid; gap: 16px; align-items: start;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+}
+/* Ниже 900px — одна колонка: дерево сверху (оно первое в разметке), документ
+   под ним. Высоту дерева ограничиваем, иначе до текста надо пролистать 200 строк.
+   А когда документ ВЫБРАН (`.reading`), он встаёт первым: иначе каждый переход
+   по `?path=` высаживал владельца на верх 46vh-дерева, и до текста, за которым
+   он и нажимал, надо было пролистывать заново. Дерево остаётся под документом —
+   на расстоянии одного движения, а не «где-то там». */
+@media (max-width: 900px) {
+  .docs-layout { grid-template-columns: 1fr; }
+  .docs-tree { max-height: 46vh; overflow-y: auto; }
+  .docs-layout.reading .docs-body { order: -1; }
+}
+/* min-width: 0 обязателен обоим: без него длинный путь или широкая таблица
+   растягивают колонку грида, и страница едет вбок. */
+.docs-tree, .docs-body { min-width: 0; }
+@media (min-width: 901px) {
+  .docs-tree { position: sticky; top: 16px; max-height: calc(100vh - 96px); overflow-y: auto; }
+}
+/* Фильтр живёт ВНУТРИ прокручиваемого дерева, и подкрутка активной строки к
+   центру уносила его за верхний край: поле, которым дерево сужают, исчезало
+   ровно в тот момент, когда владелец им пользовался. Липкая шапка — с фоном
+   страницы, иначе строки просвечивают сквозь неё. */
+.docs-filter { position: sticky; top: 0; z-index: 2; margin-bottom: 10px; padding-bottom: 8px; background: var(--bg); }
+.docs-filter input { height: 38px; font-size: 13.5px; }
+.docs-group { margin-bottom: 10px; }
+.docs-group > summary {
+  display: flex; align-items: center; gap: 8px; padding: 5px 2px;
+  cursor: pointer; user-select: none; list-style: none; color: var(--tx-2);
+}
+.docs-group > summary::-webkit-details-marker { display: none; }
+.docs-group > summary::before { content: "▸"; color: var(--tx-3); font-size: 11px; transition: transform 0.15s; }
+.docs-group[open] > summary::before { transform: rotate(90deg); }
+.docs-group > summary:hover { color: var(--tx); }
+/* Корень — это путь, поэтому моно; счётчик рядом отвечает «сколько там файлов». */
+.docs-root { flex: 1; min-width: 0; font-family: var(--fm); font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.docs-count { flex: 0 0 auto; color: var(--tx-3); font-size: 11px; }
+.docs-tree .row { padding: 8px 12px; }
+/* Путь навыка длиннее колонки телефона — переносим его, а не страницу. */
+.docs-tree .row .t { overflow-wrap: anywhere; }
+.docs-tree .row .t b { font-size: 13px; font-weight: 500; }
+.docs-tree .row .t small { font-family: var(--fm); font-size: 11px; color: var(--tx-3); }
+/* Метка личного документа: содержимое Core отдаёт только владельцу. */
+/* «Личное» — не тревога, а свойство документа: раньше метка красилась `--hot`,
+   тем же токеном, что и просроченные задачи и расхождения, и владелец читал
+   бы её как «здесь что-то не так». Нейтральная пилюля семейства `.tag`
+   (токены --tx-3/--line) на инлайновом размере: сообщает, не пугая. */
+.docs-personal {
+  margin-left: 7px; font-family: var(--fu); font-style: normal; font-size: 10.5px;
+  color: var(--tx-3); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px;
+}
+.docs-tree .row[aria-current="page"] { background: var(--accent-soft); }
+.docs-tree .row[aria-current="page"] .t b { color: var(--accent-tx); font-weight: 600; }
+
+.doc-wrap { background: var(--surf); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; }
+.doc-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
+.doc-meta { flex: 1; min-width: 0; }
+.doc-meta b { display: block; font-family: var(--fh); font-size: 16px; font-weight: 700; }
+.doc-meta small { display: block; margin-top: 3px; color: var(--tx-3); font-size: 11.5px; overflow-wrap: anywhere; }
+/* Ссылка в «Мозг» — не `.chip`: тот моно, а кириллица в оболочке всегда Golos. */
+.doc-brain {
+  flex: 0 0 auto; padding: 4px 11px; border: 1px solid var(--accent-line); border-radius: 999px;
+  color: var(--accent-tx); font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.doc-brain:hover { background: var(--accent-soft); }
+
+/* Типографика документа. Ширину не режем: колонка грида уже её задаёт. */
+article.doc { font-size: 14px; line-height: 1.62; color: var(--tx); overflow-wrap: break-word; }
+article.doc > *:first-child { margin-top: 0; }
+article.doc h1 { font-family: var(--fh); font-size: 20px; font-weight: 800; margin: 0 0 10px; }
+article.doc h2 {
+  font-family: var(--fh); font-size: 16.5px; font-weight: 700; margin: 24px 0 9px;
+  padding-top: 14px; border-top: 1px solid var(--line-soft);
+}
+article.doc h3 { font-size: 14.5px; font-weight: 700; margin: 18px 0 6px; }
+article.doc h4, article.doc h5, article.doc h6 { font-size: 13.5px; font-weight: 600; color: var(--tx-2); margin: 15px 0 5px; }
+article.doc p { margin: 0 0 11px; }
+article.doc ul, article.doc ol { margin: 0 0 12px; padding-left: 21px; }
+article.doc li { margin-bottom: 4px; }
+article.doc a { color: var(--accent-tx); text-decoration: underline; text-underline-offset: 2px; }
+article.doc a:hover { color: var(--hot); }
+article.doc code { font-family: var(--fm); font-size: 12.5px; background: var(--surf-2); border: 1px solid var(--line-soft); border-radius: 6px; padding: 1px 5px; }
+article.doc pre { margin: 0 0 14px; padding: 12px 14px; background: var(--surf-2); border: 1px solid var(--line); border-radius: var(--r-s); overflow-x: auto; }
+article.doc pre code { padding: 0; border: none; background: none; line-height: 1.5; }
+article.doc blockquote { margin: 0 0 14px; padding: 2px 0 2px 13px; border-left: 3px solid var(--line-strong); color: var(--tx-2); }
+article.doc hr { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+article.doc .table-scroll { margin-bottom: 14px; }
+article.doc table { width: 100%; border-collapse: collapse; font-size: 13px; }
+article.doc th, article.doc td { padding: 8px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+article.doc th { color: var(--tx-3); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+article.doc tr:last-child td { border-bottom: none; }
+/* Картинки панель не грузит (см. markdown.ts) — от них остаётся подпись. */
+article.doc .doc-img { color: var(--tx-3); font-style: italic; }
+
+/* ── «Мозг»: граф знаний (R-M-6) ──
+   Все цвета — токенами, поэтому в ветки темы правила не дублируются: экран
+   тёмный не сам по себе, а через `data-theme="dark"` от <ConsoleTheme/>. */
+/* Вторая колонка появляется ТОЛЬКО с открытой карточкой: пока узел не выбран,
+   правая треть экрана была пустой полосой, а граф — вдвое уже, чем мог быть.
+   `:has()` поддержан всеми браузерами, на которые рассчитана панель (Safari
+   15.4+, Chrome/Edge 105+, Firefox 121+); открытие карточки меняет ширину
+   холста, ResizeObserver слегка подогревает симуляцию — граф чуть поводит, и
+   это осознанная цена за отсутствие пустой колонки. */
+.brain-layout {
+  display: grid; gap: 16px; align-items: start;
+  grid-template-columns: 1fr;
+}
+.brain-layout:has(.brain-card) { grid-template-columns: 1fr minmax(280px, 360px); }
+/* min-width: 0 обязателен обоим: без него холст и длинные пути растягивают
+   колонку грида, и страница едет вбок на телефоне. */
+.brain-main, .brain-card { min-width: 0; }
+/* Ниже 900px — одна колонка, и карточка идёт ПЕРЕД списком: под графом и
+   тридцатью строками результатов она оказывалась за краем экрана, и нажатие
+   на узел выглядело как «ничего не произошло». */
+@media (max-width: 900px) {
+  .brain-layout:has(.brain-card) { grid-template-columns: 1fr; }
+  .brain-card { order: -1; }
+}
+.brain-search { margin-bottom: 10px; }
+.brain-search input { height: 38px; font-size: 13.5px; }
+/* Легенда — СВОЙ ряд, не `.chips`: тот примитив рисует фильтры (курсор-палец,
+   перекраска при наведении), а ключ цветов ни на что не нажимается. */
+.brain-legend { display: flex; gap: 7px; flex-wrap: wrap; margin: 0 0 12px; }
+.brain-legend .chip { cursor: default; }
+/* Кружок вида — та же метка, что и на графе: чип объясняет цвет холста.
+   Цвета берём теми же токенами, что и `styleOf` в brain-layout.ts. */
+/* Диаметр точки — тот же радиус, что и у узла на холсте (`styleOf`, приезжает
+   инлайновой переменной `--dot`): размер в этом графе несёт смысл наравне с
+   цветом, и легенда из одинаковых точек объясняла бы только половину языка
+   картинки. Запасные 7px — на случай, если переменной нет. */
+.brain-kind::before {
+  content: ""; display: inline-block; width: var(--dot, 7px); height: var(--dot, 7px);
+  border-radius: 50%; margin-right: 6px; vertical-align: 0; background: currentColor;
+}
+/* Решение на холсте — квадрат (цвет делит с навыком): легенда повторяет форму. */
+.brain-kind[data-kind="decision"]::before { border-radius: 0; }
+/* `.chip` набран моно (var(--fm)) — а в этих чипах русские слова («агент»,
+   «навык»), и кириллица в оболочке ВСЕГДА Golos (§6). Моно оставляем только
+   счётчику: `.num` внутри переопределяет шрифт обратно сам. */
+.brain-kind { font-family: var(--fu); color: var(--tx-2); }
+.brain-kind[data-kind="agent"] { color: var(--agent); }
+.brain-kind[data-kind="skill"] { color: var(--accent-tx); }
+.brain-kind[data-kind="tool"] { color: var(--tx-3); }
+.brain-kind[data-kind="root"], .brain-kind[data-kind="router"], .brain-kind[data-kind="domain"] { color: var(--tx); }
+.brain-kind[data-kind="decision"] { color: var(--hot); }
+/* Движок — «правила соблюдаются», а не тревога: `--hot` рядом с решениями
+   читался бы как «здесь горит». */
+.brain-kind[data-kind="engine"] { color: var(--ok); }
+
+/* Второй ряд легенды — виды связей. Образец рисуем ТОЙ ЖЕ толщиной и той же
+   прозрачностью, что и линия на холсте (`edgeStyle` → `--w`/`--a`): легенда
+   должна совпадать с картинкой, а не пересказывать её. */
+.brain-legend-edges { margin-top: -4px; }
+.brain-edge { font-family: var(--fu); color: var(--tx-2); }
+.brain-edge i {
+  display: inline-block; width: 18px; margin-right: 6px; vertical-align: middle;
+  border-top: var(--w, 1px) solid var(--line-strong); opacity: var(--a, 1);
+}
+/* Кнопки масштаба: колеса на телефоне нет, а щипок отдан браузеру. */
+.brain-tools { display: flex; gap: 6px; margin: 0 0 10px; }
+.brain-tools .btn { min-width: 40px; justify-content: center; }
+/* Подпись под холстом: колесо масштабирует только с Ctrl/⌘ — без этой строки
+   владелец крутил бы колесо и считал масштаб сломанным. */
+.brain-hint { margin: -8px 2px 12px; font-size: 11.5px; color: var(--tx-3); }
+/* Холст: высота фиксирована в vh — граф должен помещаться в экран целиком,
+   иначе перетаскивание узла уводит страницу, а не узел. */
+.brain-canvas {
+  position: relative; height: min(58vh, 560px); margin-bottom: 14px;
+  background: var(--surf); border: 1px solid var(--line-strong); border-radius: var(--r-s);
+  box-shadow: 4px 4px 0 var(--line); overflow: hidden;
+  /* НЕ `none`: на телефоне холст занимает пол-экрана, и полный запрет жестов
+     означал бы, что палец на графе не листает страницу — до списка результатов
+     под ним было бы не добраться. Вертикальную прокрутку и щипок отдаём
+     браузеру, горизонтальное движение остаётся перетаскиванием графа. */
+  touch-action: pan-y pinch-zoom;
+}
+/* `cursor` дальше ведёт сам компонент (над узлом — «нажми», над пустым местом
+   — «тащи»), поэтому правила `:active` здесь нет: инлайновый стиль всё равно
+   победил бы её, и вышло бы два хозяина у одного свойства. */
+.brain-canvas canvas { display: block; max-width: 100%; cursor: grab; }
+.brain-results-title { margin: 0 0 8px; }
+.brain-results .row { padding: 9px 12px; }
+.brain-results .row .t { overflow-wrap: anywhere; }
+.brain-results .row .t b { font-size: 13.5px; font-weight: 600; }
+.brain-results .row .t small { font-size: 11px; color: var(--tx-3); }
+.brain-results .row:hover { background: var(--surf-2); }
+.brain-results .row[aria-current] { background: var(--surf-2); }
+.brain-results .row[aria-current] .t b { color: var(--accent-tx); }
+.brain-more { margin: 9px 2px 0; font-size: 12px; color: var(--tx-3); }
+
+/* Липкой карточка становится только рядом с графом: в одну колонку она стоит
+   под ним, и «прилипание» там прижимало бы её к верху пустого экрана. */
+@media (min-width: 901px) {
+  .brain-card { position: sticky; top: 16px; }
+}
+.brain-card-head { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+.brain-card-head .eyebrow { margin: 0; }
+/* Заголовок карточки — настоящий <h2> с `tabindex="-1"`: на него уезжает
+   фокус после нажатия на строку списка, поэтому браузерные поля заголовка
+   сбрасываем руками, а обводку фокуса оставляем как есть. */
+.brain-card-title { display: block; font-family: var(--fh); font-size: 16px; font-weight: 700; margin: 4px 0 0; }
+.brain-card-path { display: block; margin-top: 3px; font-size: 11px; color: var(--tx-3); overflow-wrap: anywhere; }
+.brain-card-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.brain-card-links .btn { text-decoration: none; }
+.brain-preview-note { margin: 10px 0 0; font-size: 12.5px; color: var(--tx-2); }
+/* Предпросмотр — сырые первые строки файла, не рендер markdown: карточка
+   отвечает «тот ли это документ», а читают его на /docs. */
+.brain-preview {
+  margin: 6px 0 0; padding: 10px 12px; max-height: 240px; overflow: auto;
+  background: var(--surf-2); border: 1px solid var(--line); border-radius: var(--r-s);
+  font-family: var(--fm); font-size: 11.5px; line-height: 1.5; color: var(--tx-2);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}

@@ -17,7 +17,7 @@ import { maxTier } from "./policy";
 
 export type ToolType = "read" | "net" | "write" | "exec" | "money" | "contract";
 
-const TOOLTYPE_MIN: Record<ToolType, AutonomyTier> = {
+export const TOOLTYPE_MIN: Record<ToolType, AutonomyTier> = {
   read: "T0",
   net: "T1",
   write: "T2",

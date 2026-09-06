@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => {
 // next/headers, и настоящий owner.ts (с `next/headers`) в тест не тянется.
 vi.mock("./owner", () => ({ resolveOwner: mocks.resolveOwner }));
 
-import { core, coreOwnerWriteHeaders } from "./core";
+import { core, coreOwnerWriteHeaders, CoreUnavailable } from "./core";
 
 /** Перехват fetch: копим заголовки каждого запроса. */
 function stubFetch(): { headers: Record<string, string>[]; urls: string[] } {
@@ -169,5 +169,67 @@ describe("core.ts — owner-токен только для owner-действи�
     const asStranger = await coreOwnerWriteHeaders();
     expect(asStranger["x-owner-action-token"]).toBeUndefined();
     expect(asStranger["x-service-token"]).toBe("shared-service-token");
+  });
+});
+
+/**
+ * Документы (R-M-8 + личный контур).
+ *
+ * Два разных пояса на одном модуле Core: `DocsTokenGuard` требует СЕРВИСНЫЙ
+ * токен и на чтении (обычный `get()` его не несёт), а содержимое `memory/**`
+ * и профиля владельца Core отдаёт по `personalVisible` — то есть при
+ * включённом ужесточении только с OWNER-токеном. Без него владелец не смог бы
+ * прочитать в панели собственную память.
+ */
+describe("core.ts — документы: сервисный токен на чтении, личное за owner-токеном", () => {
+  it("docsTree несёт сервисный токен и НЕ несёт owner-токен", async () => {
+    mocks.resolveOwner.mockResolvedValue({ isOwner: true, login: "owner@x.com" });
+    const cap = stubFetch();
+    await core.docsTree();
+    expect(cap.urls[0]).toContain("/docs/tree");
+    expect(cap.headers[0]["x-service-token"]).toBe("shared-service-token");
+    expect(cap.headers[0]["x-owner-action-token"]).toBeUndefined();
+  });
+
+  it("docFile владельцем несёт оба токена", async () => {
+    mocks.resolveOwner.mockResolvedValue({ isOwner: true, login: "owner@x.com" });
+    const cap = stubFetch();
+    await core.docFile("memory/glossary.md");
+    expect(cap.urls[0]).toContain("/docs/file?path=memory%2Fglossary.md");
+    expect(cap.headers[0]["x-service-token"]).toBe("shared-service-token");
+    expect(cap.headers[0]["x-owner-action-token"]).toBe("owner-secret-token");
+  });
+
+  it("docFile НЕ владельцем — только сервисный токен (отказ решает Core)", async () => {
+    mocks.resolveOwner.mockResolvedValue({ isOwner: false, login: null });
+    const cap = stubFetch();
+    await core.docFile("memory/glossary.md");
+    expect(cap.headers[0]["x-service-token"]).toBe("shared-service-token");
+    expect(cap.headers[0]["x-owner-action-token"]).toBeUndefined();
+  });
+
+  it("404 и 400 — «нет такого», 403 — «личное», авария остаётся аварией", async () => {
+    mocks.resolveOwner.mockResolvedValue({ isOwner: false, login: null });
+    const statuses = [404, 400, 403, 500];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const status = statuses.shift() ?? 200;
+        return { ok: false, status, json: async () => ({}) } as unknown as Response;
+      }),
+    );
+    expect(await core.docFile("docs/net.md")).toEqual({ kind: "missing" });
+    expect(await core.docFile("../etc/passwd")).toEqual({ kind: "missing" });
+    expect(await core.docFile("memory/glossary.md")).toEqual({ kind: "forbidden" });
+    // 500 — это уже не «нет документа», а сломанный Core: экран обязан сказать
+    // «Core недоступен», а не «файл не найден».
+    await expect(core.docFile("docs/DEPLOY.md")).rejects.toThrow(CoreUnavailable);
+  });
+
+  it("успех отдаётся как ok с самим файлом", async () => {
+    mocks.resolveOwner.mockResolvedValue({ isOwner: true, login: "owner@x.com" });
+    const file = { path: "CLAUDE.md", root: "CLAUDE.md", title: "MYDON", bytes: 10, updatedAt: "2026-09-06T00:00:00.000Z", markdown: "# MYDON\n" };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => file }) as unknown as Response));
+    expect(await core.docFile("CLAUDE.md")).toEqual({ kind: "ok", file });
   });
 });
