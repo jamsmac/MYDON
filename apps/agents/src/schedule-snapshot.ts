@@ -1,3 +1,4 @@
+import { Cron } from "croner";
 import { TZ } from "@mydon/shared";
 import type { ScheduledJob, ScheduledInvocationMode } from "./schedule";
 
@@ -36,12 +37,57 @@ export interface SnapshotInput {
   paused: { schedules: boolean; tasks: boolean };
 }
 
+/**
+ * Расписание, которое примет Core.
+ *
+ * Той же библиотекой и в том же часовом поясе, что и `assertCron` в Core: там
+ * битое выражение — 400 на ВЕСЬ снимок, то есть одно кривое задание оставило бы
+ * владельца вообще без доски.
+ */
+function cronAccepted(cron: string): boolean {
+  try {
+    new Cron(cron, { timezone: TZ, paused: true }).stop();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Снимок собирается ПО ЗАДАНИЮ и терпит порчу в одном из них.
+ *
+ * И битое расписание, и бросок `modeOf` (metered-навык без allowlist) — беда
+ * ОДНОГО задания. Снимок целиком за неё платить не должен: доска нужна как раз
+ * тогда, когда что-то сломано. Поэтому кривое задание выпадает с предупреждением,
+ * а неопределимый режим становится `legacy` — и остальные задания доезжают.
+ */
 export function buildScheduleSnapshot(i: SnapshotInput): ScheduleSnapshot {
+  const jobs: ScheduleSnapshot["jobs"] = [];
+  for (const j of i.jobs) {
+    if (!cronAccepted(j.cron)) {
+      console.warn(
+        `[snapshot] ${j.agent}/${j.skill}: расписание «${j.cron}» не принято — ` +
+          "задание не попало в снимок.",
+      );
+      continue;
+    }
+    let mode: ScheduledInvocationMode;
+    try {
+      mode = i.modeOf(j.skill);
+    } catch (err) {
+      console.warn(
+        `[snapshot] ${j.agent}/${j.skill}: режим вызова не определён (` +
+          `${err instanceof Error ? err.message : String(err)}) — пишу legacy.`,
+      );
+      mode = "legacy";
+    }
+    jobs.push({ agent: j.agent, skill: j.skill, cron: j.cron, mode });
+  }
   return {
     generatedAt: i.now.toISOString(),
     tz: TZ,
     paused: i.paused,
-    jobs: i.jobs.map((j) => ({ agent: j.agent, skill: j.skill, cron: j.cron, mode: i.modeOf(j.skill) })),
+    jobs,
     // Навык без тела чинится файлом навыка, llm-навык без маршрута — ключом в
     // окружении. Одна причина на оба случая заставляла бы владельца гадать.
     notWired: i.notWired.map((ref) => {
@@ -49,6 +95,15 @@ export function buildScheduleSnapshot(i: SnapshotInput): ScheduleSnapshot {
       const agent = ref.slice(0, at), skill = ref.slice(at + 1);
       return { agent, skill, reason: i.isLlmSkill(skill) ? ("llm_route_off" as const) : ("no_implementation" as const) };
     }),
-    monitors: i.monitors.map((m) => ({ ...m })),
+    // Выключенный монитор может нести cron «off» — его Core не проверяет.
+    // А вот ВКЛЮЧЁННЫЙ с битым выражением снова стоил бы всего снимка, поэтому
+    // такой монитор честно показываем неработающим.
+    monitors: i.monitors.map((m) => {
+      if (!m.enabled || cronAccepted(m.cron)) return { ...m };
+      console.warn(
+        `[snapshot] монитор ${m.name}: расписание «${m.cron}» не принято — считаю выключенным.`,
+      );
+      return { ...m, enabled: false, reason: "off" as const };
+    }),
   };
 }

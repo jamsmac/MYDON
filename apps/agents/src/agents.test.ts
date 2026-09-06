@@ -925,6 +925,8 @@ describe("Задачи агента и дневной потолок", () => {
       detail?: string;
     }[] = [];
     const claims: { id: string; agentName: string; runId: string }[] = [];
+    /** Журнал прогонов (волна R): что worker записал бы в Core. */
+    const runs: Record<string, unknown>[] = [];
     let generation = 0;
     let storedCheckpoint:
       | {
@@ -944,6 +946,7 @@ describe("Задачи агента и дневной потолок", () => {
       commits,
       releases,
       claims,
+      runs,
       client: {
         myTasks: async () => [
           { id: "t1", title: "проверь дебиторку", status: "todo", ownerRef: "receivables" },
@@ -1034,6 +1037,10 @@ describe("Задачи агента и дневной потолок", () => {
           comments.push(body);
         },
         recordEvent: async () => undefined,
+        reportRun: async (entry: Record<string, unknown>) => {
+          runs.push(entry);
+          return { id: "run-1", created: true };
+        },
         requestApproval: async () => ({ id: "appr-1" }),
         countAgentActions: async () => 0,
         obligations: async () => overdue,
@@ -1194,7 +1201,7 @@ describe("Задачи агента и дневной потолок", () => {
     const prev = process.env.AGENT_DAILY_ACTION_CAP;
     process.env.AGENT_DAILY_ACTION_CAP = "5";
     try {
-      const { client, statuses, starts, checkpoints, commits } = stub();
+      const { client, statuses, starts, checkpoints, commits, runs } = stub();
       const res = await runAgentTasks(agent, client, "T0");
       assert.equal(res[0].outcome, "proposed");
       assert.deepEqual(statuses, []);
@@ -1204,6 +1211,16 @@ describe("Задачи агента и дневной потолок", () => {
       assert.equal(checkpoints.length, 1);
       assert.equal(commits.length, 1);
       assert.equal(commits[0]?.input.outcome, "approval_requested");
+      // Журнал прогона (волна R): ровно одна запись, и id согласования в ней —
+      // из ответа commit, потому что approval создаёт Core, а не навык.
+      assert.equal(runs.length, 1);
+      assert.equal(runs[0]?.agentName, "receivables");
+      assert.equal(runs[0]?.skill, "watch-receivables");
+      assert.equal(runs[0]?.trigger, "task", "поручение владельца — не cron и не дека");
+      assert.equal(runs[0]?.requestKey, "task:t1:execution:99999999-9999-4999-8999-999999999999");
+      assert.equal(runs[0]?.taskId, "t1");
+      assert.equal(runs[0]?.outcome, "approval_requested");
+      assert.equal(runs[0]?.approvalId, "appr-1");
     } finally {
       if (prev === undefined) delete process.env.AGENT_DAILY_ACTION_CAP;
       else process.env.AGENT_DAILY_ACTION_CAP = prev;
@@ -1469,13 +1486,19 @@ describe("Задачи агента и дневной потолок", () => {
       });
     };
     try {
-      const { client, statuses, releases } = stub();
+      const { client, statuses, releases, runs } = stub();
       const res = await runAgentTasks(agent, client, "T0");
       assert.equal(res[0].outcome, "skipped");
       assert.match(res[0].note, /LLM-бюджет/);
       assert.ok(!statuses.some((s) => s.status === "done"), "budget denial не равен «повода нет»");
       assert.equal(releases.length, 1, "budget_denied освобождает claim");
       assert.equal(releases[0]?.reason, "budget_denied");
+      // Возврат задачи — тоже прогон: в журнале одна запись с причиной пропуска.
+      assert.equal(runs.length, 1);
+      assert.equal(runs[0]?.outcome, "skipped");
+      assert.equal(runs[0]?.skipReason, "budget_denied");
+      assert.equal(runs[0]?.requestKey, "task:t1:execution:99999999-9999-4999-8999-999999999999");
+      assert.equal(runs[0]?.taskId, "t1");
     } finally {
       SKILLS["watch-receivables"] = original;
     }
@@ -1578,16 +1601,88 @@ describe("Задачи агента и дневной потолок", () => {
       return null;
     };
     try {
-      const { client, statuses, releases } = stub({ claimAgentTask: async () => null });
+      const { client, statuses, releases, runs } = stub({ claimAgentTask: async () => null });
       const res = await runAgentTasks(agent, client, "T0");
       assert.equal(res[0].outcome, "skipped");
       assert.match(res[0].note, /другой worker/);
       assert.equal(skillCalls, 0);
       assert.deepEqual(statuses, []);
       assert.deepEqual(releases, []);
+      assert.deepEqual(runs, [], "прогона не было — журналить нечего");
     } finally {
       SKILLS["watch-receivables"] = original;
     }
+  });
+
+  it("потерянный lease не пишет в журнал — прогон уже не наш", async () => {
+    const { client, releases, runs } = stub({ heartbeatAgentTask: async () => false });
+    const res = await runAgentTasks(agent, client, "T0");
+    assert.equal(res[0]?.outcome, "skipped");
+    assert.match(res[0]?.note ?? "", /перехватил другой worker/);
+    assert.deepEqual(releases, []);
+    assert.deepEqual(runs, [], "чужую работу в свой журнал не записываем");
+  });
+
+  it("плановая задача журналится как cron со своим расписанием (ruling волны R)", async () => {
+    // Задача из `agent-schedule` — это ПЛАНОВОЕ срабатывание, просто исполненное
+    // durable-путём: в доске она обязана стоять рядом со своим расписанием.
+    const { client, runs } = stub({
+      myTasks: async () => [
+        {
+          id: "t1",
+          title: "проверь дебиторку",
+          status: "todo",
+          ownerRef: "receivables",
+          source: "agent-schedule",
+          due: "2026-09-06T03:00:00.000Z",
+        },
+      ],
+      claimAgentTask: async () => ({
+        runId: "11111111-1111-4111-8111-111111111111",
+        executionAttemptId: "22222222-2222-4222-8222-222222222222",
+        generation: 1,
+        claimedAt: "2026-09-06T03:00:01.000Z",
+        taskInputHash: "task-input-hash",
+        taskInput: {
+          title: "проверь дебиторку",
+          // Ровно тот текст, что кладёт Core плановой задаче.
+          description: "Системный запуск навыка watch-receivables.\nCron: 0 8 * * *",
+        },
+      }),
+    });
+
+    const res = await runAgentTasks(agent, client, "T0", undefined, { invocation: "scheduled" });
+
+    assert.equal(res[0]?.outcome, "proposed");
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?.trigger, "cron");
+    assert.equal(runs[0]?.cron, "0 8 * * *");
+    assert.equal(runs[0]?.scheduledAt, "2026-09-06T03:00:00.000Z");
+    assert.equal(runs[0]?.taskId, "t1");
+    assert.equal(runs[0]?.requestKey, "task:t1:execution:22222222-2222-4222-8222-222222222222");
+  });
+
+  it("запуск из деки навыков журналится как manual, без расписания", async () => {
+    const { client, runs } = stub({
+      myTasks: async () => [
+        {
+          id: "t1",
+          title: "проверь дебиторку",
+          status: "todo",
+          ownerRef: "receivables",
+          source: "skills-deck",
+          due: null,
+        },
+      ],
+    });
+
+    const res = await runAgentTasks(agent, client, "T0");
+
+    assert.equal(res[0]?.outcome, "proposed");
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?.trigger, "manual", "владелец нажал кнопку сам");
+    assert.equal(runs[0]?.cron, undefined);
+    assert.equal(runs[0]?.scheduledAt, undefined);
   });
 
   it("stale takeover берёт large checkpoint и commit-ит bounded signature без второго вызова навыка/LLM", async () => {
@@ -1604,7 +1699,7 @@ describe("Задачи агента и дневной потолок", () => {
     try {
       let commitCalls = 0;
       const commitSignatures: string[] = [];
-      const { client, checkpoints } = stub({
+      const { client, checkpoints, runs } = stub({
         commitAgentTaskOutcome: async (_id: string, input: Record<string, unknown>) => {
           commitCalls += 1;
           commitSignatures.push(String(input.memorySignature));
@@ -1627,6 +1722,13 @@ describe("Задачи агента и дневной потолок", () => {
       assert.equal(commitSignatures[0], commitSignatures[1]);
       assert.match(commitSignatures[0] ?? "", /^sha256:[0-9a-f]{64}$/);
       assert.ok((commitSignatures[0]?.length ?? Infinity) <= 512);
+      // Сорвавшийся прогон тоже в журнале — иначе доска молчала бы о падении.
+      assert.equal(runs.length, 2, "по одной записи на каждый прогон");
+      assert.equal(runs[0]?.outcome, "failed");
+      assert.match(String(runs[0]?.reason), /commit response lost/);
+      assert.equal(runs[0]?.skill, "watch-receivables", "навык уже был известен");
+      assert.equal(runs[1]?.outcome, "approval_requested");
+      assert.equal(runs[0]?.requestKey, runs[1]?.requestKey, "та же попытка — тот же ключ");
     } finally {
       SKILLS["watch-receivables"] = original;
     }

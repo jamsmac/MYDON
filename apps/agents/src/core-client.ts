@@ -301,6 +301,7 @@ export interface AgentRunView {
   cron: string | null;
   scheduledAt: string | null;
   requestKey: string;
+  traceKey: string | null;
   taskId: string | null;
   approvalId: string | null;
   startedAt: string;

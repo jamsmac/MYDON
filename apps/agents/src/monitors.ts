@@ -1,3 +1,5 @@
+import { Cron } from "croner";
+import { TZ } from "@mydon/shared";
 import { reportRun, type RunJournalClient } from "./run-journal";
 
 /** Ключ прогона монитора: один плановый тик — одна запись даже на двух репликах. */
@@ -37,4 +39,34 @@ export function journaledMonitor(
       finishedAt: new Date().toISOString(), outcome, reason,
     });
   };
+}
+
+/**
+ * Монитор на расписании под журналом: заводит cron-задание и сам держит
+ * ПЛАНОВОЕ время срабатывания.
+ *
+ * `self.currentRun()` — фактический момент запуска, обрезанный до секунды. При
+ * задержке event loop и на двух репликах он разъезжается, и одна и та же работа
+ * получила бы в журнале две строки с разными `requestKey`. Поэтому плановое
+ * время берём заранее из `nextRun()` — тем же приёмом, что и расписания
+ * навыков в `index.ts`.
+ *
+ * Cron создаём здесь же: иначе этот приём пришлось бы повторять у каждого из
+ * шести мониторов, и один забытый повтор был бы невидим.
+ */
+export function scheduleMonitor(
+  name: string,
+  cron: string,
+  core: RunJournalClient,
+  fn: () => Promise<string>,
+): Cron {
+  const run = journaledMonitor(name, cron, core, fn);
+  let expected: Date | null = null;
+  const job = new Cron(cron, { timezone: TZ, name }, (self) => {
+    const occurrence = expected ?? self.currentRun() ?? new Date();
+    expected = self.nextRun();
+    void run(occurrence);
+  });
+  expected = job.nextRun();
+  return job;
 }
