@@ -194,6 +194,20 @@ describe("Состояние агента словами (R-A2-1, решения
     assert.equal(verdict.state, "working");
   });
 
+  it("пауза расписаний НЕ становится состоянием и молчащего агента (круг починок, C-4)", () => {
+    // Решение круга починок: `schedules` сознательно не участвует в вердикте —
+    // назначенную задачу агент возьмёт и при выключенных расписаниях, и
+    // четвёртый `paused` показал бы «на паузе» у работающего. Молчание же
+    // объясняется своей причиной, а про саму настройку говорят ОБА экрана
+    // отдельной строкой (сетка на главной и карточка агента с расписанием).
+    const at = new Date(NOW.getTime() - 3_600_000);
+    const молчит = { at, outcome: "executed", skipReason: null, reason: "сделано" };
+    const сПаузой = computeAgentState(input({ paused: { tasks: false, schedules: true }, lastRun: молчит }));
+    const безПаузы = computeAgentState(input({ paused: { tasks: false, schedules: false }, lastRun: молчит }));
+    assert.equal(сПаузой.state, "idle");
+    assert.deepEqual(сПаузой, безПаузы, "вердикт от тумблера расписаний зависеть не должен");
+  });
+
   it("молчит: активен, задач нет, последний прогон пропущен — повода не было", () => {
     const at = new Date(NOW.getTime() - 1_800_000);
     const verdict = computeAgentState(

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { isSkipReason, type SkipReason } from "@mydon/shared";
 import type { AgentState, AgentStatusRow } from "../lib/core";
+import { runWhen } from "../lib/crons";
 import { Av8 } from "./av8";
 
 /**
@@ -98,42 +99,81 @@ function сводка(rows: readonly AgentStatusRow[]): string {
 export function AgentGrid({
   rows,
   paused,
+  now,
+  error,
 }: {
   rows: readonly AgentStatusRow[];
   paused: { schedules: boolean; tasks: boolean };
+  /**
+   * Момент, от которого считается давность состояния (`row.since`).
+   *
+   * Берём время CORE (`AgentsStatus.now`), а не часы панели: тот же довод, что
+   * у доски рутин (`lib/crons.ts`) — на границе суток «сегодня» панели и
+   * «сегодня» Core разъезжаются, и плитка подписала бы вчерашний прогон
+   * сегодняшним днём.
+   */
+  now: Date;
+  /**
+   * Состояние не прочиталось — ТРЕТИЙ ВИД раздела (круг починок, C-2).
+   *
+   * До этой правки главный экран ловил отказ `/agents/status` и не рисовал
+   * раздел вовсе: над упавшим Core «Главное» выглядело нормальным, а пропажа
+   * раздела читается как «агентов нет». Это то же правило, которое ветка сама
+   * записала в `apps-health.ts` про пропавшую строку источника, — раздел
+   * остаётся на месте и называет причину. Ни `rows`, ни `paused` при этом не
+   * значат ничего: их не прочитали.
+   */
+  error?: string;
 }) {
   return (
     <div className="sect" style={{ marginTop: 16 }}>
       <div className="sect-h">
         <h3 className="h2">Агенты</h3>
-        {rows.length > 0 && <span className="hint">{сводка(rows)}</span>}
+        {error === undefined && rows.length > 0 && <span className="hint">{сводка(rows)}</span>}
         <span className="sp" />
         <Link href="/agents" className="go">
           все агенты →
         </Link>
       </div>
 
-      {/* Р-2: пока настройка включена, ни один агент не возьмёт задачу. Без
-          этой строки экран показал бы двенадцать спокойных плиток там, где
-          выключена система, — и владелец искал бы поломку в агентах. */}
-      {paused.tasks && (
+      {error !== undefined ? (
         <div className="notice">
-          <b>Задачи агентов на паузе</b>
-          Это настройка системы (<span className="mono">AGENTS_TASKS_PAUSED=1</span>), а не состояние
-          агентов: пока она включена, ни один из них не возьмёт задачу. Снять — в{" "}
+          <b>Состояние агентов не прочиталось: {error}</b>
+          Это НЕ значит, что агенты стоят или что их нет: Core не ответил на запрос состояния, и о
+          занятости сейчас неизвестно ничего. Системную паузу здесь тоже не проверить — открой{" "}
+          <Link href="/agents" className="go">
+            Агентов
+          </Link>{" "}
+          или{" "}
           <Link href="/system" className="go">
-            Системе
+            Систему
           </Link>
           .
         </div>
+      ) : (
+        <GridBody rows={rows} paused={paused} now={now} />
       )}
-      {paused.schedules && (
-        <div className="notice">
-          <b>Расписания агентов на паузе</b>
-          Это настройка системы (<span className="mono">AGENTS_SCHEDULES_PAUSED=1</span>): плановые
-          прогоны не запускаются, даже если сами агенты в порядке.
-        </div>
-      )}
+    </div>
+  );
+}
+
+/** Обычный вид раздела: системные паузы, затем плитки (или пустое состояние). */
+function GridBody({
+  rows,
+  paused,
+  now,
+}: {
+  rows: readonly AgentStatusRow[];
+  paused: { schedules: boolean; tasks: boolean };
+  now: Date;
+}) {
+  return (
+    <>
+      {/* Р-2: пока настройка включена, ни один агент не возьмёт задачу. Без
+          этой строки экран показал бы двенадцать спокойных плиток там, где
+          выключена система, — и владелец искал бы поломку в агентах. */}
+      {paused.tasks && <TasksPausedNotice />}
+      {paused.schedules && <SchedulesPausedNotice />}
 
       {rows.length === 0 ? (
         <div className="empty">
@@ -144,16 +184,59 @@ export function AgentGrid({
       ) : (
         <div className="aggrid">
           {rows.map((row) => (
-            <AgentTile key={row.name} row={row} />
+            <AgentTile key={row.name} row={row} now={now} />
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+/**
+ * Системная пауза ЗАДАЧ словами: настройка системы, а не состояние агента.
+ *
+ * ЭКСПОРТИРУЕТСЯ ради карточки агента (круг починок, C-4): одна настройка
+ * обязана называться на обеих поверхностях одними словами и указывать один и
+ * тот же ключ окружения. Второй текст разошёлся бы с первым, и владелец пошёл
+ * бы чинить в разные места.
+ */
+export function TasksPausedNotice() {
+  return (
+    <div className="notice">
+      <b>Задачи агентов на паузе</b>
+      Это настройка системы (<span className="mono">AGENTS_TASKS_PAUSED=1</span>), а не состояние
+      агентов: пока она включена, ни один из них не возьмёт задачу. Снять — в{" "}
+      <Link href="/system" className="go">
+        Системе
+      </Link>
+      .
     </div>
   );
 }
 
-/** Плитка агента: лицо, имя, состояние словом и ПРИЧИНА — без причины плитка не отвечает. */
-function AgentTile({ row }: { row: AgentStatusRow }) {
+/** Системная пауза РАСПИСАНИЙ словами — те же слова на сетке и на карточке. */
+export function SchedulesPausedNotice() {
+  return (
+    <div className="notice">
+      <b>Расписания агентов на паузе</b>
+      Это настройка системы (<span className="mono">AGENTS_SCHEDULES_PAUSED=1</span>): плановые
+      прогоны не запускаются, даже если сами агенты в порядке.
+    </div>
+  );
+}
+
+/**
+ * Плитка агента: лицо, имя, состояние словом и ПРИЧИНА — без причины плитка не
+ * отвечает.
+ *
+ * ДАВНОСТЬ ПЕЧАТАЕТСЯ РЯДОМ С ПРИЧИНОЙ (круг починок, C-3). Core отдаёт
+ * `since`, а плитка его выбрасывала: у агента со снятым расписанием и успешным
+ * прогоном 12 июня она писала «молчит · последний прогон — выполнено» — байт в
+ * байт как у отработавшего час назад. Формат — `runWhen` доски рутин, тот же,
+ * что в карточке агента: второй словарь дат разошёлся бы с первым, и две
+ * поверхности назвали бы один факт по-разному.
+ */
+function AgentTile({ row, now }: { row: AgentStatusRow; now: Date }) {
   const поломка = молчитИзЗаПоломки(row);
   return (
     <Link
@@ -172,7 +255,13 @@ function AgentTile({ row }: { row: AgentStatusRow }) {
             {STATE_WORD[row.state]}
           </span>
         </div>
-        <div className="agr">{row.reason}</div>
+        <div className="agr">
+          {row.reason}
+          {/* `since` отсутствует, когда его честно нет (агент ни разу не
+              запускался, системная пауза): выдумывать «неизвестно когда»
+              не надо — об этом уже сказала причина. */}
+          {row.since !== undefined && <span className="agw"> · {runWhen(row.since, now)}</span>}
+        </div>
       </div>
     </Link>
   );

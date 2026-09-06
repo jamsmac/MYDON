@@ -207,6 +207,44 @@ describe("Карточка агента: шапка", () => {
   });
 });
 
+describe("Карточка агента: системная пауза расписаний (круг починок, C-4)", () => {
+  /** Штатный вход: задачи включены отдельно, расписания стоят по умолчанию «1». */
+  const паузаРасписаний = (): void => {
+    agentsStatus.mockImplementation(async () => ({
+      tz: "Asia/Tashkent",
+      now: "2026-09-06T08:00:00.000Z",
+      paused: { schedules: true, tasks: false },
+      agents: [состояние({ state: "idle", reason: "последний прогон — выполнено" })],
+    }));
+  };
+
+  it("cron-агент видит, что плановые прогоны выключены НАСТРОЙКОЙ СИСТЕМЫ", async () => {
+    // До правки `paused` из ответа выбрасывался, и карточка писала «молчит ·
+    // последний прогон — выполнено», ни словом не упоминая причину молчания.
+    паузаРасписаний();
+    const { container } = render(await screenFor());
+
+    const строка = container.querySelector(".notice");
+    expect(строка).not.toBeNull();
+    expect(строка).toHaveTextContent(/настройка системы/i);
+    // Слова и ключ окружения — те же, что в сетке на главной: одна настройка
+    // не должна называться на двух экранах по-разному.
+    expect(строка).toHaveTextContent(/AGENTS_SCHEDULES_PAUSED/);
+  });
+
+  it("без паузы строки нет — иначе она перестанет что-либо значить", async () => {
+    const { container } = render(await screenFor());
+    expect(container.querySelector(".notice")).toBeNull();
+  });
+
+  it("у агента БЕЗ расписания строки нет: пауза плановых прогонов его не касается", async () => {
+    паузаРасписаний();
+    agentCard.mockImplementation(async () => ({ ...card(), schedule: [] }));
+    const { container } = render(await screenFor());
+    expect(container.querySelector(".notice")).toBeNull();
+  });
+});
+
 describe("Карточка агента: навыки", () => {
   it("показывает тир, исполнителя, расписание и кнопку запуска", async () => {
     render(await screenFor());

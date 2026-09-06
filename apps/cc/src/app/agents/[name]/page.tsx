@@ -6,6 +6,7 @@ import {
   type AgentCard,
   type AgentMemoryEvent,
   type AgentRun,
+  type AgentsStatus,
   type AgentStatusRow,
   type AuditEntry,
   type SkillDeck,
@@ -13,7 +14,7 @@ import {
 } from "../../../lib/core";
 import { CoreDown } from "../../../components/core-down";
 import { AgentEditor, type AutonomyMax } from "../../../components/agent-editor";
-import { STATE_LED, STATE_WORD } from "../../../components/agent-grid";
+import { SchedulesPausedNotice, STATE_LED, STATE_WORD } from "../../../components/agent-grid";
 import { Av8 } from "../../../components/av8";
 import { RunSkillButton } from "../../../components/run-skill-button";
 import { outcomeTone, runWhen } from "../../../lib/crons";
@@ -253,9 +254,13 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
   }
 
   const [статус, навыки, прогоны, память, журнал, конфиг] = await Promise.all([
-    прочитать<AgentStatusRow | null>(async () => {
-      const { agents } = await core.agentsStatus();
-      return agents.find((a) => a.name === name) ?? null;
+    // Забираем И системные паузы (круг починок, C-4): до этой правки `paused`
+    // из ответа выбрасывался, и cron-агент при `AGENTS_SCHEDULES_PAUSED=1`
+    // говорил на своей карточке «молчит · последний прогон — выполнено», ни
+    // словом не упоминая, что плановые прогоны выключены НАСТРОЙКОЙ СИСТЕМЫ.
+    прочитать<{ row: AgentStatusRow | null; paused: AgentsStatus["paused"] }>(async () => {
+      const { agents, paused } = await core.agentsStatus();
+      return { row: agents.find((a) => a.name === name) ?? null, paused };
     }),
     прочитать<SkillDeck>(() => core.skillDeck(name)),
     прочитать<AgentRun[]>(async () => (await core.agentRuns(name)).runs),
@@ -264,7 +269,13 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
     прочитать<SystemConfigItem[]>(() => core.systemConfig()),
   ]);
 
-  const состояние = статус.value;
+  const состояние = статус.value?.row ?? null;
+  // Пауза расписаний относится к агенту, только если у него ЕСТЬ расписание:
+  // у агента без плановых прогонов эта строка была бы шумом. Пауза ЗАДАЧ
+  // отдельной строки не требует — при ней `computeAgentState` возвращает
+  // «на паузе» с той же формулировкой, и она уже стоит в шапке причиной.
+  const расписанияНаПаузе =
+    статус.value?.paused.schedules === true && agent.schedule.length > 0;
   const hooks = runHooks(agent);
   const порог = autonomyMaxOf(конфиг);
   // Потолок системы, если он режет номинальный тир: тогда шапка называет
@@ -331,6 +342,12 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
           <p className="hint">{agent.description ?? "Описание не задано."}</p>
         </div>
       </section>
+
+      {/* Системная пауза расписаний — ОТДЕЛЬНОЙ СТРОКОЙ и теми же словами, что
+          в сетке (круг починок, C-4). Без неё cron-агент на своей карточке
+          писал «молчит · последний прогон — выполнено» и молчал о том, что
+          плановые прогоны выключены настройкой системы, а не им самим. */}
+      {расписанияНаПаузе && <SchedulesPausedNotice />}
 
       <section aria-labelledby="agent-skills">
         <div className="section-title" id="agent-skills">
