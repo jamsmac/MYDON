@@ -45,7 +45,11 @@ export interface ScheduleSnapshot {
   tz: typeof TZ;
   paused: { schedules: boolean; tasks: boolean };
   jobs: { agent: string; skill: string; cron: string; mode: "durable-task" | "legacy" }[];
-  notWired: { agent: string; skill: string; reason: "no_implementation" | "llm_route_off" }[];
+  notWired: {
+    agent: string;
+    skill: string;
+    reason: "no_implementation" | "llm_route_off" | "inactive_agent";
+  }[];
   monitors: { name: string; cron: string; enabled: boolean; reason?: "off" | "no_credentials" }[];
 }
 
@@ -165,7 +169,7 @@ export function snapshotFromBody(body: unknown): ScheduleSnapshot {
   const notWired = listOf(b.notWired, "notWired").map((j) => {
     const x = objectOf(j, "notWired[]");
     if (typeof x.agent !== "string" || typeof x.skill !== "string") throw new BadRequestException("notWired[]: agent/skill");
-    const reason = oneOf(x.reason, ["no_implementation", "llm_route_off"] as const, `${x.agent}/${x.skill}: reason`);
+    const reason = oneOf(x.reason, ["no_implementation", "llm_route_off", "inactive_agent"] as const, `${x.agent}/${x.skill}: reason`);
     return { agent: x.agent, skill: x.skill, reason };
   });
   const monitors = listOf(b.monitors, "monitors").map((m) => {

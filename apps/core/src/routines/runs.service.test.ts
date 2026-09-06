@@ -302,6 +302,17 @@ describe("snapshotFromBody — снимок расписаний (R-R-2)", () =>
         e instanceof BadRequestException && /vendhub-ceo\/weekly-review/.test(String((e as Error).message)),
     );
   });
+  it("причина inactive_agent принимается: расписание паузного агента — тоже строка доски", () => {
+    // Паузный агент до `desiredJobs` не доходит, и без этой причины шесть
+    // паузных паспортов прода не имели бы на доске ни строки, ни объяснения.
+    const s = snapshotFromBody({
+      ...ok,
+      notWired: [{ agent: "market-analyst", skill: "scan-market", reason: "inactive_agent" }],
+    });
+    assert.deepEqual(s.notWired, [
+      { agent: "market-analyst", skill: "scan-market", reason: "inactive_agent" },
+    ]);
+  });
   it("выключенный монитор пропускает cron «off» — его расписание не проверяем", () => {
     const s = snapshotFromBody({
       ...ok,

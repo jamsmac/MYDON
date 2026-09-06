@@ -52,6 +52,7 @@ const DAY_MS = 86_400_000;
 const DISABLED: Record<string, string> = {
   no_implementation: "навык не подключён: нет кода в SKILLS и нет executor: llm",
   llm_route_off: "LLM-маршрут выключен или не metered — llm-навык на cron не допущен",
+  inactive_agent: "агент не активен: расписание не запускается",
   off: "выключен в .env (<NAME>_CRON=off); меняется в .env, нужен рестарт агентов",
   no_credentials: "не заданы OURVEND_ACCOUNT/OURVEND_PASSWORD",
 };

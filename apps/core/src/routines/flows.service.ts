@@ -147,7 +147,11 @@ export class FlowsService {
         ? this.db
             .select({ at: auditLog.ts, action: auditLog.action, actorRef: auditLog.actorRef, target: auditLog.target })
             .from(auditLog)
-            .where(inArray(auditLog.target, auditTargets))
+            // Окно то же, что у событий: у задачи с несколькими попытками
+            // `target` один на все, и плейбэк ПЕРВОЙ показывал бы аудит третьей.
+            .where(
+              and(inArray(auditLog.target, auditTargets), gte(auditLog.ts, from), lte(auditLog.ts, to)),
+            )
             .orderBy(asc(auditLog.ts))
             .limit(TIMELINE_LIMIT)
         : Promise.resolve([]),

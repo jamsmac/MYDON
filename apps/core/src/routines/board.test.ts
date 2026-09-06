@@ -60,6 +60,27 @@ describe("computeBoard (R-R-3)", () => {
     assert.equal(b.jobs[0]!.enabled, true);
   });
 
+  it("расписание паузного агента — строка с причиной «агент не активен», а не пустота", () => {
+    const b = computeBoard({
+      ...input,
+      snapshot: {
+        ...input.snapshot!,
+        payload: {
+          ...snapshot,
+          notWired: [
+            ...snapshot.notWired,
+            { agent: "market-analyst", skill: "scan-market", reason: "inactive_agent" as const },
+          ],
+        },
+      },
+    });
+    const j = b.jobs.find((x) => x.id === "market-analyst/scan-market")!;
+    assert.equal(j.enabled, false);
+    assert.equal(j.disabledReason, "агент не активен: расписание не запускается");
+    assert.equal(j.nextRun, null);
+    assert.equal(b.upcoming24h.some((u) => u.jobId === "market-analyst/scan-market"), false);
+  });
+
   it("незнакомая причина монитора не теряется: показываем её сырой, а не пустоту", () => {
     // Снимок читается из jsonb: слово, которого нет в словаре, туда попасть
     // может, а «выключен без объяснения» — худший из ответов доски.

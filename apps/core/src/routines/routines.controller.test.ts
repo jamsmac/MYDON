@@ -295,7 +295,23 @@ describe("FlowsService.playback — Core собирает вокруг прог�
 
     const q = queryTo(asked, auditLog);
     assert.match(q.sql, /"audit_log"\."target" in/);
-    assert.deepEqual(q.params, [TASK, APPROVAL]);
+    // Дальше в параметрах идут границы окна — они проверяются отдельно, ниже.
+    assert.deepEqual(q.params.slice(0, 2), [TASK, APPROVAL]);
+  });
+
+  it("аудит взят ОКНОМ прогона: у задачи с несколькими попытками чужие записи не подмешиваются", async () => {
+    const { db, asked } = fullDb();
+    await new FlowsService({ byId: async () => taskRun } as never, db).playback(taskRun.id);
+
+    // `target` у всех попыток одной задачи ОДИН И ТОТ ЖЕ, поэтому без границ
+    // плейбэк первой попытки показывал бы аудит третьей. Окно — то же, что у
+    // событий: [начало − 1 с; конец + 1 с].
+    const q = queryTo(asked, auditLog);
+    assert.match(q.sql, /"audit_log"\."ts" >= \$\d/);
+    assert.match(q.sql, /"audit_log"\."ts" <= \$\d/);
+    const stamps = q.params.map((p) => String(p));
+    assert.ok(stamps.some((s) => s.includes("03:00:00")), `нижняя граница окна: ${stamps.join(" | ")}`);
+    assert.ok(stamps.some((s) => s.includes("03:00:05")), `верхняя граница окна: ${stamps.join(" | ")}`);
   });
 
   it("ни задачи, ни согласования — за аудитом не ходим вовсе", async () => {
