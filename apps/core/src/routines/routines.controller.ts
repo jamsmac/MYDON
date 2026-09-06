@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
 import { isRunOutcome } from "@mydon/shared";
 import { BoardService } from "./board.service";
 import { FlowsService } from "./flows.service";
@@ -31,6 +41,19 @@ function runFilter(agent: unknown, skill: unknown, outcome: unknown, limit: unkn
 }
 
 /**
+ * Граница окна журнала. Битую дату отвергаем словами: `Invalid Date` уехал бы
+ * в `started_at >= $1` и вернул 500 от драйвера, а молчаливый пропуск границы
+ * соврал бы владельцу пустотой в его окне. Разбор — как в `normalizeReport`.
+ */
+function windowDate(v: unknown, field: string): Date | undefined {
+  const raw = first(v);
+  if (raw === undefined) return undefined;
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) throw new BadRequestException(`${field}: нужна дата ISO`);
+  return d;
+}
+
+/**
  * Рутины: журнал прогонов и снимок расписаний (волна R). Префикс /routines
  * выбран вместо /agents/…, чтобы не соревноваться с `GET /agents/:name`.
  *
@@ -51,14 +74,23 @@ export class RoutinesController {
     return this.runs.report(body);
   }
 
+  /** Журнал прогонов; `from`/`to` — окно по началу прогона (волна A1). */
   @Get("runs")
   async list(
     @Query("agent") agent?: unknown,
     @Query("skill") skill?: unknown,
     @Query("outcome") outcome?: unknown,
     @Query("limit") limit?: unknown,
+    @Query("from") from?: unknown,
+    @Query("to") to?: unknown,
   ) {
-    const rows = await this.runs.list(runFilter(agent, skill, outcome, limit));
+    const windowFrom = windowDate(from, "from");
+    const windowTo = windowDate(to, "to");
+    const rows = await this.runs.list({
+      ...runFilter(agent, skill, outcome, limit),
+      ...(windowFrom !== undefined ? { from: windowFrom } : {}),
+      ...(windowTo !== undefined ? { to: windowTo } : {}),
+    });
     return { runs: rows.map(toView) };
   }
 

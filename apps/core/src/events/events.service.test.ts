@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { EventsService } from "./events.service";
 
 type Row = Record<string, unknown>;
@@ -132,5 +133,58 @@ describe("EventsService idempotency", () => {
       clientKey: "task:t:effect:action",
     });
     assert.equal(replay.id, "e1");
+  });
+});
+
+/** Стаб выборки: запоминает limit и САМО условие, строк не отдаёт. */
+function listStub() {
+  const captured: { limit: number | null; where: unknown } = { limit: null, where: undefined };
+  const chain = {
+    where: (c: unknown) => {
+      captured.where = c;
+      return chain;
+    },
+    orderBy: () => chain,
+    limit: async (n: number) => {
+      captured.limit = n;
+      return [];
+    },
+  };
+  const db = { select: () => ({ from: () => chain }) } as never;
+  return { db, captured };
+}
+
+/** Текст и параметры условия: заглушка SQL не исполняет, а перепутанный столбец обязан падать. */
+function renderQuery(condition: unknown): { sql: string; params: unknown[] } {
+  const q = new PgDialect().sqlToQuery(condition as Parameters<PgDialect["sqlToQuery"]>[0]);
+  return { sql: q.sql, params: q.params };
+}
+
+describe("EventsService.list — отбор ленты", () => {
+  it("источник и префикс типа доходят до SQL своими условиями", async () => {
+    const { db, captured } = listStub();
+    await new EventsService(db).list({ source: "agent:vendhub-ops", typePrefix: "agent.memory:" });
+    const { sql, params } = renderQuery(captured.where);
+    assert.match(sql, /"event"\."source" = \$\d/);
+    assert.match(sql, /"event"\."type" like \$\d/, "префикс — одно like, а не перебор типов");
+    assert.ok(params.includes("agent.memory:%"), `параметры: ${JSON.stringify(params)}`);
+  });
+
+  it("метасимволы LIKE во вводе остаются буквами, а не «любым типом»", async () => {
+    // `%` во вводе без экранирования превратил бы точечный префикс в полный
+    // перебор по типам: ответ выглядел бы здоровым, а лента была бы чужой.
+    const { db, captured } = listStub();
+    await new EventsService(db).list({ typePrefix: "agent.memory:%_\\" });
+    const { params } = renderQuery(captured.where);
+    assert.ok(
+      params.includes("agent.memory:\\%\\_\\\\%"),
+      `метасимволы не экранированы: ${JSON.stringify(params)}`,
+    );
+  });
+
+  it("без фильтров условия нет — лента не сужается сама по себе", async () => {
+    const { db, captured } = listStub();
+    await new EventsService(db).list();
+    assert.equal(captured.where, undefined);
   });
 });

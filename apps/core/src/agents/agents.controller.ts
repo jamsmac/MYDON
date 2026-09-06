@@ -224,8 +224,13 @@ export class AgentsController {
    * получала бы «Агент "skills" не найден».
    */
   @Get("skills")
-  skills() {
-    return this.agents.skillDeck();
+  skills(@Query("agent") agent?: unknown) {
+    // Повторённый параметр (`?agent=a&agent=b`) приходит из express массивом:
+    // без этого сравнение с именем никогда не совпало бы и панель получила бы
+    // пустую деку вместо строк первого агента.
+    const raw = Array.isArray(agent) ? agent[0] : agent;
+    const name = typeof raw === "string" && raw.length > 0 ? raw : undefined;
+    return this.agents.skillDeck(name !== undefined ? { agent: name } : {});
   }
 
   /**

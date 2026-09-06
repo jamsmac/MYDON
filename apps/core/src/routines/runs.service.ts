@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { Cron } from "croner";
 import {
   RUN_TRIGGERS,
@@ -248,11 +248,23 @@ export class RunsService {
     return { id: saved.id, created: saved.inserted };
   }
 
-  async list(filter: { agent?: string; skill?: string; outcome?: RunOutcome; limit?: number } = {}): Promise<AgentRunRow[]> {
+  async list(
+    filter: {
+      agent?: string;
+      skill?: string;
+      outcome?: RunOutcome;
+      /** Окно по НАЧАЛУ прогона: журнал сортируется по нему же. */
+      from?: Date;
+      to?: Date;
+      limit?: number;
+    } = {},
+  ): Promise<AgentRunRow[]> {
     const conds = [
       ...(filter.agent ? [eq(agentRun.agentName, filter.agent)] : []),
       ...(filter.skill ? [eq(agentRun.skill, filter.skill)] : []),
       ...(filter.outcome ? [eq(agentRun.outcome, filter.outcome)] : []),
+      ...(filter.from ? [gte(agentRun.startedAt, filter.from)] : []),
+      ...(filter.to ? [lte(agentRun.startedAt, filter.to)] : []),
     ];
     // `limit` приходит из строки запроса через Number(): «abc» даёт NaN, «10.5» —
     // дробь, «0» — пустой ответ. Всё это уехало бы в `limit $1` и вернуло

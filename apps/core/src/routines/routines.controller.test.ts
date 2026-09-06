@@ -102,6 +102,37 @@ describe("GET /routines/runs — фильтры журнала", () => {
     await controller.list(undefined, undefined, "done", undefined);
     assert.deepEqual(calls.list[0], {}, "неизвестный исход не должен попасть в фильтр");
   });
+
+  it("окно from/to доходит датами", async () => {
+    const { controller, calls } = stubRuns([runRow()]);
+    await controller.list(undefined, undefined, undefined, undefined, "2026-09-01T00:00:00.000Z", "2026-09-07T00:00:00.000Z");
+    const filter = calls.list[0] as { from?: Date; to?: Date };
+    assert.ok(filter.from instanceof Date, "from обязан уехать датой, а не строкой");
+    assert.ok(filter.to instanceof Date);
+    assert.equal(filter.from?.toISOString(), "2026-09-01T00:00:00.000Z");
+    assert.equal(filter.to?.toISOString(), "2026-09-07T00:00:00.000Z");
+  });
+
+  it("битая дата в окне — 400, а не пустой журнал и не 500 от драйвера", async () => {
+    // Invalid Date уехал бы в `started_at >= $1` и вернул 500 из драйвера, а
+    // молчаливый пропуск границы соврал бы владельцу пустотой в его окне.
+    const { controller, calls } = stubRuns([]);
+    await assert.rejects(
+      controller.list(undefined, undefined, undefined, undefined, "вчера"),
+      BadRequestException,
+    );
+    await assert.rejects(
+      controller.list(undefined, undefined, undefined, undefined, undefined, "2026-13-45"),
+      BadRequestException,
+    );
+    assert.equal(calls.list.length, 0, "с битой датой в базу не ходим");
+  });
+
+  it("без окна границ в фильтре нет — журнал не сужается сам", async () => {
+    const { controller, calls } = stubRuns([]);
+    await controller.list("vendhub-ops", undefined, undefined, undefined);
+    assert.deepEqual(calls.list[0], { agent: "vendhub-ops" });
+  });
 });
 
 describe("GET /routines/runs/last — последний прогон задания", () => {

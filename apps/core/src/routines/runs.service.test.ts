@@ -171,6 +171,24 @@ describe("RunsService.list — рамки выборки", () => {
     assert.equal(/agent_name/.test(onlySkill), false, "непереданный агент не должен появляться в запросе");
   });
 
+  it("окно журнала: from и to — два условия по началу прогона, только from — одно", async () => {
+    const both = listStub();
+    await new RunsService(both.db).list({
+      from: new Date("2026-09-01T00:00:00.000Z"),
+      to: new Date("2026-09-07T00:00:00.000Z"),
+    });
+    const text = renderSql(both.captured.where);
+    assert.match(text, /"agent_run"\."started_at" >= \$\d/);
+    assert.match(text, /"agent_run"\."started_at" <= \$\d/);
+    assert.equal(text.split(" and ").length, 2, "две границы — два условия");
+
+    const only = listStub();
+    await new RunsService(only.db).list({ from: new Date("2026-09-01T00:00:00.000Z") });
+    const fromOnly = renderSql(only.captured.where);
+    assert.match(fromOnly, /"agent_run"\."started_at" >= \$\d/);
+    assert.equal(/<=/.test(fromOnly), false, "верхней границы не просили — её не должно быть в запросе");
+  });
+
   it("byId с неверным идентификатором не ходит в базу", async () => {
     const db = {
       select: () => {

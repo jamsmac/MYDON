@@ -3276,6 +3276,142 @@ async function проверитьРутины() {
   if (нет.r.status !== 404) throw new Error(`несуществующий прогон → ${нет.r.status}, ожидали 404`);
 }
 
+/**
+ * Читающие маршруты волны A1: события по источнику и префиксу типа, дека по
+ * агенту, журнал рутин по окну.
+ *
+ * Настоящий Postgres здесь не для галочки: `typePrefix` уходит в `like` с
+ * экранированием, и юнит-тест видит только ТЕКСТ условия — исполняет его
+ * сервер. «%» во вводе, случайно ставший «любым хвостом», виден лишь живой
+ * выборкой: ответ при этом выглядит здоровым, просто лента чужая.
+ */
+async function проверитьСобытияИДеку() {
+  const метка = Date.now();
+  const источник = `smoke-a1:${метка}`;
+  const чужойИсточник = `smoke-a1-чужой:${метка}`;
+  const навык = `smoke-a1-${метка}`;
+  const памятьТип = `agent.memory:${навык}`;
+  const другойТип = `smoke.a1.other:${метка}`;
+  const агент = `smoke-a1-${метка}`;
+  const сосед = `smoke-a1s-${метка}`;
+
+  // Время задаём явно: на умолчании обе записи легли бы в один и тот же
+  // момент, и проверка порядка/окна зеленела бы или падала по жребию.
+  const времяПамяти = new Date(метка - 120_000).toISOString();
+  const времяДругого = new Date(метка - 60_000).toISOString();
+  const серединаОкна = new Date(метка - 90_000).toISOString();
+
+  // Читаем С ТОКЕНОМ: журнал рутин закрыт guard-ом и на чтение, и общий
+  // помощник `читать` (без заголовка) получил бы там 401.
+  const прочитать = async (path) => {
+    const { r, text, json } = await jsonRequest("GET", path);
+    if (!r.ok) throw new Error(`GET ${path} → ${r.status}: ${text.slice(0, 200)}`);
+    return json;
+  };
+
+  const записать = async (source, type, occurredAt) => {
+    const { r, text } = await jsonRequest("POST", "/events", {
+      source, type, occurredAt, payload: { signature: `smoke-${метка}` },
+      clientKey: `smoke-a1:${метка}:${source}:${type}`,
+    });
+    if (!r.ok) throw new Error(`POST /events (${type}) → ${r.status}: ${text.slice(0, 200)}`);
+  };
+  await записать(источник, памятьТип, времяПамяти);
+  await записать(источник, другойТип, времяДругого);
+  // Тот же тип у ЧУЖОГО источника: без отбора по источнику он попал бы в ленту.
+  await записать(чужойИсточник, памятьТип, времяДругого);
+
+  const свои = await прочитать(`/events?source=${encodeURIComponent(источник)}`);
+  if (свои.length !== 2 || свои.some((e) => e.source !== источник)) {
+    throw new Error(`?source= вернул ${свои.length} записей и источники ${[...new Set(свои.map((e) => e.source))].join(", ")}`);
+  }
+  const одна = await прочитать(`/events?source=${encodeURIComponent(источник)}&limit=1`);
+  if (одна.length !== 1 || одна[0].source !== источник || одна[0].type !== другойТип) {
+    throw new Error(`?source=&limit=1 вернул ${JSON.stringify(одна.map((e) => [e.source, e.type]))}`);
+  }
+
+  const память = await прочитать(`/events?source=${encodeURIComponent(источник)}&typePrefix=${encodeURIComponent("agent.memory:")}`);
+  if (память.length !== 1 || память[0].type !== памятьТип) {
+    throw new Error(`?typePrefix= вернул ${JSON.stringify(память.map((e) => e.type))}, ждали только ${памятьТип}`);
+  }
+  const всяПамять = await прочитать(`/events?typePrefix=${encodeURIComponent("agent.memory:")}&limit=200`);
+  if (!всяПамять.some((e) => e.source === чужойИсточник && e.type === памятьТип)) {
+    throw new Error("префикс типа без источника не нашёл запись чужого источника");
+  }
+  if (всяПамять.some((e) => !e.type.startsWith("agent.memory:"))) {
+    throw new Error(`в ленту по префиксу попали чужие типы: ${[...new Set(всяПамять.map((e) => e.type))].join(", ")}`);
+  }
+
+  // Экранирование метасимволов: «%» во вводе — буква. Без него это условие
+  // совпало бы с записью памяти и лента молча стала бы перебором всех типов.
+  const метасимвол = await прочитать(`/events?source=${encodeURIComponent(источник)}&typePrefix=${encodeURIComponent("agent.memory:%")}`);
+  if (метасимвол.length !== 0) {
+    throw new Error(`«%» во вводе сработал как шаблон: ${JSON.stringify(метасимвол.map((e) => e.type))}`);
+  }
+
+  const окно = await прочитать(`/events?source=${encodeURIComponent(источник)}&until=${encodeURIComponent(серединаОкна)}`);
+  if (окно.length !== 1 || окно[0].type !== памятьТип) {
+    throw new Error(`?until= вернул ${JSON.stringify(окно.map((e) => e.type))}, ждали только ранний ${памятьТип}`);
+  }
+  const поВозрастанию = await прочитать(`/events?source=${encodeURIComponent(источник)}&order=asc&limit=1`);
+  if (поВозрастанию[0]?.type !== памятьТип) {
+    throw new Error(`?order=asc отдал ${поВозрастанию[0]?.type}, ждали самый ранний ${памятьТип}`);
+  }
+  for (const [путь, что] of [["order=вверх", "порядок"], ["limit=0", "нулевой предел"], ["limit=500", "предел выше потолка"]]) {
+    const плохой = await jsonRequest("GET", `/events?${путь}`);
+    if (плохой.r.status !== 400) throw new Error(`${что} (${путь}) → ${плохой.r.status}, ожидали 400`);
+  }
+
+  const создан = await jsonRequest("POST", "/agents", {
+    name: агент, business: "mydon", status: "active", autonomyDefault: "T0", skills: [навык],
+  });
+  if (!создан.r.ok) throw new Error(`создание агента → ${создан.r.status}: ${создан.text.slice(0, 200)}`);
+
+  try {
+    const строка = (кто) => ({
+      agent: кто, skill: навык, description: `Дымовой навык ${навык}`, executor: "code",
+      tier: кто === сосед ? "T3" : "T1", triggers: [], allowedTools: [], hasCode: true, problems: [],
+    });
+    const синк = await jsonRequest("PUT", "/agents/skills/catalog", { skills: [строка(агент), строка(сосед)] });
+    if (!синк.r.ok || синк.json?.count !== 2) {
+      throw new Error(`синк каталога → ${синк.r.status}: ${синк.text.slice(0, 200)}`);
+    }
+
+    const вся = await прочитать("/agents/skills");
+    if (вся.items.length !== 2) throw new Error(`полная дека: ${вся.items.length} строк, ждали 2`);
+    const мой = await прочитать(`/agents/skills?agent=${encodeURIComponent(агент)}`);
+    if (мой.items.length !== 1 || мой.items[0].agent !== агент) {
+      throw new Error(`?agent= вернул ${JSON.stringify(мой.items.map((i) => i.agent))}`);
+    }
+    // Порог одноимённого навыка считается по ВСЕМ агентам: отбор в SQL уронил
+    // бы его до T1, то есть «можно без согласования».
+    if (мой.items[0].tierFloor !== "T3" || мой.items[0].duplicates !== 2) {
+      throw new Error(`отбор по агенту сбил порог: tierFloor=${мой.items[0].tierFloor}, duplicates=${мой.items[0].duplicates}`);
+    }
+    if (мой.syncedAt === null) throw new Error("шапка деки (syncedAt) потерялась при отборе");
+    const никого = await прочитать(`/agents/skills?agent=${encodeURIComponent(`нет-такого-${метка}`)}`);
+    if (никого.items.length !== 0) throw new Error("неизвестный агент вернул строки, а не пустой список");
+    if (никого.syncedAt === null) throw new Error("промах фильтра выглядит как пустой каталог");
+  } finally {
+    await jsonRequest("PUT", "/agents/skills/catalog", { skills: [] }).catch(() => {});
+    await jsonRequest("DELETE", `/agents/${агент}`).catch(() => {});
+  }
+
+  const прогон = await jsonRequest("POST", "/routines/runs", {
+    agentName: агент, skill: навык, trigger: "manual", requestKey: `smoke-a1:${метка}`,
+    startedAt: new Date(метка - 60_000).toISOString(), finishedAt: new Date(метка).toISOString(),
+    outcome: "executed", reason: "смоук: окно журнала",
+  });
+  if (!прогон.r.ok) throw new Error(`POST /routines/runs → ${прогон.r.status}: ${прогон.text.slice(0, 200)}`);
+
+  const вОкне = await прочитать(`/routines/runs?agent=${encodeURIComponent(агент)}&from=${encodeURIComponent(new Date(метка - 3_600_000).toISOString())}`);
+  if (!вОкне.runs.some((r) => r.id === прогон.json.id)) throw new Error("прогон не попал в своё окно журнала");
+  const мимо = await прочитать(`/routines/runs?from=${encodeURIComponent(new Date(метка + 86_400_000).toISOString())}`);
+  if (мимо.runs.length !== 0) throw new Error(`окно в будущем вернуло ${мимо.runs.length} прогонов`);
+  const битаяДата = await jsonRequest("GET", "/routines/runs?from=вчера");
+  if (битаяДата.r.status !== 400) throw new Error(`битая дата в окне → ${битаяДата.r.status}, ожидали 400`);
+}
+
 async function ждатьЗдоровье(proc) {
   const дедлайн = Date.now() + СТАРТ_ТАЙМАУТ_МС;
   while (Date.now() < дедлайн) {
@@ -3619,6 +3755,15 @@ try {
   } catch (e) {
     провалы.push(`рутины: ${e.message}`);
   }
+
+  try {
+    await проверитьСобытияИДеку();
+    console.log(
+      "  ok  сценарий: события по источнику и префиксу типа («%» — буква), дека по агенту с общим порогом, журнал по окну",
+    );
+  } catch (e) {
+    провалы.push(`события, дека и окно журнала: ${e.message}`);
+  }
 } catch (e) {
   провалы.push(`старт: ${e.message}`);
 } finally {
@@ -3638,4 +3783,4 @@ if (провалы.length > 0) {
   process.exit(1);
 }
 
-console.log(`\nВсё прошло: ${ЧТЕНИЕ.length} чтений, ${ЗАПИСЬ.length} записей, 24 сценариев.`);
+console.log(`\nВсё прошло: ${ЧТЕНИЕ.length} чтений, ${ЗАПИСЬ.length} записей, 25 сценариев.`);

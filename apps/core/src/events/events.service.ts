@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import { event } from "@mydon/db";
-import { and, asc, desc, eq, gt, gte, inArray, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, like, lte, or, sql, type SQL } from "drizzle-orm";
 import { DB, type Db } from "../db/db.module";
 import { hashLedgerPayload } from "../llm-ledger/llm-ledger.money";
 
@@ -78,8 +78,11 @@ export class EventsService {
    */
   async list(
     filter: {
+      source?: string;
       type?: string;
       types?: readonly string[];
+      /** Префикс типа: `agent.memory:` — вся память агента одним `like`. */
+      typePrefix?: string;
       since?: Date;
       until?: Date;
       /** Strict tuple cursor used by ordered notification catch-up. */
@@ -89,8 +92,17 @@ export class EventsService {
     } = {},
   ): Promise<EventRow[]> {
     const conditions: SQL[] = [];
+    if (filter.source) conditions.push(eq(event.source, filter.source));
     if (filter.type) conditions.push(eq(event.type, filter.type));
     if (filter.types && filter.types.length > 0) conditions.push(inArray(event.type, [...filter.types]));
+    if (filter.typePrefix) {
+      // Метасимволы LIKE экранируем (как `actor` в audit.service): «%» во
+      // вводе — буква, а не «любой хвост». Иначе `agent.memory:%` тихо
+      // превратился бы в полный перебор ВСЕХ типов, и ответ на «покажи память
+      // навыка» выглядел бы здоровым, будучи чужой лентой.
+      const escaped = filter.typePrefix.replace(/[\\%_]/g, (c) => `\\${c}`);
+      conditions.push(like(event.type, `${escaped}%`));
+    }
     if (filter.since) conditions.push(gte(event.occurredAt, filter.since));
     if (filter.until) conditions.push(lte(event.occurredAt, filter.until));
     if (filter.after) {
