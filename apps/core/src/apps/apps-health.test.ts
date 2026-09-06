@@ -335,6 +335,65 @@ describe("Здоровье приложений: OurVend", () => {
     const row = rowFromOurvendAccounting(FACES.ourvendAccounting, учёт({ silentAfter: null }));
     assert.equal(row.state, "ok");
   });
+
+  it("МОНИТОР УЧЁТА ЗАПУСКАЕТСЯ И ПАДАЕТ КАЖДЫЙ ПРОГОН — «сломано» (Ф-1)", () => {
+    // Падающий монитор НЕ молчит: он тикает по расписанию (`silentAfter`
+    // впереди) и каждый раз падает — сменился вход в OurVend, таймаут,
+    // изменилась вёрстка. `snapshotStale` ещё false, окно сверки 7 суток
+    // держит паритет, и строка отдавала `ok` «снимок свежий, сверка
+    // сходится», цитируя в том же `detail` «последний прогон — упал».
+    const row = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        lastRun: {
+          at: new Date(NOW.getTime() - 10 * 60_000),
+          outcome: "failed",
+          reason: "[ourvend:accounting] вход отклонён: 401",
+        },
+      }),
+    );
+    assert.equal(row.state, "bad", "зелёная лампа над падающим каждый прогон монитором");
+    assert.match(row.summary, /упал/);
+    assert.match(row.detail ?? "", /401/);
+  });
+
+  it("зеркало погашено (`retired`) НЕ отменяет падение прогона — сегодняшняя прода (Ф-1)", () => {
+    // Источник `own` + погашенное зеркало: паритетного пояса нет вовсе, и
+    // проверка исхода обязана стоять ВЫШЕ ветки `retired`, иначе строка
+    // возвращает `ok` без единой проверки работы монитора.
+    const row = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        health: {
+          snapshotStale: false,
+          salesLagShownH: 1,
+          parity: { mode: "retired", checked: 0, mismatches: 0, stockOk: false, stockChecked: 0 },
+        },
+        lastRun: {
+          at: new Date(NOW.getTime() - 10 * 60_000),
+          outcome: "failed",
+          reason: "[ourvend:accounting] таймаут",
+        },
+      }),
+    );
+    assert.equal(row.state, "bad");
+    assert.match(row.summary, /упал/);
+  });
+
+  it("тот же вход, но прогон прошёл — «упал» не выдумывается", () => {
+    // Граница правила: без неё «сломано» выше проходило бы по любой причине.
+    const row = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        lastRun: {
+          at: new Date(NOW.getTime() - 10 * 60_000),
+          outcome: "executed",
+          reason: "[ourvend:accounting] success",
+        },
+      }),
+    );
+    assert.equal(row.state, "ok");
+  });
 });
 
 /**
