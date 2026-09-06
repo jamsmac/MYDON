@@ -466,6 +466,24 @@ async function runSkillInner(
 }
 
 /**
+ * Кому pre_run-хуки вообще адресованы (§4.4 спеки, решение волны R).
+ *
+ * Только ПЛАНОВОМУ прогону: легаси-колбэк крона и durable-задача из
+ * `agent-schedule` (обе приходят с `trigger: "cron"`). Поручение владельца
+ * (`task`) и запуск с деки (`manual`) хуки НЕ трогают: владелец попросил сам, и
+ * «Не запускал: тихие часы» закрыло бы его задачу как сделанную. Отсутствие
+ * trigger считаем кроном — так консервативнее.
+ *
+ * Takeover (в задаче уже есть checkpoint) тоже мимо хуков: хук охраняет СТАРТ
+ * прогона, а не возобновление уже начатой — и, возможно, уже оплаченной работы.
+ */
+function preRunApplies(invocation: SkillRunContext | undefined): boolean {
+  if (invocation === undefined) return true;
+  if (invocation.trigger !== undefined && invocation.trigger !== "cron") return false;
+  return invocation.task?.checkpoint === undefined;
+}
+
+/**
  * Прогон навыка с хуками паспорта (волна R, Р-4): pre_run → навык → post_run.
  *
  * Хуки — правила ЭТОГО агента, а не движка, поэтому они снаружи тела: встроенные
@@ -482,7 +500,7 @@ export async function runSkill(
   invocation?: SkillRunContext,
 ): Promise<RunResult> {
   const hooks = agent.hooks;
-  if (hooks && hooks.preRun.length > 0 && agent.status === "active") {
+  if (hooks && hooks.preRun.length > 0 && agent.status === "active" && preRunApplies(invocation)) {
     const verdict = await runPreRunHooks(hooks, {
       ...(invocation?.trigger ? { trigger: invocation.trigger } : {}),
       now: new Date(),
@@ -490,6 +508,15 @@ export async function runSkill(
     });
     if (!verdict.ok) {
       const note = `Не запускал: ${verdict.reason}.`;
+      const taskMode = invocation?.task;
+      if (taskMode) {
+        // Порядок как у ветки «повода нет» в теле: сперва CAS-чекпойнт, потом
+        // исход. Core принимает исход только под чекпойнтом, а сбой записи
+        // должен всплыть наверх (воркер запишет прогон как failed), а не
+        // превратиться в «пропущено» с потерянным коммитом.
+        await invocation?.assertLease?.();
+        await taskMode.saveCheckpoint({ skill, kind: "no_signal" });
+      }
       return {
         agent: agent.name,
         skill,
@@ -500,14 +527,15 @@ export async function runSkill(
         // Core не знает kind hook_blocked (§7 спеки): task-режим коммитит как
         // no_signal с причиной хука в примечании. В журнале прогона исход
         // остаётся точным — hook_blocked + имя хука.
-        ...(invocation?.task ? { commit: { outcome: "no_signal", note } } : {}),
+        ...(taskMode ? { commit: { outcome: "no_signal", note } } : {}),
       };
     }
   }
 
   const result = await runSkillInner(agent, skill, core, threshold, skillFloor, invocation);
 
-  if (hooks && hooks.postRun.length > 0) {
+  // Неактивный агент не работал — разбирать нечего, и незачем ходить в журнал.
+  if (hooks && hooks.postRun.length > 0 && result.skipReason !== "inactive") {
     // Разбор до записи в журнал: заметка едет в той же строке прогона (review).
     const { review } = await runPostRunHooks(hooks, {
       agent: agent.name,

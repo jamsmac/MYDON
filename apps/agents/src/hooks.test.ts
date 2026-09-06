@@ -38,9 +38,10 @@ describe("parseHooks (R-R-4)", () => {
     assert.equal(problems.length, 2);
     assert.match(problems[0]!, /moon_phase/);
   });
-  it("битые параметры → problems, хук помечен unknown", () => {
+  it("битые параметры → problems, хук помечен unknown + broken (сообщение отличается от чужого kind)", () => {
     const { hooks, problems } = parseHooks({ pre_run: [{ kind: "source_fresh", run: "nope", max_age_hours: 0 }, { kind: "quiet_hours", from: "25:00", to: "x" }] });
     assert.equal(hooks.preRun.every((h) => h.kind === "unknown"), true);
+    assert.deepEqual(hooks.preRun[0], { kind: "unknown", raw: "source_fresh", broken: true });
     assert.equal(problems.length >= 2, true);
   });
   it("нет раздела → пусто без problems", () => {
@@ -48,9 +49,26 @@ describe("parseHooks (R-R-4)", () => {
     assert.deepEqual(hooks, { preRun: [], postRun: [] });
     assert.equal(problems.length, 0);
   });
-  it("не объект и не список — problem, а не падение", () => {
-    assert.equal(parseHooks("хуки").problems.length, 1);
-    assert.equal(parseHooks({ pre_run: "источник" }).problems.length, 1);
+  it("нечитаемый раздел не «отменяет» охрану: problem + блокирующий pre_run", () => {
+    const notObject = parseHooks("хуки");
+    assert.equal(notObject.problems.length, 1);
+    assert.deepEqual(notObject.hooks.preRun, [{ kind: "unknown", raw: "hooks", broken: true }]);
+
+    const notList = parseHooks({ pre_run: "источник" });
+    assert.equal(notList.problems.length, 1);
+    assert.deepEqual(notList.hooks.preRun, [{ kind: "unknown", raw: "pre_run", broken: true }]);
+  });
+
+  it("пункт-строка вместо объекта: pre_run блокирует, post_run только замечание", () => {
+    const pre = parseHooks({ pre_run: ["source_fresh", { kind: "quiet_hours", from: "22:00", to: "07:00" }] });
+    assert.equal(pre.problems.length, 1);
+    assert.match(pre.problems[0]!, /source_fresh/);
+    assert.deepEqual(pre.hooks.preRun[0], { kind: "unknown", raw: "source_fresh" });
+    assert.equal(pre.hooks.preRun.length, 2, "второй, целый хук не потерян");
+
+    const post = parseHooks({ post_run: ["coach_lite"] });
+    assert.equal(post.problems.length, 1);
+    assert.deepEqual(post.hooks.postRun, [], "разбор постфактум ничего не охраняет — блокировать нечего");
   });
 });
 
@@ -79,6 +97,16 @@ describe("runPreRunHooks", () => {
     assert.equal(down.ok, false);
     assert.match((down as { reason: string }).reason, /журнал недоступен/);
   });
+  it("source_fresh: битое finishedAt — блок, а не «возраст NaN, значит порог не превышен»", async () => {
+    const hooks = parseHooks({ pre_run: [{ kind: "source_fresh", run: "system/ourvend:sync", max_age_hours: 6 }] }).hooks;
+    const v = await runPreRunHooks(hooks, {
+      trigger: "cron",
+      now,
+      core: { lastRun: async () => ({ ...fresh, finishedAt: "не дата" }) as never },
+    });
+    assert.equal(v.ok, false);
+    assert.match((v as { reason: string }).reason, /без времени завершения/);
+  });
   it("quiet_hours: блок только для cron; manual проходит", async () => {
     const hooks = parseHooks({ pre_run: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }] }).hooks;
     const night = new Date("2026-09-06T18:30:00.000Z");
@@ -92,6 +120,13 @@ describe("runPreRunHooks", () => {
     const v = await runPreRunHooks(hooks, { trigger: "cron", now, core: { lastRun: async () => null } });
     assert.equal(v.ok, false);
     assert.match((v as { reason: string }).reason, /неизвестный хук moon_phase/);
+  });
+  it("знакомый kind с битыми параметрами → блок, но причина адресная", async () => {
+    const hooks = parseHooks({ pre_run: [{ kind: "source_fresh", run: "нет-слеша", max_age_hours: 6 }] }).hooks;
+    const v = await runPreRunHooks(hooks, { trigger: "cron", now, core: { lastRun: async () => null } });
+    assert.equal(v.ok, false);
+    assert.equal((v as { hook: string }).hook, "source_fresh");
+    assert.match((v as { reason: string }).reason, /битые параметры хука source_fresh — см. check:passports/);
   });
   it("проверяет по порядку и останавливается на первом провале", async () => {
     const hooks = parseHooks({
@@ -236,12 +271,25 @@ describe("паспорт → база → рантайм (хуки не долж
     assert.equal(hooksFromCore("хуки"), undefined);
     // Потерянный max_age_hours не должен молча ОТКЛЮЧИТЬ проверку свежести.
     assert.deepEqual(hooksFromCore({ preRun: [{ kind: "source_fresh", run: "a/b" }], postRun: null }), {
-      preRun: [{ kind: "unknown", raw: "source_fresh" }],
+      preRun: [{ kind: "unknown", raw: "source_fresh", broken: true }],
       postRun: [],
     });
     assert.deepEqual(hooksFromCore({ preRun: [{ kind: "unknown", raw: "moon_phase" }] }), {
       preRun: [{ kind: "unknown", raw: "moon_phase" }],
       postRun: [],
     });
+  });
+
+  it("hooksFromCore понимает и запись паспорта: карточку правят текстом из config.yaml", () => {
+    assert.deepEqual(
+      hooksFromCore({
+        pre_run: [{ kind: "source_fresh", run: "system/ourvend:sync", max_age_hours: 6 }],
+        post_run: [{ kind: "coach_lite" }],
+      }),
+      {
+        preRun: [{ kind: "source_fresh", run: "system/ourvend:sync", maxAgeHours: 6 }],
+        postRun: [{ kind: "coach_lite" }],
+      },
+    );
   });
 });
