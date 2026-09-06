@@ -185,7 +185,8 @@ startedAt` → 400; `taskId`/`approvalId` не uuid → 400.
 Рантайм: `reportRun(core, entry)` в `apps/agents/src/run-journal.ts` — оборачивает `core.reportRun` в
 try/catch с `console.warn("[journal] …")`. Точки вызова: (а) cron-колбэк legacy в `index.ts` — после
 `runSkill` и в `catch` (`outcome: failed`, `reason` = сообщение ошибки); (б) `task-worker.ts` — после
-`commitAgentTaskOutcome`/пропуска, `trigger: "task"`, `taskId`, `scheduledAt = task.due` и `cron` из
+`commitAgentTaskOutcome`/пропуска: `trigger: "cron"` для задач из `agent-schedule` (плановый occurrence),
+`"task"` для назначенных владельцем, `"manual"` для деки; `taskId`, `scheduledAt = task.due` и `cron` из
 описания задачи только если `task.source = agent-schedule` (описание содержит строку `Cron: <expr>`;
 парсим её, иначе `cron` пуст); (в) `journaledMonitor` (R-R-6); (г) ручной запуск с деки — это задача
 (волна S создаёт task) → путь (б) с `trigger: "manual"` когда `task.source` = источник деки
