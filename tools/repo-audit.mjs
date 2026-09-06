@@ -367,6 +367,10 @@ async function main() {
   const findings = await collectFindings(root, {});
   const секция = renderAudit(findings);
   process.stdout.write(`${секция}\n`);
+  // Сорванная проверка обязана КРАСНЕТЬ: секция про неё пишется, но плановый
+  // запуск смотрит на код выхода, а не читает markdown, — и нулевой код
+  // означал бы «аудит прошёл», хотя часть проверок не выполнялась вовсе.
+  if (findings.errors.length > 0) process.exitCode = 2;
   if (сухой) return;
   const файл = path.join(root, ФАЙЛ_ВОПРОСОВ);
   const текст = читать(файл);
