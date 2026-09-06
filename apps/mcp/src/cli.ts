@@ -41,20 +41,55 @@ export interface CliDeps {
   client: CoreClient;
 }
 
+/**
+ * Флаг, который понимает ЛЮБАЯ команда: форма ответа — свойство вывода, а не
+ * конкретной команды.
+ */
+const GLOBAL_FLAGS: readonly string[] = ["json"];
+
+/**
+ * Какие флаги применимы к какой команде (`--json` подразумевается везде).
+ *
+ * `parseArgs` знает только общий словарь флагов и ловит опечатки; он не знает,
+ * какая команда что читает, — и `task-create --status done` проходил разбор,
+ * а потом ТИХО пропадал: статус новой задачи не задаётся, а владелец уверен,
+ * что задал. Эта карта закрывает разрыв на стороне CLI, не трогая контракт
+ * `parseArgs(argv)`: чужой для команды флаг — usage-ошибка с кодом 2.
+ *
+ * Заодно это единственный список команд: диспетчер, подсказка и проверка
+ * флагов читают его, и разъехаться им негде.
+ */
+const COMMAND_FLAGS = {
+  inbox: [],
+  tasks: ["status", "owner", "domain", "limit"],
+  task: [],
+  "task-create": [
+    "yes",
+    "title",
+    "description",
+    "owner",
+    "owner-kind",
+    "domain",
+    "due",
+    "priority",
+  ],
+  events: ["source", "type", "limit"],
+  runs: ["agent", "skill", "limit"],
+  kb: [],
+  search: ["domain", "type", "limit"],
+  briefing: [],
+  agents: [],
+  decide: ["yes"],
+} as const satisfies Record<string, readonly string[]>;
+
+type Command = keyof typeof COMMAND_FLAGS;
+
 /** Список команд CLI — используется и для диспетчера, и для текста подсказки. */
-const COMMANDS = [
-  "inbox",
-  "tasks",
-  "task",
-  "task-create",
-  "events",
-  "runs",
-  "kb",
-  "search",
-  "briefing",
-  "agents",
-  "decide",
-] as const;
+const COMMANDS = Object.keys(COMMAND_FLAGS) as Command[];
+
+function isCommand(value: string): value is Command {
+  return Object.prototype.hasOwnProperty.call(COMMAND_FLAGS, value);
+}
 
 /**
  * Ошибка использования CLI (не хватает аргумента, неверное значение
@@ -173,7 +208,9 @@ async function handleAgents(parsed: ParsedArgs, deps: CliDeps): Promise<string> 
 
 /** Текст намерения `task-create` без вызова Core — ровно то, что будет создано. */
 function taskCreateIntention(input: CreateTaskInput): string {
-  const owner = input.ownerRef ? `${input.ownerKind}: ${input.ownerRef}` : `${input.ownerKind} (не назначен)`;
+  const owner = input.ownerRef
+    ? `${input.ownerKind}: ${input.ownerRef}`
+    : `${input.ownerKind} (не назначен)`;
   const domain = input.domain ? DOMAIN_LABELS[input.domain] : "—";
   const lines = [
     `Будет создана задача «${input.title}»`,
@@ -241,7 +278,30 @@ function unknownCommandText(command: string): string {
   return `неизвестная команда: ${name}\nДоступные команды: ${COMMANDS.join(", ")}`;
 }
 
+/**
+ * Отбивает флаг, известный CLI вообще, но не этой команде. Сообщение
+ * перечисляет применимые флаги: «не годится» без «а что годится» заставляет
+ * лезть в исходник.
+ */
+function checkCommandFlags(command: Command, flags: ParsedArgs["flags"]): void {
+  const allowed = new Set<string>([...GLOBAL_FLAGS, ...COMMAND_FLAGS[command]]);
+  for (const name of Object.keys(flags)) {
+    if (allowed.has(name)) continue;
+    // Набор непустой всегда: `--json` понимает любая команда.
+    const list = [...allowed]
+      .sort()
+      .map((f) => `--${f}`)
+      .join(", ");
+    throw new UsageError(
+      `флаг --${name} не применим к команде ${command}; здесь понимаются: ${list}`,
+    );
+  }
+}
+
 async function dispatch(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
+  if (!isCommand(parsed.command)) throw new UsageError(unknownCommandText(parsed.command));
+  checkCommandFlags(parsed.command, parsed.flags);
+
   switch (parsed.command) {
     case "inbox":
       return handleInbox(parsed, deps);
@@ -279,7 +339,10 @@ async function dispatch(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
  * 1 — Core ответил ошибкой (переведённый текст, без токена), 2 — ошибка
  * использования CLI (не хватает аргумента, неизвестная команда).
  */
-export async function runCommand(parsed: ParsedArgs, deps: CliDeps): Promise<{ text: string; code: number }> {
+export async function runCommand(
+  parsed: ParsedArgs,
+  deps: CliDeps,
+): Promise<{ text: string; code: number }> {
   try {
     const text = await dispatch(parsed, deps);
     return { text, code: 0 };

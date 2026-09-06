@@ -71,7 +71,9 @@ export function sanitizeEnv(
 export function ownerTokenUsable(env: CoreEnv, warn: (message: string) => void = log): boolean {
   if (!env.ownerToken) return false;
   if (env.ownerToken === env.serviceToken) {
-    warn("OWNER_ACTION_TOKEN равен SERVICE_TOKEN — Core такой токен не примет, считаю owner-токен незаданным");
+    warn(
+      "OWNER_ACTION_TOKEN равен SERVICE_TOKEN — Core такой токен не примет, считаю owner-токен незаданным",
+    );
     return false;
   }
   return true;

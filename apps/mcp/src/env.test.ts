@@ -20,7 +20,11 @@ describe("Окружение MCP (R-A1-1)", () => {
 
   it("ошибка не печатает значений окружения", () => {
     try {
-      loadEnv({ SERVICE_TOKEN: "", OWNER_ACTION_TOKEN: "значение-владельца", CORE_API_URL: "http://core" });
+      loadEnv({
+        SERVICE_TOKEN: "",
+        OWNER_ACTION_TOKEN: "значение-владельца",
+        CORE_API_URL: "http://core",
+      });
       assert.fail("ожидалась ошибка про отсутствие токена");
     } catch (e) {
       assert.ok(e instanceof Error);
@@ -35,7 +39,10 @@ describe("Окружение MCP (R-A1-1)", () => {
   });
 
   it("CORE_API_URL перекрывает адрес; хвостовая косая срезается", () => {
-    assert.equal(loadEnv({ SERVICE_TOKEN: "s", CORE_API_URL: "http://core:3001/" }).baseUrl, "http://core:3001");
+    assert.equal(
+      loadEnv({ SERVICE_TOKEN: "s", CORE_API_URL: "http://core:3001/" }).baseUrl,
+      "http://core:3001",
+    );
     assert.equal(loadEnv({ SERVICE_TOKEN: "s", CORE_API_URL: "  " }).baseUrl, DEFAULT_CORE_URL);
   });
 

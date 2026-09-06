@@ -179,6 +179,28 @@ describe("clamp (Р-5, предел ответа)", () => {
     const text = "б".repeat(50);
     assert.equal(clamp(text, 50), text);
   });
+
+  it("лимит короче метки обрезки не делает результат ДЛИННЕЕ лимита", () => {
+    // Раньше при малом лимите к обрезку приклеивалась метка в 11 символов, и
+    // `clamp(text, 3)` возвращал 11 символов — нарушение собственного докблока.
+    const text = "в".repeat(500);
+    for (const limit of [1, 3, 5, 10]) {
+      const out = clamp(text, limit);
+      assert.equal(out.length, limit, `clamp(…, ${limit}) обязан уложиться в лимит`);
+      assert.equal(out, "в".repeat(limit), `при лимите ${limit} метка не влезает — режем без неё`);
+    }
+  });
+
+  it("лимит ровно в длину метки отдаёт саму метку, не длиннее", () => {
+    const out = clamp("г".repeat(500), 11);
+    assert.equal(out, "…(обрезано)");
+    assert.equal(out.length, 11);
+  });
+
+  it("нулевой и отрицательный лимит — пустая строка", () => {
+    assert.equal(clamp("д".repeat(10), 0), "");
+    assert.equal(clamp("д".repeat(10), -5), "");
+  });
 });
 
 describe("formatInbox — очередь решений (Р-5)", () => {
@@ -196,7 +218,12 @@ describe("formatInbox — очередь решений (Р-5)", () => {
   });
 
   it("строка согласования несёт id, действие, тир и возраст", () => {
-    const a = approval({ id: "approval-xyz", action: "decide_price", tier: "T3", createdAt: hoursAgo(2) });
+    const a = approval({
+      id: "approval-xyz",
+      action: "decide_price",
+      tier: "T3",
+      createdAt: hoursAgo(2),
+    });
     const out = formatInbox([a], { cards: [], fields: [] });
     const line = out.split("\n").find((l: string) => l.includes("approval-xyz"));
     assert.ok(line, "строка согласования не найдена");
@@ -223,7 +250,12 @@ describe("formatTasks — список задач", () => {
   });
 
   it("печатает статус, владельца и дату по Ташкенту", () => {
-    const t = task({ status: "in_progress", ownerKind: "agent", ownerRef: "vendhub-ops", due: "2026-09-10" });
+    const t = task({
+      status: "in_progress",
+      ownerKind: "agent",
+      ownerRef: "vendhub-ops",
+      due: "2026-09-10",
+    });
     const out = formatTasks([t]);
     assert.match(out, /в работе/);
     assert.match(out, /агент/);
@@ -240,7 +272,12 @@ describe("formatTasks — список задач", () => {
 
 describe("formatTask — карточка одной задачи", () => {
   it("несёт статус, владельца, приоритет и срок по Ташкенту", () => {
-    const t = task({ status: "done", priority: "urgent", due: "2026-09-10", resultNote: "готово, остатки пополнены" });
+    const t = task({
+      status: "done",
+      priority: "urgent",
+      due: "2026-09-10",
+      resultNote: "готово, остатки пополнены",
+    });
     const out = formatTask(t);
     assert.match(out, /готово/);
     assert.match(out, /срочно/);
@@ -256,7 +293,12 @@ describe("formatEvents — журнал событий", () => {
 
   it("печатает время, источник, тип и первые 120 символов payload", () => {
     const bigPayload = { note: "x".repeat(200) };
-    const e = event({ source: "ourvend", type: "sale.recorded", payload: bigPayload, occurredAt: "2026-09-01T10:15:00.000Z" });
+    const e = event({
+      source: "ourvend",
+      type: "sale.recorded",
+      payload: bigPayload,
+      occurredAt: "2026-09-01T10:15:00.000Z",
+    });
     const out = formatEvents([e]);
     assert.match(out, /ourvend/);
     assert.match(out, /sale\.recorded/);
@@ -273,7 +315,12 @@ describe("formatRuns — запуски агентов", () => {
   });
 
   it("печатает агента, навык, триггер и исход", () => {
-    const r = run({ agentName: "vendhub-ops", skill: "refill-check", trigger: "cron", outcome: "done" });
+    const r = run({
+      agentName: "vendhub-ops",
+      skill: "refill-check",
+      trigger: "cron",
+      outcome: "done",
+    });
     const out = formatRuns([r]);
     assert.match(out, /vendhub-ops/);
     assert.match(out, /refill-check/);
@@ -383,7 +430,10 @@ describe("formatDoc — чтение документа (kb_read ≤ 64 КБ)", 
 describe("Общий предел текста ответа", () => {
   it("ни один список-форматтер не превышает MAX_RESPONSE_CHARS", () => {
     const tasks = Array.from({ length: 200 }, (_, i) =>
-      task({ id: `task-${i}`, title: "Очень длинное название задачи для проверки предела ответа ".repeat(3) }),
+      task({
+        id: `task-${i}`,
+        title: "Очень длинное название задачи для проверки предела ответа ".repeat(3),
+      }),
     );
     const out = formatTasks(tasks);
     assert.ok(out.length <= MAX_RESPONSE_CHARS);

@@ -24,7 +24,11 @@ function belt(value: string): SystemConfigItem[] {
 describe("Окружение сервера", () => {
   it("неразвёрнутая подстановка ${VAR} считается незаданной", () => {
     const clean = sanitizeEnv(
-      { SERVICE_TOKEN: "${SERVICE_TOKEN}", OWNER_ACTION_TOKEN: " ${OWNER_ACTION_TOKEN} ", CORE_API_URL: "http://127.0.0.1:3001" },
+      {
+        SERVICE_TOKEN: "${SERVICE_TOKEN}",
+        OWNER_ACTION_TOKEN: " ${OWNER_ACTION_TOKEN} ",
+        CORE_API_URL: "http://127.0.0.1:3001",
+      },
       silent,
     );
     assert.equal(clean.SERVICE_TOKEN, "");
@@ -64,7 +68,9 @@ describe("Чтение пояса владельца при старте (Р-3)"
 
   it("Core недоступен — состояние пояса неизвестно, а не «выключен»", async () => {
     const posture = await readPosture(
-      configClient(new CoreError(0, "/system/config", "Core недоступен по адресу http://127.0.0.1:3001")),
+      configClient(
+        new CoreError(0, "/system/config", "Core недоступен по адресу http://127.0.0.1:3001"),
+      ),
       false,
       silent,
     );

@@ -31,11 +31,14 @@ describe("parseArgs (R-A1-3): разбор аргументов CLI", () => {
 
   it("неизвестный флаг без похожего известного — ошибка без ложной подсказки", () => {
     assert.throws(() => parseArgs(["events", "--zzzqqqxxx"]), /неизвестный флаг --zzzqqqxxx/);
-    assert.throws(() => parseArgs(["events", "--zzzqqqxxx"]), (e: unknown) => {
-      assert.ok(e instanceof Error);
-      assert.doesNotMatch(e.message, /возможно, вы имели в виду/);
-      return true;
-    });
+    assert.throws(
+      () => parseArgs(["events", "--zzzqqqxxx"]),
+      (e: unknown) => {
+        assert.ok(e instanceof Error);
+        assert.doesNotMatch(e.message, /возможно, вы имели в виду/);
+        return true;
+      },
+    );
   });
 
   it("позиционные аргументы сохраняют порядок", () => {

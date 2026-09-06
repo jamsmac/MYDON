@@ -6,6 +6,10 @@
  * неизвестный флаг всегда ошибка (Р-7). Список известных флагов один на все
  * команды (а не по команде): так опечатка ловится независимо от того, к
  * какой команде она относится, а сам список остаётся в одном месте.
+ *
+ * Разбор НЕ знает, какая команда какие флаги читает: «--status у task-create»
+ * — законный флаг в чужой команде, и отбивает его `cli.ts` по карте
+ * `COMMAND_FLAGS` (usage-ошибка, код 2). Здесь — только словарь и форма.
  */
 
 export interface ParsedArgs {
@@ -111,7 +115,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     if (BOOLEAN_FLAGS.has(name)) {
       // `--yes=false` — редкий случай, но честнее явно уважить его, чем
       // молча превращать в true наравне с `--yes`.
-      flags[name] = inlineValue === undefined ? true : inlineValue !== "false" && inlineValue !== "0";
+      flags[name] =
+        inlineValue === undefined ? true : inlineValue !== "false" && inlineValue !== "0";
       continue;
     }
 

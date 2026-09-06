@@ -13,7 +13,16 @@ import type {
   PendingEntities,
   Task,
 } from "./core-client";
-import { formatAgents, formatBriefing, formatEntities, formatEvents, formatInbox, formatRuns, formatTask, formatTasks } from "./format";
+import {
+  formatAgents,
+  formatBriefing,
+  formatEntities,
+  formatEvents,
+  formatInbox,
+  formatRuns,
+  formatTask,
+  formatTasks,
+} from "./format";
 
 /**
  * Стаб клиента Core: методы, не заявленные в `overrides`, бросают ошибку при
@@ -164,15 +173,25 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
         return tasks;
       },
     });
-    const result = await runCommand(parseArgs(["tasks", "--status", "todo", "--owner", "jamshid"]), { client });
+    const result = await runCommand(
+      parseArgs(["tasks", "--status", "todo", "--owner", "jamshid"]),
+      { client },
+    );
     assert.equal(result.text, formatTasks(tasks));
     assert.equal(result.code, 0);
-    assert.deepEqual(seenQuery, { status: "todo", ownerRef: "jamshid", domain: undefined, limit: undefined });
+    assert.deepEqual(seenQuery, {
+      status: "todo",
+      ownerRef: "jamshid",
+      domain: undefined,
+      limit: undefined,
+    });
   });
 
   it("mydon task <id> печатает карточку задачи", async () => {
     const t = taskFixture({ id: "task-42" });
-    const client = stubClient({ task: async (id) => (id === "task-42" ? t : Promise.reject(new Error("не тот id"))) });
+    const client = stubClient({
+      task: async (id) => (id === "task-42" ? t : Promise.reject(new Error("не тот id"))),
+    });
     const result = await runCommand(parseArgs(["task", "task-42"]), { client });
     assert.equal(result.text, formatTask(t));
     assert.equal(result.code, 0);
@@ -194,7 +213,9 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
 
   it("mydon task-create без --yes печатает намерение, НЕ зовёт клиент, код 0", async () => {
     const client = stubClient();
-    const result = await runCommand(parseArgs(["task-create", "--title", "Заправить точку 12"]), { client });
+    const result = await runCommand(parseArgs(["task-create", "--title", "Заправить точку 12"]), {
+      client,
+    });
     assert.equal(result.code, 0);
     assert.match(result.text, /Заправить точку 12/);
     assert.match(result.text, /--yes/);
@@ -215,13 +236,23 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
     );
     assert.equal(result.code, 0);
     assert.equal(result.text, formatTask(created));
-    assert.deepEqual(seenInput, { title: "Заправить точку 12", ownerKind: "human", ownerRef: undefined, domain: undefined, due: undefined, description: undefined, priority: undefined });
+    assert.deepEqual(seenInput, {
+      title: "Заправить точку 12",
+      ownerKind: "human",
+      ownerRef: undefined,
+      domain: undefined,
+      due: undefined,
+      description: undefined,
+      priority: undefined,
+    });
   });
 
   it("mydon events печатает то же, что formatEvents", async () => {
     const events = [eventFixture()];
     const client = stubClient({ events: async () => events });
-    const result = await runCommand(parseArgs(["events", "--source", "ourvend", "--limit", "10"]), { client });
+    const result = await runCommand(parseArgs(["events", "--source", "ourvend", "--limit", "10"]), {
+      client,
+    });
     assert.equal(result.text, formatEvents(events));
     assert.equal(result.code, 0);
   });
@@ -268,7 +299,9 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
       updatedAt: "2026-09-01T00:00:00.000Z",
       markdown: "# MCP\n\nТекст.",
     };
-    const client = stubClient({ docFile: async (p) => (p === "docs/MCP.md" ? file : Promise.reject(new Error("не тот путь"))) });
+    const client = stubClient({
+      docFile: async (p) => (p === "docs/MCP.md" ? file : Promise.reject(new Error("не тот путь"))),
+    });
     const result = await runCommand(parseArgs(["kb", "docs/MCP.md"]), { client });
     assert.match(result.text, /Текст\./);
     assert.equal(result.code, 0);
@@ -329,7 +362,9 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
         return decided;
       },
     });
-    const result = await runCommand(parseArgs(["decide", "appr-1", "approved", "--yes"]), { client });
+    const result = await runCommand(parseArgs(["decide", "appr-1", "approved", "--yes"]), {
+      client,
+    });
     assert.deepEqual(seenArgs, ["appr-1", "approved"]);
     assert.equal(result.code, 0);
     assert.match(result.text, /appr-1/);
@@ -343,7 +378,9 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
 
   it("mydon decide --json без --yes печатает сырое намерение", async () => {
     const client = stubClient();
-    const result = await runCommand(parseArgs(["decide", "appr-1", "approved", "--json"]), { client });
+    const result = await runCommand(parseArgs(["decide", "appr-1", "approved", "--json"]), {
+      client,
+    });
     assert.equal(result.code, 0);
     assert.deepEqual(JSON.parse(result.text), { dryRun: true, id: "appr-1", decision: "approved" });
   });
@@ -352,15 +389,80 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
     const client = stubClient();
     const result = await runCommand(parseArgs(["frobnicate"]), { client });
     assert.equal(result.code, 2);
-    for (const cmd of ["inbox", "tasks", "task", "task-create", "events", "runs", "kb", "search", "briefing", "agents", "decide"]) {
+    for (const cmd of [
+      "inbox",
+      "tasks",
+      "task",
+      "task-create",
+      "events",
+      "runs",
+      "kb",
+      "search",
+      "briefing",
+      "agents",
+      "decide",
+    ]) {
       assert.match(result.text, new RegExp(cmd));
+    }
+  });
+
+  it("валидный, но чужой для команды флаг — код 2, а не тихое проглатывание", async () => {
+    // `--status` — законный флаг `tasks`, но `task-create` статус не задаёт:
+    // раньше он проходил общий словарь `parseArgs` и молча пропадал.
+    const client = stubClient();
+    const result = await runCommand(
+      parseArgs(["task-create", "--title", "Заправить точку 12", "--status", "done", "--yes"]),
+      { client },
+    );
+    assert.equal(result.code, 2);
+    assert.match(result.text, /--status/);
+    assert.match(result.text, /task-create/);
+    // Сообщение перечисляет применимые флаги, а не только отказывает.
+    assert.match(result.text, /--title/);
+  });
+
+  it("чужой флаг ловится и на читающих командах, до похода в Core", async () => {
+    const client = stubClient();
+    for (const argv of [
+      ["inbox", "--limit", "10"],
+      ["briefing", "--agent", "vendhub-ops"],
+      ["runs", "--status", "done"],
+      ["search", "склад", "--owner", "jamshid"],
+    ]) {
+      const result = await runCommand(parseArgs(argv), { client });
+      assert.equal(result.code, 2, `${argv.join(" ")} должен быть usage-ошибкой`);
+      assert.match(result.text, /не применим к команде/);
+    }
+  });
+
+  it("свои флаги команд и глобальный --json проходят проверку", async () => {
+    const client = stubClient({
+      tasks: async () => [],
+      runs: async () => ({ runs: [] }),
+      entities: async () => [],
+      events: async () => [],
+      briefing: async () => briefingFixture(),
+    });
+    for (const argv of [
+      ["tasks", "--status", "todo", "--owner", "jamshid", "--domain", "vendhub", "--limit", "5"],
+      ["runs", "--agent", "vendhub-ops", "--skill", "parts-audit", "--limit", "5", "--json"],
+      ["search", "склад", "--domain", "vendhub", "--type", "machine", "--limit", "5"],
+      ["events", "--source", "bot", "--type", "task.created", "--limit", "5"],
+      ["briefing", "--json"],
+    ]) {
+      const result = await runCommand(parseArgs(argv), { client });
+      assert.equal(result.code, 0, `${argv.join(" ")} → ${result.text}`);
     }
   });
 
   it("ошибка Core переводится и попадает в текст с кодом 1, а не падением", async () => {
     const client = stubClient({
       briefing: async () => {
-        throw new CoreError(401, "/registry/briefing", "Core не принял токен: проверь SERVICE_TOKEN в окружении.");
+        throw new CoreError(
+          401,
+          "/registry/briefing",
+          "Core не принял токен: проверь SERVICE_TOKEN в окружении.",
+        );
       },
     });
     const result = await runCommand(parseArgs(["briefing"]), { client });

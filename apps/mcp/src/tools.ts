@@ -1,6 +1,12 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { AUTONOMY_TIERS, DOMAINS, RUN_OUTCOMES, type AutonomyTier, type Domain } from "@mydon/shared";
+import {
+  AUTONOMY_TIERS,
+  DOMAINS,
+  RUN_OUTCOMES,
+  type AutonomyTier,
+  type Domain,
+} from "@mydon/shared";
 import type {
   Agent,
   AgentInput,
@@ -174,7 +180,11 @@ function optionalString(args: ToolArgs, key: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-function optionalEnum<T extends string>(args: ToolArgs, key: string, allowed: readonly T[]): T | undefined {
+function optionalEnum<T extends string>(
+  args: ToolArgs,
+  key: string,
+  allowed: readonly T[],
+): T | undefined {
   const value = optionalString(args, key);
   if (value === undefined) return undefined;
   if (!(allowed as readonly string[]).includes(value)) {
@@ -229,8 +239,12 @@ const DECISIONS = ["approved", "rejected", "clarify"] as const;
  * `forbidNonWhitelisted` (`apps/core/src/agents/agents.service.ts`,
  * `AGENT_STATUSES`). Объявлен здесь, а не импортирован: модуль Core тянет за
  * собой весь NestJS, а `@mydon/shared` этих статусов пока не знает.
+ *
+ * Рукописная копия перечисления сама по себе не заметит дрейфа, поэтому
+ * экспортируется: `tools.test.ts` читает исходник Core и падает, если списки
+ * разъехались (тот же приём, что у зеркал движка в `apps/agents`).
  */
-const AGENT_STATUSES = ["active", "paused", "draft", "deprecated"] as const;
+export const AGENT_STATUSES = ["active", "paused", "draft", "deprecated"] as const;
 
 /** Источник событий агента в шине Core — ровно тот, что пишет runner. */
 function agentSource(name: string): string {
@@ -245,13 +259,19 @@ function agentSource(name: string): string {
  * запрошенного `limit`. Это честнее обратного: молча показать личное в
  * безадресном поиске (`PersonalDomainGuard` такие чтения не закрывает).
  */
-function hidePersonal<T extends { domain?: Domain | null }>(rows: T[], asked: Domain | undefined): T[] {
+function hidePersonal<T extends { domain?: Domain | null }>(
+  rows: T[],
+  asked: Domain | undefined,
+): T[] {
   return asked ? rows : rows.filter((row) => row.domain !== "personal");
 }
 
 // ── Описания ──
 
-function schema(properties: Record<string, JsonSchemaProperty>, required: string[] = []): ToolInputSchema {
+function schema(
+  properties: Record<string, JsonSchemaProperty>,
+  required: string[] = [],
+): ToolInputSchema {
   return {
     type: "object",
     properties,
@@ -369,10 +389,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
     {
       name: "task_get",
       description: `Карточка одной задачи целиком: статус, исполнитель, срок, описание и итог. ${READ_ONLY}`,
-      inputSchema: schema(
-        { id: { type: "string", description: "UUID задачи." } },
-        ["id"],
-      ),
+      inputSchema: schema({ id: { type: "string", description: "UUID задачи." } }, ["id"]),
       mutates: false,
       run: async (args) => formatTask(await client.task(requireString(args, "id"))),
     },
@@ -574,10 +591,14 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         // Окно заполнено доверху — значит, за ним может быть ещё; молчать об
         // этом нельзя ни при пустом ответе, ни при полном.
         const capped =
-          cards.length >= scan ? `\nПросмотрены первые ${cards.length} карточек — в реестре могут быть ещё.` : "";
+          cards.length >= scan
+            ? `\nПросмотрены первые ${cards.length} карточек — в реестре могут быть ещё.`
+            : "";
         if (picked.length === 0) {
           const head = verdict ? `Кандидатов с вердиктом ${verdict} нет.` : "Кандидатов нет.";
-          return `${head}${capped}`;
+          // Через `clamp`, как и непустая ветка: вердикт приходит от модели и
+          // длину его никто не ограничивает — предел ответа один на обе ветки.
+          return clamp(`${head}${capped}`, MAX_RESPONSE_CHARS);
         }
         return clamp(
           `${verdictSummary(picked)}\n${formatEntities(picked, limit)}${capped}`,
@@ -606,7 +627,10 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
             description: "Направление задачи.",
             enum: [...DOMAINS],
           },
-          due: { type: "string", description: "Срок в ISO 8601, например 2026-09-10T09:00:00+05:00." },
+          due: {
+            type: "string",
+            description: "Срок в ISO 8601, например 2026-09-10T09:00:00+05:00.",
+          },
           priority: {
             type: "string",
             description: "Приоритет задачи.",
@@ -668,7 +692,10 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
             description: "Новый статус задачи.",
             enum: [...TASK_STATUSES],
           },
-          note: { type: "string", description: "Итог работы: что именно сделано или почему отменено." },
+          note: {
+            type: "string",
+            description: "Итог работы: что именно сделано или почему отменено.",
+          },
         },
         ["id", "status"],
       ),
@@ -682,7 +709,10 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           actor: STATUS_ACTOR,
           ...(note ? { resultNote: note } : {}),
         });
-        return clamp(`Статус задачи ${updated.id}: ${status}.\n${formatTask(updated)}`, MAX_RESPONSE_CHARS);
+        return clamp(
+          `Статус задачи ${updated.id}: ${status}.\n${formatTask(updated)}`,
+          MAX_RESPONSE_CHARS,
+        );
       },
     },
     {
@@ -695,7 +725,8 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           skill: { type: "string", description: "Навык, к которому относится память." },
           value: {
             type: "string",
-            description: "Сигнатура прошлого результата — по ней агент понимает, изменилось ли что-то.",
+            description:
+              "Сигнатура прошлого результата — по ней агент понимает, изменилось ли что-то.",
           },
         },
         ["agent", "skill", "value"],
@@ -731,7 +762,8 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           mission: { type: "string", description: "Миссия: за что агент отвечает." },
           skills: {
             type: "array",
-            description: "Список навыков агента. Пустой список ничего не стирает — чистка навыков в панели.",
+            description:
+              "Список навыков агента. Пустой список ничего не стирает — чистка навыков в панели.",
             items: { type: "string" },
           },
           autonomyDefault: {

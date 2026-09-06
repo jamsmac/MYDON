@@ -22,7 +22,12 @@ function headersOf(f: typeof fetch, call = 0): Record<string, string> {
 describe("Клиент Core (R-A1-1)", () => {
   it("шлёт сервисный токен и не шлёт owner-токен без нужды", async () => {
     const f = fetchStub({ status: 200, body: [] });
-    const c = createClient({ baseUrl: "http://core", serviceToken: "s", ownerToken: "o", fetchImpl: f });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      ownerToken: "o",
+      fetchImpl: f,
+    });
     await c.tasks({});
     assert.equal(headersOf(f)["x-service-token"], "s");
     assert.equal(headersOf(f)["x-owner-action-token"], undefined);
@@ -30,31 +35,58 @@ describe("Клиент Core (R-A1-1)", () => {
 
   it("owner-действие несёт owner-токен", async () => {
     const f = fetchStub({ status: 200, body: {} });
-    const c = createClient({ baseUrl: "http://core", serviceToken: "s", ownerToken: "o", fetchImpl: f });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      ownerToken: "o",
+      fetchImpl: f,
+    });
     await c.decideApproval("11111111-1111-4111-8111-111111111111", "approved");
     assert.equal(headersOf(f)["x-owner-action-token"], "o");
   });
 
   it("переводит коды Core и никогда не печатает токен", async () => {
-    for (const [status, part] of [[401, /токен/i], [403, /личн|owner/i], [404, /не найдено/i], [429, /частот/i]] as const) {
-      const c = createClient({ baseUrl: "http://core", serviceToken: "секрет-токен", fetchImpl: fetchStub({ status, text: "" }) });
-      await assert.rejects(() => c.briefing(), (e: unknown) => {
-        assert.ok(e instanceof CoreError);
-        assert.equal(e.status, status);
-        assert.match(e.message, part);
-        assert.doesNotMatch(e.message, /секрет-токен/);
-        return true;
+    for (const [status, part] of [
+      [401, /токен/i],
+      [403, /личн|owner/i],
+      [404, /не найдено/i],
+      [429, /частот/i],
+    ] as const) {
+      const c = createClient({
+        baseUrl: "http://core",
+        serviceToken: "секрет-токен",
+        fetchImpl: fetchStub({ status, text: "" }),
       });
+      await assert.rejects(
+        () => c.briefing(),
+        (e: unknown) => {
+          assert.ok(e instanceof CoreError);
+          assert.equal(e.status, status);
+          assert.match(e.message, part);
+          assert.doesNotMatch(e.message, /секрет-токен/);
+          return true;
+        },
+      );
     }
   });
 
   it("сеть недоступна — понятная ошибка с адресом", async () => {
-    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      fetchImpl: (async () => {
+        throw new Error("ECONNREFUSED");
+      }) as unknown as typeof fetch,
+    });
     await assert.rejects(() => c.briefing(), /недоступен .*http:\/\/core/);
   });
 
   it("ошибка знает маршрут, на котором произошла", async () => {
-    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: fetchStub({ status: 404, text: "" }) });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      fetchImpl: fetchStub({ status: 404, text: "" }),
+    });
     await assert.rejects(
       () => c.task("11111111-1111-4111-8111-111111111111"),
       (e: unknown) => {
@@ -69,7 +101,10 @@ describe("Клиент Core (R-A1-1)", () => {
     const c = createClient({
       baseUrl: "http://core",
       serviceToken: "s",
-      fetchImpl: fetchStub({ status: 409, text: JSON.stringify({ message: "Запрос уже закрыт решением \"approved\"" }) }),
+      fetchImpl: fetchStub({
+        status: 409,
+        text: JSON.stringify({ message: 'Запрос уже закрыт решением "approved"' }),
+      }),
     });
     await assert.rejects(() => c.briefing(), /уже закрыт решением/);
   });
@@ -94,7 +129,12 @@ describe("Клиент Core (R-A1-1)", () => {
 
   it("явный личный домен несёт owner-токен (Р-4)", async () => {
     const f = fetchStub({ status: 200, body: [] });
-    const c = createClient({ baseUrl: "http://core", serviceToken: "s", ownerToken: "o", fetchImpl: f });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      ownerToken: "o",
+      fetchImpl: f,
+    });
     await c.tasks({ domain: "personal" });
     assert.equal(headersOf(f)["x-owner-action-token"], "o");
     await c.entities({ domain: "vendhub" });
@@ -110,7 +150,11 @@ describe("Клиент Core (R-A1-1)", () => {
   });
 
   it("пустое тело на успехе — ошибка, а не молчаливый undefined", async () => {
-    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: fetchStub({ status: 200, text: "   " }) });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      fetchImpl: fetchStub({ status: 200, text: "   " }),
+    });
     await assert.rejects(
       () => c.commentTask("11111111-1111-4111-8111-111111111111", "готово"),
       (e: unknown) => {
@@ -162,9 +206,16 @@ describe("Клиент Core (R-A1-1)", () => {
   it("таймаут назван таймаутом, а не отказом в соединении", async () => {
     const hang = ((_url: string, init?: RequestInit) =>
       new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(new Error("This operation was aborted")));
+        init?.signal?.addEventListener("abort", () =>
+          reject(new Error("This operation was aborted")),
+        );
       })) as unknown as typeof fetch;
-    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: hang, timeoutMs: 5 });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      fetchImpl: hang,
+      timeoutMs: 5,
+    });
     await assert.rejects(() => c.briefing(), /истекло время ожидания \(0 с\)/);
   });
 
@@ -193,11 +244,30 @@ describe("Клиент Core (R-A1-1)", () => {
 
   it("дерево знаний отбирается по корню на стороне клиента", async () => {
     const tree = [
-      { path: "docs/MCP.md", root: "docs", title: "MCP", bytes: 10, updatedAt: "2026-09-06T00:00:00.000Z" },
-      { path: "memory/decisions.md", root: "memory", title: "Решения", bytes: 20, updatedAt: "2026-09-06T00:00:00.000Z" },
+      {
+        path: "docs/MCP.md",
+        root: "docs",
+        title: "MCP",
+        bytes: 10,
+        updatedAt: "2026-09-06T00:00:00.000Z",
+      },
+      {
+        path: "memory/decisions.md",
+        root: "memory",
+        title: "Решения",
+        bytes: 20,
+        updatedAt: "2026-09-06T00:00:00.000Z",
+      },
     ];
-    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: fetchStub({ status: 200, body: tree }) });
-    assert.deepEqual((await c.docsTree({ root: "docs" })).map((i) => i.path), ["docs/MCP.md"]);
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      fetchImpl: fetchStub({ status: 200, body: tree }),
+    });
+    assert.deepEqual(
+      (await c.docsTree({ root: "docs" })).map((i) => i.path),
+      ["docs/MCP.md"],
+    );
     assert.equal((await c.docsTree({})).length, 2);
   });
 
@@ -217,6 +287,9 @@ describe("Клиент Core (R-A1-1)", () => {
     const init = callsOf(f)[0]!.arguments[1];
     assert.equal(init.method, "POST");
     assert.equal(headersOf(f)["Content-Type"], "application/json");
-    assert.deepEqual(JSON.parse(String(init.body)), { title: "Проверить туннель", ownerKind: "human" });
+    assert.deepEqual(JSON.parse(String(init.body)), {
+      title: "Проверить туннель",
+      ownerKind: "human",
+    });
   });
 });

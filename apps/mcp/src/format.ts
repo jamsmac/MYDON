@@ -44,12 +44,18 @@ const TRUNCATION_MARK = "…(обрезано)";
  * Обрезает текст ровно по `limit` символов, честно помечая обрезку меткой
  * `…(обрезано)` (сама метка входит в лимит — результат никогда не длиннее
  * `limit`). Текст короче лимита возвращается как есть.
+ *
+ * Лимит короче самой метки — не выдумка: `clamp` экспортируется как утилита,
+ * и вызвать её с пределом в пару символов может кто угодно. В этом случае
+ * метка не ставится вовсе: обещание «не длиннее `limit`» важнее пометки —
+ * иначе функция нарушала бы собственный контракт ровно там, где предел жёстче
+ * всего.
  */
 export function clamp(text: string, limit: number): string {
   if (text.length <= limit) return text;
   if (limit <= 0) return "";
-  const keep = Math.max(0, limit - TRUNCATION_MARK.length);
-  return text.slice(0, keep) + TRUNCATION_MARK;
+  if (limit < TRUNCATION_MARK.length) return text.slice(0, limit);
+  return text.slice(0, limit - TRUNCATION_MARK.length) + TRUNCATION_MARK;
 }
 
 /**
@@ -247,7 +253,9 @@ export function formatRuns(runs: AgentRun[], limit: number = MAX_LIST_ITEMS): st
   if (note) lines.push(note);
   for (const r of l.shown) {
     const reason = r.reason ? ` (${r.reason})` : r.skipReason ? ` (пропуск: ${r.skipReason})` : "";
-    lines.push(`• ${r.id} · ${r.agentName}/${r.skill} · ${r.trigger} · ${stamp(r.startedAt)} → ${r.outcome}${reason}`);
+    lines.push(
+      `• ${r.id} · ${r.agentName}/${r.skill} · ${r.trigger} · ${stamp(r.startedAt)} → ${r.outcome}${reason}`,
+    );
   }
   return clamp(lines.join("\n"), MAX_RESPONSE_CHARS);
 }
@@ -276,7 +284,9 @@ export function formatAgents(agents: Agent[], limit: number = MAX_LIST_ITEMS): s
   if (note) lines.push(note);
   for (const a of l.shown) {
     const archived = a.archivedAt ? " · архивирован" : "";
-    lines.push(`• ${a.name} · ${a.business} · ${a.status} · автономия ${a.autonomyDefault}${archived}`);
+    lines.push(
+      `• ${a.name} · ${a.business} · ${a.status} · автономия ${a.autonomyDefault}${archived}`,
+    );
   }
   return clamp(lines.join("\n"), MAX_RESPONSE_CHARS);
 }
@@ -284,8 +294,12 @@ export function formatAgents(agents: Agent[], limit: number = MAX_LIST_ITEMS): s
 /** Колода навыков: модель синка + по строке на пункт (агент/навык/тир/проблемы). */
 export function formatDeck(deck: SkillDeck, limit: number = MAX_LIST_ITEMS): string {
   const synced = deck.syncedAt ? stamp(deck.syncedAt) : "никогда";
-  const fallback = deck.models.fallbacks.length ? ` (резерв: ${deck.models.fallbacks.join(", ")})` : "";
-  const lines = [`Синхронизировано: ${synced} · модель: ${deck.models.primary ?? "не задана"}${fallback}`];
+  const fallback = deck.models.fallbacks.length
+    ? ` (резерв: ${deck.models.fallbacks.join(", ")})`
+    : "";
+  const lines = [
+    `Синхронизировано: ${synced} · модель: ${deck.models.primary ?? "не задана"}${fallback}`,
+  ];
 
   if (deck.items.length === 0) {
     lines.push("Навыков нет.");
@@ -300,7 +314,9 @@ export function formatDeck(deck: SkillDeck, limit: number = MAX_LIST_ITEMS): str
     const tier = item.tier ?? "—";
     const disabled = item.enabled ? "" : " · выключен";
     const problems = item.problems.length ? ` · проблемы: ${item.problems.join("; ")}` : "";
-    lines.push(`• ${item.agent}/${item.skill} · ${item.description} · тир ${tier}${disabled}${problems}`);
+    lines.push(
+      `• ${item.agent}/${item.skill} · ${item.description} · тир ${tier}${disabled}${problems}`,
+    );
   }
   return clamp(lines.join("\n"), MAX_RESPONSE_CHARS);
 }

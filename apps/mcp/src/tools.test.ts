@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
 import { CoreError } from "./core-client";
 import type {
@@ -16,6 +18,7 @@ import type {
   TaskComment,
 } from "./core-client";
 import {
+  AGENT_STATUSES,
   DEFAULT_LIMIT,
   MAX_LIMIT,
   MUTATING_TOOLS,
@@ -268,7 +271,10 @@ describe("Состав инструментов (R-A1-2)", () => {
   it("списки читающих и меняющих совпадают с флагом mutates", () => {
     const built = tools(stubClient().client);
     const names = (mutating: boolean): string[] =>
-      built.filter((t) => t.mutates === mutating).map((t) => t.name).sort();
+      built
+        .filter((t) => t.mutates === mutating)
+        .map((t) => t.name)
+        .sort();
     assert.deepEqual(names(false), [...READING_TOOLS].sort());
     assert.deepEqual(names(true), [...MUTATING_TOOLS].sort());
     assert.equal(MUTATING_TOOLS.length, 6);
@@ -301,6 +307,39 @@ describe("Состав инструментов (R-A1-2)", () => {
     for (const t of tools(stubClient().client).filter((x) => !x.mutates)) {
       assert.match(t.description, /Ничего не меняет/, `${t.name}`);
     }
+  });
+});
+
+// ── Дрейф рукописной копии перечисления Core ──
+
+/**
+ * `AGENT_STATUSES` — вторая, рукописная копия закрытого списка Core:
+ * импортировать модуль Core сюда нельзя (он тянет весь NestJS), а
+ * `@mydon/shared` этих статусов не знает. Значит, ничто не помешает спискам
+ * разъехаться при следующей правке Core — кроме этого теста.
+ *
+ * Читаем ИСХОДНИК Core, а не собранный модуль: тот же приём, что у зеркал
+ * движка (`apps/agents/src/engine-mirror.test.ts`) — сверка идёт с текстом,
+ * который правит человек. Путь считается от `dist` (тесты гоняются оттуда).
+ */
+describe("AGENT_STATUSES — копия перечисления Core не должна разъехаться", () => {
+  const SERVICE_TS = path.resolve(__dirname, "../../core/src/agents/agents.service.ts");
+
+  function coreAgentStatuses(): string[] {
+    const src = fs.readFileSync(SERVICE_TS, "utf8");
+    const m = /export const AGENT_STATUSES = \[([^\]]*)\] as const;/.exec(src);
+    assert.ok(m, `не нашли объявление AGENT_STATUSES в ${SERVICE_TS} — перечисление переехало`);
+    return [...m[1]!.matchAll(/"([^"]+)"/g)].map((g) => g[1]!);
+  }
+
+  it("состав и порядок совпадают с apps/core/src/agents/agents.service.ts", () => {
+    assert.deepEqual([...AGENT_STATUSES], coreAgentStatuses());
+  });
+
+  it("схема agent_upsert предлагает модели ровно статусы Core", () => {
+    const upsert = tools(stubClient().client).find((t) => t.name === "agent_upsert");
+    assert.ok(upsert);
+    assert.deepEqual(upsert.inputSchema.properties.status?.enum, coreAgentStatuses());
   });
 });
 
@@ -392,7 +431,9 @@ describe("Личный контур исключается явно (Р-4)", () 
   it("kb_read помечает личный документ", async () => {
     const личный = stubClient({ docFile: async () => doc({ personal: true }) });
     const общий = stubClient({ docFile: async () => doc() });
-    const withMark = textOf(await callTool(tools(личный.client), "kb_read", { path: "memory/x.md" }));
+    const withMark = textOf(
+      await callTool(tools(личный.client), "kb_read", { path: "memory/x.md" }),
+    );
     const noMark = textOf(await callTool(tools(общий.client), "kb_read", { path: "docs/MCP.md" }));
     assert.match(withMark, /Личный контур/i);
     assert.doesNotMatch(noMark, /Личный контур/i);
@@ -455,7 +496,11 @@ describe("Ошибки клиента становятся isError (Р-9)", () =
   it("CoreError отдаётся переведённым текстом и флагом isError", async () => {
     const { client } = stubClient({
       briefing: async () => {
-        throw new CoreError(401, "/registry/briefing", "Core не принял токен: проверь SERVICE_TOKEN.");
+        throw new CoreError(
+          401,
+          "/registry/briefing",
+          "Core не принял токен: проверь SERVICE_TOKEN.",
+        );
       },
     });
     const res = await callTool(tools(client), "briefing_get", {});
@@ -511,7 +556,10 @@ describe("Поведение инструментов", () => {
 
   it("memory_recall с навыком спрашивает точный тип", async () => {
     const { client, calls } = stubClient({ events: async () => [event()] });
-    await callTool(tools(client), "memory_recall", { agent: "agent:vendhub-ops", skill: "parts-audit" });
+    await callTool(tools(client), "memory_recall", {
+      agent: "agent:vendhub-ops",
+      skill: "parts-audit",
+    });
     const q = argOf(calls, "events");
     assert.equal(q.source, "agent:vendhub-ops");
     assert.equal(q.type, "agent.memory:parts-audit");
@@ -556,7 +604,10 @@ describe("Поведение инструментов", () => {
         note: "сделал",
       }),
     );
-    const body = calls.find((c) => c.method === "setTaskStatus")?.args[1] as Record<string, unknown>;
+    const body = calls.find((c) => c.method === "setTaskStatus")?.args[1] as Record<
+      string,
+      unknown
+    >;
     assert.equal(body.status, "done");
     assert.equal(body.resultNote, "сделал");
     assert.match(out, /done|Сделано/);
@@ -587,8 +638,20 @@ describe("Поведение инструментов", () => {
   it("ventures_list просит кандидатов домена mydon и считает вердикты", async () => {
     const { client, calls } = stubClient({
       entities: async () => [
-        entity({ id: "v1", name: "Кандидат A", type: "venture_candidate", domain: "mydon", attrs: { verdict: "PARK" } }),
-        entity({ id: "v2", name: "Кандидат B", type: "venture_candidate", domain: "mydon", attrs: { verdict: "NO" } }),
+        entity({
+          id: "v1",
+          name: "Кандидат A",
+          type: "venture_candidate",
+          domain: "mydon",
+          attrs: { verdict: "PARK" },
+        }),
+        entity({
+          id: "v2",
+          name: "Кандидат B",
+          type: "venture_candidate",
+          domain: "mydon",
+          attrs: { verdict: "NO" },
+        }),
       ],
     });
     const out = textOf(await callTool(tools(client), "ventures_list", {}));
@@ -655,7 +718,10 @@ describe("Поведение инструментов", () => {
   it("пустой список навыков не стирает навыки агента", async () => {
     const { client, calls } = stubClient({ agents: async () => [agentCard()] });
     await callTool(tools(client), "agent_upsert", { name: "vendhub-ops", skills: [] });
-    assert.ok(!calls.some((c) => c.method === "updateAgent"), "пустой список ушёл в Core как правка");
+    assert.ok(
+      !calls.some((c) => c.method === "updateAgent"),
+      "пустой список ушёл в Core как правка",
+    );
   });
 
   it("кандидатов с таким вердиктом нет — одна честная строка", async () => {
