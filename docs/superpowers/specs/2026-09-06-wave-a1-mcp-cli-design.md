@@ -127,9 +127,11 @@ owner-токен в окружении сервера. Описание `approva
 `argv.includes` у старых скриптов).
 
 ### 4.4 R-A1-4 Микрофиксы Core
-`ListEventsDto` + `EventsController.list`: `source`, `limit` (1…200, дефолт 50), `until`, `order`
+`ListEventsDto` + `EventsController.list`: `source`, `limit` (1…200, дефолт прежний — 100; ruling 06.09: менять
+дефолт ради MCP нельзя, у него свой лимит 50, который он шлёт явно), `until`, `order`
 (`asc|desc`, дефолт `desc`), `typePrefix` (≤ 128 символов, транслируется в `like` по `type`); сервис уже
-умеет всё, кроме префикса — добавить одно условие. `GET /agents/skills?agent=` фильтрует деку.
+умеет всё, кроме префикса — добавить одно условие. `count`/`latest` сохраняют прежний набор параметров отдельным DTO: тихо игнорировать новые поля хуже, чем
+отвечать 400 (ruling 06.09). `GET /agents/skills?agent=` фильтрует деку.
 `GET /routines/runs?from=&to=` фильтрует журнал по `started_at`. Тесты на каждый параметр, включая
 «без параметров ответ не изменился».
 
