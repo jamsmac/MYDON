@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { edgeStyle, kindLabel, matchesQuery, styleOf, subgraph } from "./brain-layout";
+import {
+  EDGE_LEGEND,
+  edgeStyle,
+  kindLabel,
+  matchesQuery,
+  styleOf,
+  subgraph,
+  ZOOM,
+  zoomStep,
+} from "./brain-layout";
 import type { DocsGraph } from "./core";
 
 const SKILL = "apps/agents/agents/parts-keeper/skills/parts-audit.md";
@@ -115,7 +124,10 @@ describe("Стиль узла", () => {
     expect(styleOf("memory").token).toBe("--tx-2");
     expect(styleOf("kb").token).toBe("--tx-2");
     expect(styleOf("decision").token).toBe("--hot");
-    expect(styleOf("engine").token).toBe("--hot");
+    // Движок — «правило соблюдается», а не тревога: один `--hot` на оба вида
+    // красил бы половину мелких точек графа как «здесь что-то горит».
+    expect(styleOf("engine").token).toBe("--ok");
+    expect(styleOf("engine").token).not.toBe(styleOf("decision").token);
     expect(styleOf("root").token).toBe("--tx");
     expect(styleOf("router").token).toBe("--tx");
     expect(styleOf("domain").token).toBe("--tx");
@@ -171,6 +183,37 @@ describe("Стиль ребра", () => {
     // несвязанных точек. Тонкость даёт прозрачность, а не невидимый цвет.
     expect(edgeStyle("mentions").token).toBe("--line-strong");
     expect(edgeStyle("mentions").alpha).toBeGreaterThanOrEqual(0.3);
+  });
+});
+
+describe("Масштаб кнопками", () => {
+  it("шаг вверх приближает, шаг вниз отдаляет", () => {
+    expect(zoomStep(1, 1)).toBeGreaterThan(1);
+    expect(zoomStep(1, -1)).toBeLessThan(1);
+  });
+
+  it("границы не переступает: кнопкой не увести граф ни в пыль, ни в один узел", () => {
+    expect(zoomStep(ZOOM.max, 1)).toBe(ZOOM.max);
+    expect(zoomStep(ZOOM.min, -1)).toBe(ZOOM.min);
+    // Ровно тот же потолок, что у колеса, — иначе кнопки и колесо жили бы
+    // каждый со своим масштабом.
+    expect(zoomStep(ZOOM.max * 10, 1)).toBe(ZOOM.max);
+    expect(zoomStep(ZOOM.min / 10, -1)).toBe(ZOOM.min);
+  });
+
+  it("шаг туда и обратно возвращает прежний масштаб", () => {
+    expect(zoomStep(zoomStep(1.5, 1), -1)).toBeCloseTo(1.5, 10);
+  });
+});
+
+describe("Легенда связей", () => {
+  it("три плотности словами — ровно те, что рисует холст", () => {
+    expect(EDGE_LEGEND.map((e) => e.label)).toEqual(["структура", "ссылки", "упоминания"]);
+    const [structural, links, mentions] = EDGE_LEGEND.map((e) => edgeStyle(e.kind));
+    expect(structural.width).toBeGreaterThan(links.width);
+    expect(links.width).toBeGreaterThan(mentions.width);
+    expect(structural.alpha).toBeGreaterThan(links.alpha);
+    expect(links.alpha).toBeGreaterThan(mentions.alpha);
   });
 });
 

@@ -36,9 +36,13 @@ const graph: DocsGraph = {
 
 /**
  * jsdom не рисует — заглушки холста, ResizeObserver и matchMedia общие с
- * тестом страницы (`app/brain/page.test.tsx`).
+ * тестом страницы (`app/brain/page.test.tsx`). Контекст держим под рукой:
+ * по нему видно, что кнопка масштаба довела дело до перерисовки.
  */
-beforeAll(stubCanvasEnvironment);
+let ctx: ReturnType<typeof stubCanvasEnvironment>;
+beforeAll(() => {
+  ctx = stubCanvasEnvironment();
+});
 
 const результаты = (): string[] =>
   screen
@@ -78,6 +82,43 @@ describe("Граф знаний: поиск", () => {
     // Сузили до навыка и соседей — «память» из легенды уходит вместе с узлом.
     await user.type(screen.getByLabelText(/поиск/i), "ревизия");
     expect(screen.getByRole("group", { name: /виды узлов/i })).not.toHaveTextContent(/память/);
+  });
+});
+
+describe("Граф знаний: масштаб кнопками", () => {
+  it("«+» приближает граф: холст перерисован с бо́льшим масштабом", async () => {
+    // На телефоне колеса нет, а щипок отдан браузеру — кнопки остаются
+    // единственным способом изменить масштаб.
+    ctx.scale.mockClear();
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: "Приблизить" }));
+    const scales = ctx.scale.mock.calls.map((call) => Number(call[0]));
+    expect(scales.length).toBeGreaterThan(0);
+    expect(Math.max(...scales)).toBeGreaterThan(1);
+  });
+
+  it("«−» отдаляет, «Вписать» на месте — обе кнопки доступны с клавиатуры", async () => {
+    ctx.scale.mockClear();
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    await user.click(screen.getByRole("button", { name: "Отдалить" }));
+    expect(Math.min(...ctx.scale.mock.calls.map((call) => Number(call[0])))).toBeLessThan(1);
+    await user.click(screen.getByRole("button", { name: "Вписать" }));
+    expect(screen.getByRole("group", { name: /масштаб графа/i })).toBeInTheDocument();
+  });
+
+  it("подпись объясняет, что колесо масштабирует только с Ctrl", () => {
+    render(<BrainGraph graph={graph} />);
+    expect(screen.getByText(/Ctrl\+колесо/)).toBeInTheDocument();
+  });
+
+  it("легенда объясняет и виды связей, а не только цвета узлов", () => {
+    render(<BrainGraph graph={graph} />);
+    const edges = screen.getByRole("group", { name: /виды связей/i });
+    expect(edges).toHaveTextContent(/структура/);
+    expect(edges).toHaveTextContent(/ссылки/);
+    expect(edges).toHaveTextContent(/упоминания/);
   });
 });
 
@@ -154,6 +195,26 @@ describe("Граф знаний: карточка узла", () => {
     await user.click(screen.getByRole("button", { name: /^parts-keeper/ }));
     await user.type(screen.getByLabelText(/поиск/i), "деплой");
     expect(screen.getByRole("complementary", { name: /узел/i })).toHaveTextContent("parts-keeper");
+  });
+
+  it("нажатие на строку уводит фокус на заголовок карточки, Esc возвращает его строке", async () => {
+    // Карточка появляется НИЖЕ (а на телефоне и вовсе в другом месте): без
+    // переноса фокуса скринридер и клавиатура остаются на прежней строке, и
+    // «открылось» слышно не было бы. Esc обязан вернуть фокус туда же, откуда
+    // его забрали, иначе следующий Tab начинает страницу заново.
+    const user = userEvent.setup();
+    render(<BrainGraph graph={graph} />);
+    const row = screen.getByRole("button", { name: /^parts-keeper/ });
+    await user.click(row);
+
+    const title = screen.getByRole("heading", { name: "parts-keeper" });
+    expect(document.activeElement).toBe(title);
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(row).toHaveAttribute("aria-controls", title.closest("aside")?.id);
+
+    await user.keyboard("{Escape}");
+    expect(document.activeElement).toBe(row);
+    expect(row).toHaveAttribute("aria-expanded", "false");
   });
 
   it("Esc закрывает карточку", async () => {

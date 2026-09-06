@@ -10,7 +10,7 @@ import { vi } from "vitest";
  * Живёт отдельным файлом, потому что нужен уже двум наборам тестов (компонент
  * графа и страница `/brain`): скопированные 40 строк заглушек разъезжаются.
  */
-export function stubCanvasEnvironment(): void {
+export function stubCanvasEnvironment() {
   const ctx = {
     canvas: { width: 800, height: 520 },
     fillStyle: "",
@@ -56,4 +56,9 @@ export function stubCanvasEnvironment(): void {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   })) as unknown as typeof window.matchMedia;
+
+  // Контекст возвращаем вызывающему: по вызовам `scale`/`arc` тест видит, что
+  // компонент ДЕЙСТВИТЕЛЬНО перерисовал холст (например, после кнопки
+  // масштаба), а не только не упал.
+  return ctx;
 }

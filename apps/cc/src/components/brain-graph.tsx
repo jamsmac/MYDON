@@ -10,17 +10,27 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import Link from "next/link";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { previewDoc, type DocPreview } from "../app/brain/actions";
 import {
   countByKind,
+  EDGE_LEGEND,
   edgeStyle,
   kindLabel,
   matchesQuery,
   styleOf,
   subgraph,
+  ZOOM,
+  zoomStep,
 } from "../lib/brain-layout";
-import type { DocsGraph, GraphEdgeKind, GraphNode } from "../lib/core";
+import type { DocsGraph, GraphEdgeKind, GraphNode, GraphNodeKind } from "../lib/core";
 
 /** Узел в симуляции: d3 дописывает сюда x/y/vx/vy и наши fx/fy при перетаскивании. */
 interface SimNode extends SimulationNodeDatum {
@@ -35,8 +45,6 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 
 /** Размер холста, пока ResizeObserver не сказал настоящий (SSR и jsdom). */
 const FALLBACK_SIZE = { w: 860, h: 560 };
-/** Границы масштаба: дальше 0,5 граф — пыль, ближе 3 — экран одного узла. */
-const ZOOM = { min: 0.5, max: 3 };
 /** Сколько узлов показывает список результатов: он читаемая опись, а не дамп. */
 const MAX_RESULTS = 30;
 /** Подписи у всех узлов читаемы только на маленьком графе. */
@@ -50,6 +58,28 @@ const SETTLE_TICKS = 240;
  * карточка не открывалась — попасть по узлу удавалось не с первого раза.
  */
 const DRAG_SLOP = 4;
+/** Один id на карточку: строка результата ссылается на неё `aria-controls`. */
+const CARD_ID = "brain-card";
+/** Ширина, ниже которой карточка встаёт перед списком и её надо подкрутить. */
+const NARROW = "(max-width: 900px)";
+
+/**
+ * Кружок легенды — того же размера, что и узел на холсте.
+ *
+ * Радиус — единственный способ увидеть скелет графа, не читая подписи; если
+ * легенда рисует все виды одной точкой, она объясняет только цвет и молчит о
+ * половине языка картинки. Размер отдаём CSS переменной, а не классом на вид:
+ * источник радиуса один — `styleOf`.
+ */
+function dotStyle(kind: GraphNodeKind): CSSProperties {
+  return { "--dot": `${styleOf(kind).r + 3}px` } as CSSProperties;
+}
+
+/** Образец линии ребра: та же толщина и та же прозрачность, что на холсте. */
+function lineStyle(kind: GraphEdgeKind): CSSProperties {
+  const style = edgeStyle(kind);
+  return { "--w": `${style.width}px`, "--a": `${style.alpha}` } as CSSProperties;
+}
 
 /**
  * Экран «Мозг»: граф знаний репозитория (R-M-6).
@@ -85,6 +115,20 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
    */
   const cameraRef = useRef({ k: 1, x: 0, y: 0 });
   const positionsRef = useRef(new Map<string, { x: number; y: number }>());
+  /**
+   * Масштаб кнопками — из эффекта наружу.
+   *
+   * Камера и узлы живут внутри эффекта симуляции, а кнопки — в разметке;
+   * `useState` тут не годится (перерисовка на каждый шаг масштаба), поэтому
+   * эффект кладёт сюда две функции, а разметка их зовёт.
+   */
+  const zoomApiRef = useRef<{ zoomBy: (dir: 1 | -1) => void; fitAll: () => void } | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const cardTitleRef = useRef<HTMLHeadingElement | null>(null);
+  /** Строка списка, с которой открыли карточку: на Esc фокус возвращается ей. */
+  const lastRowRef = useRef<HTMLButtonElement | null>(null);
+  /** Карточку открыли КЛАВИАТУРОЙ/со списка — тогда и фокус ведём за ней. */
+  const fromRowRef = useRef(false);
 
   // Тяжёлую часть (пересборку графа и симуляции) откладываем — так поле ввода
   // остаётся отзывчивым на графе в две сотни узлов, а список результатов
@@ -116,10 +160,34 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
   useEffect(() => {
     if (selectedId === null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelectedId(null);
+      if (e.key !== "Escape") return;
+      setSelectedId(null);
+      // Фокус после закрытия обязан вернуться туда, откуда карточку открыли:
+      // иначе он падает на <body>, и следующий Tab начинает страницу заново.
+      lastRowRef.current?.focus();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+  }, [selectedId]);
+
+  /**
+   * Выбрали узел — карточка должна оказаться под глазами и под фокусом.
+   *
+   * На узкой ширине карточка стоит ПЕРЕД списком (CSS `order`), но экран может
+   * быть прокручен к результатам — тогда её всё равно не видно, и нажатие
+   * выглядело бы как «ничего не произошло»; `scrollIntoView` только там, где
+   * это правда нужно. Фокус переносим лишь когда карточку открыли со списка:
+   * приход по `?focus=` или клик по холсту фокус у владельца не отбирают.
+   */
+  useEffect(() => {
+    if (selectedId === null) return;
+    const narrow =
+      typeof window.matchMedia === "function" && window.matchMedia(NARROW).matches;
+    if (narrow) cardRef.current?.scrollIntoView?.({ block: "nearest" });
+    if (fromRowRef.current) {
+      fromRowRef.current = false;
+      cardTitleRef.current?.focus();
+    }
   }, [selectedId]);
 
   // Предпросмотр документа: только у узлов с файлом. У домена, типа
@@ -304,6 +372,56 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
     // кольцо, а на осевшем графе цикла кадров уже нет — без этого кольцо
     // появлялось бы лишь после следующего движения мыши.
     redrawRef.current = draw;
+
+    /**
+     * Масштаб кнопкой: держим ЦЕНТР холста на месте.
+     *
+     * У колеса опорная точка — курсор, у кнопки курсора нет вовсе (её жмут
+     * пальцем), и единственная честная опора — середина видимой картинки.
+     */
+    const zoomBy = (dir: 1 | -1): void => {
+      const next = zoomStep(camera.k, dir);
+      const cx = size.w / 2;
+      const cy = size.h / 2;
+      const gx = (cx - camera.x) / camera.k;
+      const gy = (cy - camera.y) / camera.k;
+      camera.k = next;
+      camera.x = cx - gx * next;
+      camera.y = cy - gy * next;
+      draw();
+    };
+    /** «Вписать» — единственный выход из «уехал и потерял граф». */
+    const fitAll = (): void => {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const item of nodes) {
+        if (typeof item.x === "number" && typeof item.y === "number") {
+          xs.push(item.x);
+          ys.push(item.y);
+        }
+      }
+      if (xs.length === 0) return;
+      const pad = 24;
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      // Один узел — ширина ноль: делить на неё нельзя, а «вписать» тогда
+      // значит просто вернуть масштаб к единице.
+      const k = Math.min(
+        ZOOM.max,
+        Math.max(
+          ZOOM.min,
+          Math.min((size.w - pad * 2) / Math.max(maxX - minX, 1), (size.h - pad * 2) / Math.max(maxY - minY, 1)),
+        ),
+      );
+      camera.k = k;
+      camera.x = size.w / 2 - ((minX + maxX) / 2) * k;
+      camera.y = size.h / 2 - ((minY + maxY) / 2) * k;
+      draw();
+    };
+    zoomApiRef.current = { zoomBy, fitAll };
+
     resize();
 
     const observer = new ResizeObserver(resize);
@@ -402,9 +520,13 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
       canvas.style.cursor = "grab";
     };
     const onWheel = (e: WheelEvent): void => {
+      // Масштабируем ТОЛЬКО с Ctrl/⌘ — как это делают карты. Холст занимает
+      // пол-экрана; перехватывая любое колесо, он запирал бы страницу под
+      // курсором, и до списка результатов было бы не докрутить.
+      if (!e.ctrlKey && !e.metaKey) return;
       // Слушатель нативный и НЕ пассивный: React вешает wheel пассивно, и
-      // preventDefault из onWheel не сработал бы — страница скроллилась бы
-      // вместе с масштабированием графа.
+      // preventDefault из onWheel не сработал бы — браузер вместо графа
+      // масштабировал бы всю страницу.
       e.preventDefault();
       const p = { x: e.clientX, y: e.clientY };
       const rect = canvas.getBoundingClientRect();
@@ -447,6 +569,7 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
       redrawRef.current = null;
+      zoomApiRef.current = null;
       // Запоминаем, где узлы осели: следующий прогон эффекта (буква в поиске)
       // посадит их туда же, и граф не прыгнет.
       for (const item of nodes) {
@@ -484,19 +607,69 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
             обещать клик, которого нет, хуже, чем не иметь наведения вовсе. */}
         <div className="brain-legend" role="group" aria-label="Виды узлов">
           {legend.map(([kind, n]) => (
-            <span key={kind} className="chip brain-kind" data-kind={kind}>
+            <span
+              key={kind}
+              className="chip brain-kind"
+              data-kind={kind}
+              style={dotStyle(kind)}
+            >
               {kindLabel(kind)} <b className="num">{n}</b>
             </span>
           ))}
+        </div>
+
+        {/* Второй ряд легенды — ВИДЫ СВЯЗЕЙ. На холсте они различаются только
+            толщиной и прозрачностью линии, а холст не DOM: навести и прочитать
+            подсказку нельзя. Без этого ряда три плотности остаются молчаливым
+            украшением. */}
+        <div className="brain-legend brain-legend-edges" role="group" aria-label="Виды связей">
+          {EDGE_LEGEND.map((edge) => (
+            <span key={edge.kind} className="chip brain-edge" style={lineStyle(edge.kind)}>
+              <i aria-hidden="true" />
+              {edge.label}
+            </span>
+          ))}
+        </div>
+
+        {/* Масштаб кнопками: на телефоне колеса нет, а щипок отдан браузеру
+            (иначе палец на графе не листает страницу). Кнопки обычные `.btn`
+            — оранжевая заливка на экране одна и достаётся не им. */}
+        <div className="brain-tools" role="group" aria-label="Масштаб графа">
+          <button
+            type="button"
+            className="btn sm"
+            aria-label="Приблизить"
+            onClick={() => zoomApiRef.current?.zoomBy(1)}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="btn sm"
+            aria-label="Отдалить"
+            onClick={() => zoomApiRef.current?.zoomBy(-1)}
+          >
+            −
+          </button>
+          <button type="button" className="btn sm" onClick={() => zoomApiRef.current?.fitAll()}>
+            Вписать
+          </button>
         </div>
 
         <div className="brain-canvas" ref={boxRef}>
           {/* Холст — картинка графа; читаемый его двойник живёт ниже списком. */}
           <canvas ref={canvasRef} aria-hidden="true" />
         </div>
+        <p className="brain-hint">Масштаб: Ctrl+колесо или кнопки</p>
 
         <p className="eyebrow brain-results-title">
-          {query.trim().length === 0 ? "Все узлы" : `Найдено: ${matchedCount}`}
+          {query.trim().length === 0 ? (
+            "Все узлы"
+          ) : (
+            <>
+              Найдено: <span className="num">{matchedCount}</span>
+            </>
+          )}
         </p>
         {results.length === 0 ? (
           <div className="empty">
@@ -511,7 +684,15 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
                 type="button"
                 className="row"
                 aria-current={n.id === selectedId ? "true" : undefined}
-                onClick={() => setSelectedId(n.id)}
+                // Строка РАСКРЫВАЕТ карточку — скринридер должен это слышать,
+                // а не гадать, что изменилось где-то ниже по странице.
+                aria-expanded={n.id === selectedId}
+                aria-controls={n.id === selectedId ? CARD_ID : undefined}
+                onClick={(e) => {
+                  fromRowRef.current = true;
+                  lastRowRef.current = e.currentTarget;
+                  setSelectedId(n.id);
+                }}
               >
                 <span className="t">
                   <b>{n.label}</b>
@@ -534,7 +715,7 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
       </div>
 
       {selected && (
-        <aside className="panel console brain-card" aria-label="Узел графа">
+        <aside className="panel console brain-card" id={CARD_ID} ref={cardRef} aria-label="Узел графа">
           <div className="brain-card-head">
             <p className="eyebrow">{kindLabel(selected.kind)}</p>
             <button
@@ -546,7 +727,11 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
               Закрыть
             </button>
           </div>
-          <b className="brain-card-title">{selected.label}</b>
+          {/* Заголовок карточки — цель фокуса после нажатия на строку списка:
+              экранный диктор читает, КУДА он попал, а не молчит. */}
+          <h2 className="brain-card-title" ref={cardTitleRef} tabIndex={-1}>
+            {selected.label}
+          </h2>
           <small className="mono brain-card-path">{selected.path ?? selected.id}</small>
 
           <div className="brain-card-links">

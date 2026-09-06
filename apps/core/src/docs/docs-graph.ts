@@ -89,6 +89,34 @@ export const ROOT_DOC = "CLAUDE.md";
 const BACKUP_PREFIX = "docs/agentic-os-starter/_backup/";
 
 /**
+ * Копии личного контура внутри пакета стартера.
+ *
+ * `docs/agentic-os-starter/` — пакет, который ставится `apply.sh`, и он везёт с
+ * собой ПОЛНЫЕ копии `memory/**` и `routers/personal.md` (проверено: байт в
+ * байт те же файлы). Гейт `isPersonalDoc` стоит на ПУТИ, а не на содержимом,
+ * поэтому под корнем `docs` те же тексты отдавались бы любому держателю общего
+ * `SERVICE_TOKEN` — боту и агентам — в обход owner-токена. Личным этот путь
+ * помечать нельзя (владелец читал бы устаревший дубль вместо оригинала):
+ * копии просто не входят в белый список, как и `_backup`.
+ */
+const STARTER_MEMORY_PREFIX = "docs/agentic-os-starter/memory/";
+const STARTER_PERSONAL_FILES = new Set(["docs/agentic-os-starter/routers/personal.md"]);
+
+/** Копия личного файла в пакете стартера — вне белого списка совсем. */
+export function isStarterPersonalCopy(relPath: string): boolean {
+  return relPath.startsWith(STARTER_MEMORY_PREFIX) || STARTER_PERSONAL_FILES.has(relPath);
+}
+
+/**
+ * Шаблон нового агента — не паспорт работающего агента.
+ *
+ * `_template/` — заготовка для `apply.sh` (`ROLE.md` с плейсхолдерами и
+ * `skills/example-skill.md`). В дереве и в графе она читалась бы как ещё один
+ * агент с навыком, которого нет ни в базе, ни в витрине.
+ */
+const AGENT_TEMPLATE_PREFIX = "apps/agents/agents/_template/";
+
+/**
  * Документы личного контура вне `memory/**`: роутер личного направления и
  * профиль владельца из навыка фабрики направлений.
  */
@@ -135,7 +163,11 @@ export const DOCS_ROOTS: readonly DocsRootSpec[] = [
     key: "docs",
     dir: "docs",
     depth: Number.MAX_SAFE_INTEGER,
-    match: (r) => r.startsWith("docs/") && isMd(r) && !r.startsWith(BACKUP_PREFIX),
+    match: (r) =>
+      r.startsWith("docs/") &&
+      isMd(r) &&
+      !r.startsWith(BACKUP_PREFIX) &&
+      !isStarterPersonalCopy(r),
   },
   {
     key: "memory",
@@ -156,8 +188,9 @@ export const DOCS_ROOTS: readonly DocsRootSpec[] = [
     dir: "apps/agents/agents",
     depth: Number.MAX_SAFE_INTEGER,
     match: (r) =>
-      /^apps\/agents\/agents\/[^/]+\/ROLE\.md$/.test(r) ||
-      /^apps\/agents\/agents\/[^/]+\/skills\/[^/]+\.md$/.test(r),
+      !r.startsWith(AGENT_TEMPLATE_PREFIX) &&
+      (/^apps\/agents\/agents\/[^/]+\/ROLE\.md$/.test(r) ||
+        /^apps\/agents\/agents\/[^/]+\/skills\/[^/]+\.md$/.test(r)),
   },
   {
     key: ".claude/skills",
@@ -407,6 +440,12 @@ function skillFilePath(agentName: string, skill: string): string {
   return `apps/agents/agents/${agentName}/skills/${skill}.md`;
 }
 
+/** Имя агента из пути файла навыка; `null` — путь не про навык. */
+function agentOfSkillPath(relPath: string): string | null {
+  const found = /^apps\/agents\/agents\/([^/]+)\/skills\/[^/]+\.md$/.exec(relPath);
+  return found === null ? null : found[1];
+}
+
 /**
  * Граф знаний: документы с диска + агенты и каталог навыков из базы (R-M-4).
  *
@@ -433,13 +472,22 @@ export function buildGraph(
     if (!edges.has(key)) edges.set(key, { from, to, kind });
   };
 
+  // Витрина `/skills` показывает навыки ЖИВЫХ агентов из базы. Файл навыка
+  // агента, которого в базе нет (или он архивирован), — просто документ:
+  // ссылка на витрину привела бы владельца на экран, где этого навыка нет.
+  const liveAgents = new Set(agents.map((a) => a.name));
+
   const byPath = new Map<string, DocFile>();
   for (const file of files) {
     byPath.set(file.path, file);
     const kind = kindOfPath(file.path);
     const node: GraphNode = { id: file.path, kind, label: file.title, path: file.path };
-    // Файл навыка — он же узел навыка, значит и ссылка у него навыковая.
-    if (kind === "skill") node.href = "/skills";
+    // Файл навыка — он же узел навыка, значит и ссылка у него навыковая, но
+    // только пока за файлом стоит живой агент.
+    if (kind === "skill") {
+      const owner = agentOfSkillPath(file.path);
+      if (owner !== null && liveAgents.has(owner)) node.href = "/skills";
+    }
     addNode(node);
   }
 

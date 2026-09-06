@@ -45,8 +45,29 @@ const NODE_STYLE: Readonly<Record<GraphNodeKind, NodeStyle>> = {
   memory: { token: "--tx-2", r: 4 },
   kb: { token: "--tx-2", r: 4 },
   decision: { token: "--hot", r: 4 },
-  engine: { token: "--hot", r: 4 },
+  // Движок — не тревога: `--hot` (просрочки, расхождения) и `--ok` («норма,
+  // правило соблюдается») разводят решение и правила движка, иначе половина
+  // мелких точек графа читалась бы как «здесь что-то горит».
+  engine: { token: "--ok", r: 4 },
 };
+
+/** Границы масштаба: дальше 0,5 граф — пыль, ближе 3 — экран одного узла. */
+export const ZOOM = { min: 0.5, max: 3 } as const;
+
+/** Шаг кнопок «+»/«−»: 1,25 — заметно, но не прыжком через полграфа. */
+const ZOOM_STEP = 1.25;
+
+/**
+ * Новый масштаб на один шаг кнопки, зажатый в границы (F6 ревью).
+ *
+ * Отдельной чистой функцией, потому что кнопками масштаб меняют там, где
+ * колеса нет вовсе, — на телефоне; арифметика границ должна быть под тестом, а
+ * не жить внутри эффекта с canvas.
+ */
+export function zoomStep(scale: number, dir: 1 | -1): number {
+  const next = dir === 1 ? scale * ZOOM_STEP : scale / ZOOM_STEP;
+  return Math.min(ZOOM.max, Math.max(ZOOM.min, next));
+}
 
 /**
  * Вид ребра → как рисовать.
@@ -76,6 +97,20 @@ const EDGE_STYLE: Readonly<Record<GraphEdgeKind, EdgeStyle>> = {
   links: { token: "--line-strong", width: 1, alpha: 0.55 },
   mentions: { token: "--line-strong", width: 0.7, alpha: 0.3 },
 };
+
+/**
+ * Легенда РЁБЕР: три плотности линии словами (F8 ревью).
+ *
+ * Холст — не DOM: навести на ребро и прочитать подсказку нельзя, поэтому
+ * единственное объяснение трёх плотностей — ряд образцов рядом с легендой
+ * узлов. Структуру представляет `owns`: все структурные рёбра нарисованы
+ * одним стилем (`STRUCTURAL`), и любой из них — тот же образец.
+ */
+export const EDGE_LEGEND: readonly { kind: GraphEdgeKind; label: string }[] = [
+  { kind: "owns", label: "структура" },
+  { kind: "links", label: "ссылки" },
+  { kind: "mentions", label: "упоминания" },
+];
 
 /** Вид узла словами — легенда и карточка объясняют граф по-русски, а не кодами. */
 const KIND_LABEL: Readonly<Record<GraphNodeKind, string>> = {

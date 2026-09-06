@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -27,6 +28,9 @@ describe("Белый список корней документов (R-M-2)", ()
       "CLAUDE.md",
       "docs/AGENTS.md",
       "docs/superpowers/specs/2026-09-06-x-design.md",
+      // Остальной стартер — обычная документация: закрываем только копии личного.
+      "docs/agentic-os-starter/APPLY.md",
+      "docs/agentic-os-starter/routers/vendhub.md",
       "memory/glossary.md",
       "routers/vendhub.md",
       "engine/autonomy.yaml",
@@ -46,6 +50,14 @@ describe("Белый список корней документов (R-M-2)", ()
     for (const bad of [
       "apps/core/src/main.ts",
       "docs/agentic-os-starter/_backup/a.md",
+      // Пакет стартера везёт КОПИИ личных файлов — они вне белого списка
+      // целиком, иначе личное читалось бы по общему сервисному токену.
+      "docs/agentic-os-starter/memory/decisions.md",
+      "docs/agentic-os-starter/memory/session-log/README.md",
+      "docs/agentic-os-starter/routers/personal.md",
+      // Шаблон нового агента — не паспорт: ни в дереве, ни в графе.
+      "apps/agents/agents/_template/ROLE.md",
+      "apps/agents/agents/_template/skills/example-skill.md",
       "package.json",
       ".env",
       "docs/design/screen.png",
@@ -233,6 +245,8 @@ const FILES: DocFile[] = [
   f("memory/constraints.md"),
   f("apps/agents/agents/vendhub-ops/ROLE.md"),
   f("apps/agents/agents/vendhub-ops/skills/monitor-stock.md"),
+  // Файл навыка агента, которого в базе нет (архивирован или удалён из карточек).
+  f("apps/agents/agents/archived-agent/skills/old.md"),
   f("apps/agents/shared/kb/vendhub/sop.md"),
   f("docs/decisions/2026-09-06-x.md"),
   f("engine/autonomy.yaml"),
@@ -290,6 +304,15 @@ describe("buildGraph: виды узлов", () => {
     assert.equal(withFile?.href, "/skills");
     assert.equal(withFile?.path, filePath);
     assert.equal(node("skill:vendhub-ops/monitor-stock"), undefined, "второго узла на тот же навык быть не должно");
+  });
+
+  it("файл навыка без ЖИВОГО агента остаётся навыком, но ссылки на витрину не получает", () => {
+    // Витрина `/skills` показывает навыки живых агентов: ссылка от файла
+    // архивного агента вела бы на экран, где этого навыка нет.
+    const orphan = node("apps/agents/agents/archived-agent/skills/old.md");
+    assert.equal(orphan?.kind, "skill");
+    assert.equal(orphan?.href, undefined, "ссылка на витрину — только у навыка живого агента");
+    assert.equal(orphan?.path, "apps/agents/agents/archived-agent/skills/old.md");
   });
 
   it("навык без файла — синтетический узел, иначе он исчез бы из графа", () => {
@@ -511,6 +534,35 @@ describe("Личный контур документов за owner-токено
     const docs = service(false);
     assert.ok((await docs.file("memory/glossary.md", request())).markdown.length > 0);
     assert.ok((await docs.file("docs/DEPLOY.md", request())).markdown.length > 0);
+  });
+
+  it("НИ ОДИН негейтед файл дерева не совпадает байт-в-байт с личным (живой репозиторий)", async () => {
+    // Гейт `isPersonalDoc` стоит на ПУТИ. Пакет стартера (04.09) привёз полные
+    // копии `memory/**` и `routers/personal.md` под корень `docs/`, и они
+    // отдавались по общему сервисному токену — тот же текст, другой путь.
+    // Тест ходит по НАСТОЯЩЕМУ дереву, поэтому будущий снимок-копия (новая
+    // раскладка стартера, второй пакет) уронит CI, а не утечёт молча.
+    const items = await service(false).tree();
+    const root = repoRootFrom(__dirname);
+    const sha = (rel: string): string =>
+      createHash("sha256").update(readFileSync(path.join(root, rel))).digest("hex");
+
+    const personalByHash = new Map<string, string>();
+    for (const item of items) {
+      // Пустые файлы совпадают друг с другом по определению — это не копия.
+      if (item.personal === true && item.bytes > 0) personalByHash.set(sha(item.path), item.path);
+    }
+    assert.ok(personalByHash.size > 0, "личных документов в дереве нет — тест ничего не сторожит");
+
+    for (const item of items) {
+      if (item.personal === true || item.bytes === 0) continue;
+      const twin = personalByHash.get(sha(item.path));
+      assert.equal(
+        twin,
+        undefined,
+        `${item.path} отдаётся без owner-гейта, а это копия личного ${twin}`,
+      );
+    }
   });
 
   it("дерево показывает личные документы, но помечает их (заголовки, не содержимое)", async () => {

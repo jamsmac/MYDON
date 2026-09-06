@@ -16,8 +16,12 @@ export const dynamic = "force-dynamic";
 function body(doc: DocFileResult | null, path: string | null, known: ReadonlySet<string>) {
   if (doc?.kind === "ok") return <DocView file={doc.file} known={known} />;
   if (doc?.kind === "forbidden") {
+    // НЕ `.notice`: тот блок на `--hot-soft` — цвет просрочек и расхождений, а
+    // закрытый личный контур не поломка, а правило, которое сработало верно.
+    // Нейтральная карточка сообщает, не пугая (то же решение, что у метки
+    // «личное» в дереве).
     return (
-      <div className="notice">
+      <div className="empty">
         <b>Личный контур — только владельцу</b>
         <span className="mono">{path}</span> — содержимое памяти и личных роутеров Core отдаёт
         только тебе. Открой панель со своего входа.
@@ -70,6 +74,11 @@ export default async function DocsPage({
     return <CoreDown detail={err instanceof CoreUnavailable ? err.detail : String(err)} />;
   }
 
+  // `reading` — не украшение: по нему на телефоне документ встаёт ПЕРЕД деревом
+  // (globals.css). Иначе каждый переход по `?path=` высаживал владельца на верх
+  // 46vh-дерева, а не на текст, за которым он и нажимал.
+  const layout = path ? "docs-layout reading" : "docs-layout";
+
   const roots = new Set(tree.map((i) => i.root)).size;
   // ISO-строки Core одного формата, поэтому «самая свежая» — просто максимум.
   const updated = tree.reduce((max, i) => (i.updatedAt > max ? i.updatedAt : max), "");
@@ -97,7 +106,7 @@ export default async function DocsPage({
           и <span className="mono">routers/</span> — проверь сборку.
         </div>
       ) : (
-        <div className="docs-layout">
+        <div className={layout}>
           <DocsTree items={tree} active={path ?? undefined} />
           <div className="docs-body">{body(doc, path, new Set(tree.map((i) => i.path)))}</div>
         </div>
