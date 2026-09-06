@@ -49,7 +49,27 @@ describe("Настройки агента: конфиг-поля навыков 
     assert.deepEqual(v.breakGlass, []);
     assert.deepEqual(v.ideaChannels, []);
     assert.deepEqual(v.kbPages, [], "kb_pages по умолчанию пусты — иначе NOT NULL колонка упала бы на insert");
+    assert.deepEqual(v.hooks, {}, "hooks по умолчанию пусты — колонка NOT NULL (волна R)");
     assert.equal(v.budgetOnExceeded, null);
+  });
+
+  it("хуки паспорта переживают сид и правку карточки (волна R)", async () => {
+    // Рантайм грузит агентов ИЗ БАЗЫ: не сохранив hooks при сиде, мы потеряли бы
+    // pre_run-проверки паспорта сразу после первого запуска.
+    const hooks = { preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }] };
+    const seed = stub({ selectRows: [] });
+    const seeded = await new AgentsService(seed.db, noTasks).seedIfEmpty([
+      { name: "vendhub-ops", hooks },
+    ]);
+    assert.equal(seeded.seeded, 1);
+    assert.deepEqual(seed.captured.insert[0].hooks, hooks, "сид кладёт хуки в карточку");
+
+    const edit = stub({ existing: { id: "a1", name: "vendhub-ops" } });
+    const svc = new AgentsService(edit.db, noTasks);
+    await svc.update("vendhub-ops", { hooks: { postRun: [{ kind: "coach_lite" }] } });
+    assert.deepEqual(edit.captured.update[0].hooks, { postRun: [{ kind: "coach_lite" }] });
+    await svc.update("vendhub-ops", { description: "только описание" });
+    assert.equal("hooks" in edit.captured.update[1], false, "непереданные хуки не затираются");
   });
 
   it("update пишет страницы знаний (kbPages) и не трогает их, когда поле не передано", async () => {

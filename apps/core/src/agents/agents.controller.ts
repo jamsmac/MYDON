@@ -19,6 +19,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUrl,
@@ -122,6 +123,10 @@ export class CreateAgentDto {
   @Matches(/^shared\/[A-Za-z0-9_\-./]+\.md$/, { each: true, message: "kbPages: путь вида shared/kb/<dir>/<page>.md" })
   @Matches(/^(?!.*\.\.)/, { each: true, message: "kbPages: путь не может содержать .." })
   kbPages?: string[];
+
+  /** Хуки паспорта (волна R): { preRun: [{kind,…}], postRun: [{kind}] }. Валидирует рантайм/check:passports; Core хранит. */
+  @IsOptional() @IsObject()
+  hooks?: Record<string, unknown>;
 }
 
 export class SeedAgentsDto {
@@ -357,6 +362,7 @@ export class AgentsController {
       ...(dto.breakGlass !== undefined ? { breakGlass: dto.breakGlass } : {}),
       ...(dto.ideaChannels !== undefined ? { ideaChannels: dto.ideaChannels } : {}),
       ...(dto.kbPages !== undefined ? { kbPages: dto.kbPages } : {}),
+      ...(dto.hooks !== undefined ? { hooks: dto.hooks } : {}),
     };
   }
 }
