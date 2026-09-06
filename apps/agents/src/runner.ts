@@ -476,6 +476,9 @@ async function runSkillInner(
  *
  * Takeover (в задаче уже есть checkpoint) тоже мимо хуков: хук охраняет СТАРТ
  * прогона, а не возобновление уже начатой — и, возможно, уже оплаченной работы.
+ *
+ * Это ЕДИНСТВЕННОЕ место, где решается «кто проходит мимо хуков»: сами хуки
+ * повода прогона не знают и знать не должны — иначе правило раздваивается.
  */
 function preRunApplies(invocation: SkillRunContext | undefined): boolean {
   if (invocation === undefined) return true;
@@ -501,11 +504,7 @@ export async function runSkill(
 ): Promise<RunResult> {
   const hooks = agent.hooks;
   if (hooks && hooks.preRun.length > 0 && agent.status === "active" && preRunApplies(invocation)) {
-    const verdict = await runPreRunHooks(hooks, {
-      ...(invocation?.trigger ? { trigger: invocation.trigger } : {}),
-      now: new Date(),
-      core,
-    });
+    const verdict = await runPreRunHooks(hooks, { now: new Date(), core });
     if (!verdict.ok) {
       const note = `Не запускал: ${verdict.reason}.`;
       const taskMode = invocation?.task;

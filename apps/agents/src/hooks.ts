@@ -12,7 +12,7 @@
  * угадывать намерение владельца опаснее, чем пропустить прогон. `post_run`
  * (разбор постфактум) только предупреждает: работа уже сделана.
  */
-import { tashkentHour, tashkentMinute, type RunTrigger, type SkipReason } from "@mydon/shared";
+import { tashkentHour, tashkentMinute, type SkipReason } from "@mydon/shared";
 
 export type PreRunHook =
   | { kind: "source_fresh"; run: string; maxAgeHours: number }
@@ -124,11 +124,21 @@ export function parseHooks(raw: unknown): { hooks: AgentHooks; problems: string[
 export function hooksFromCore(raw: unknown): AgentHooks | undefined {
   if (raw === undefined || raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const src = raw as { preRun?: unknown; postRun?: unknown; pre_run?: unknown; post_run?: unknown };
-  const o = { preRun: src.preRun ?? src.pre_run, postRun: src.postRun ?? src.post_run };
   const items = (v: unknown): Record<string, unknown>[] =>
     Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null) : [];
+  /**
+   * Из двух написаний берём ПЕРВОЕ НЕПУСТОЕ, а не первое присутствующее:
+   * `preRun: []` рядом с заполненным `pre_run` (карточку правили текстом
+   * config.yaml поверх разобранной формы) не должен молча съесть охрану —
+   * `??` пропустил бы пустой список дальше, потому что `[]` не `null`.
+   */
+  const pick = (a: unknown, b: unknown): Record<string, unknown>[] => {
+    const first = items(a);
+    return first.length > 0 ? first : items(b);
+  };
+  const o = { preRun: pick(src.preRun, src.pre_run), postRun: pick(src.postRun, src.post_run) };
 
-  const preRun: PreRunHook[] = items(o.preRun).map((h) => {
+  const preRun: PreRunHook[] = o.preRun.map((h) => {
     const kind = String(h.kind ?? "");
     const maxAge = typeof h.maxAgeHours === "number" ? h.maxAgeHours : h.max_age_hours;
     if (kind === "source_fresh" && typeof h.run === "string" && RUN_REF.test(h.run) && typeof maxAge === "number" && maxAge > 0) {
@@ -137,17 +147,20 @@ export function hooksFromCore(raw: unknown): AgentHooks | undefined {
     if (kind === "quiet_hours" && typeof h.from === "string" && HHMM.test(h.from) && typeof h.to === "string" && HHMM.test(h.to)) {
       return { kind, from: h.from, to: h.to };
     }
-    // Знакомый kind, не прошедший проверку, — «битые параметры»; чужой kind
-    // приезжает из базы уже помеченным, его признак сохраняем как есть.
+    // `broken` — ТОЛЬКО знакомый kind с битыми параметрами: «битые параметры
+    // хука moon_phase» отправили бы владельца искать опечатку в параметрах
+    // хука, которого движок не знает вовсе. Чужой kind блокирует навык так же,
+    // но говорит правду — «неизвестный хук». Запись, уже разобранную в базе
+    // (`kind: "unknown"`), не переоцениваем: её признак сохраняем как есть.
     const wasUnknown = kind === "unknown";
-    const broken = wasUnknown ? h.broken === true : true;
+    const broken = wasUnknown ? h.broken === true : kind === "source_fresh" || kind === "quiet_hours";
     return {
       kind: "unknown",
       raw: wasUnknown && typeof h.raw === "string" ? h.raw : kind,
       ...(broken ? { broken: true as const } : {}),
     };
   });
-  const postRun: PostRunHook[] = items(o.postRun).map((h) => {
+  const postRun: PostRunHook[] = o.postRun.map((h) => {
     const kind = String(h.kind ?? "");
     if (kind === "coach_lite") return { kind };
     return { kind: "unknown", raw: kind === "unknown" && typeof h.raw === "string" ? h.raw : kind };
@@ -185,7 +198,6 @@ interface LastRunLite {
 export async function runPreRunHooks(
   hooks: AgentHooks,
   ctx: {
-    trigger?: RunTrigger;
     now: Date;
     core: { lastRun(agent: string, skill: string): Promise<LastRunLite | null> };
   },
@@ -202,7 +214,9 @@ export async function runPreRunHooks(
       };
     }
     if (h.kind === "quiet_hours") {
-      if (ctx.trigger === "manual") continue; // владелец нажал сам
+      // Про повод прогона здесь не спрашиваем: кто проходит МИМО хуков — решает
+      // `preRunApplies` в runner.ts, и вторая копия этого правила («а вручную
+      // пропустим») разъехалась бы с первой не в ту сторону — молча ослабив охрану.
       if (inQuietHours(ctx.now, h.from, h.to)) {
         return { ok: false, hook: h.kind, reason: `тихие часы ${h.from}–${h.to}` };
       }

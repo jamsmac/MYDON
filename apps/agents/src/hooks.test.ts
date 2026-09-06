@@ -87,43 +87,45 @@ describe("runPreRunHooks", () => {
   const fresh = { id: "r", agentName: "system", skill: "ourvend:sync", outcome: "executed", finishedAt: "2026-09-06T01:00:00.000Z" };
   it("source_fresh: свежий executed → ok; старый → блок с часами; нет прогона → блок; ошибка Core → блок", async () => {
     const hooks = parseHooks({ pre_run: [{ kind: "source_fresh", run: "system/ourvend:sync", max_age_hours: 6 }] }).hooks;
-    assert.deepEqual(await runPreRunHooks(hooks, { trigger: "cron", now, core: { lastRun: async () => fresh as never } }), { ok: true });
-    const old = await runPreRunHooks(hooks, { trigger: "cron", now, core: { lastRun: async () => ({ ...fresh, finishedAt: "2026-09-05T03:00:00.000Z" }) as never } });
+    assert.deepEqual(await runPreRunHooks(hooks, { now, core: { lastRun: async () => fresh as never } }), { ok: true });
+    const old = await runPreRunHooks(hooks, { now, core: { lastRun: async () => ({ ...fresh, finishedAt: "2026-09-05T03:00:00.000Z" }) as never } });
     assert.equal(old.ok, false);
     assert.match((old as { reason: string }).reason, /24 ч .*порог 6/);
-    const none = await runPreRunHooks(hooks, { trigger: "cron", now, core: { lastRun: async () => null } });
+    const none = await runPreRunHooks(hooks, { now, core: { lastRun: async () => null } });
     assert.equal(none.ok, false);
-    const down = await runPreRunHooks(hooks, { trigger: "cron", now, core: { lastRun: async () => { throw new Error("x"); } } });
+    const down = await runPreRunHooks(hooks, { now, core: { lastRun: async () => { throw new Error("x"); } } });
     assert.equal(down.ok, false);
     assert.match((down as { reason: string }).reason, /журнал недоступен/);
   });
   it("source_fresh: битое finishedAt — блок, а не «возраст NaN, значит порог не превышен»", async () => {
     const hooks = parseHooks({ pre_run: [{ kind: "source_fresh", run: "system/ourvend:sync", max_age_hours: 6 }] }).hooks;
     const v = await runPreRunHooks(hooks, {
-      trigger: "cron",
       now,
       core: { lastRun: async () => ({ ...fresh, finishedAt: "не дата" }) as never },
     });
     assert.equal(v.ok, false);
     assert.match((v as { reason: string }).reason, /без времени завершения/);
   });
-  it("quiet_hours: блок только для cron; manual проходит", async () => {
+  it("quiet_hours: ночью блок, днём проход — повод прогона хук не спрашивает", async () => {
+    // «Вручную пропустим» здесь НЕ проверяется: кто вообще доходит до хуков,
+    // решает `preRunApplies` в runner.ts (task и manual туда не попадают).
     const hooks = parseHooks({ pre_run: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }] }).hooks;
-    const night = new Date("2026-09-06T18:30:00.000Z");
-    const blocked = await runPreRunHooks(hooks, { trigger: "cron", now: night, core: { lastRun: async () => null } });
+    const night = new Date("2026-09-06T18:30:00.000Z"); // 23:30 Ташкент
+    const blocked = await runPreRunHooks(hooks, { now: night, core: { lastRun: async () => null } });
     assert.equal(blocked.ok, false);
     assert.equal((blocked as { hook: string }).hook, "quiet_hours");
-    assert.deepEqual(await runPreRunHooks(hooks, { trigger: "manual", now: night, core: { lastRun: async () => null } }), { ok: true });
+    const day = new Date("2026-09-06T05:00:00.000Z"); // 10:00 Ташкент
+    assert.deepEqual(await runPreRunHooks(hooks, { now: day, core: { lastRun: async () => null } }), { ok: true });
   });
   it("unknown kind → блок «неизвестный хук»", async () => {
     const hooks = parseHooks({ pre_run: [{ kind: "moon_phase" }] }).hooks;
-    const v = await runPreRunHooks(hooks, { trigger: "cron", now, core: { lastRun: async () => null } });
+    const v = await runPreRunHooks(hooks, { now, core: { lastRun: async () => null } });
     assert.equal(v.ok, false);
     assert.match((v as { reason: string }).reason, /неизвестный хук moon_phase/);
   });
   it("знакомый kind с битыми параметрами → блок, но причина адресная", async () => {
     const hooks = parseHooks({ pre_run: [{ kind: "source_fresh", run: "нет-слеша", max_age_hours: 6 }] }).hooks;
-    const v = await runPreRunHooks(hooks, { trigger: "cron", now, core: { lastRun: async () => null } });
+    const v = await runPreRunHooks(hooks, { now, core: { lastRun: async () => null } });
     assert.equal(v.ok, false);
     assert.equal((v as { hook: string }).hook, "source_fresh");
     assert.match((v as { reason: string }).reason, /битые параметры хука source_fresh — см. check:passports/);
@@ -137,7 +139,6 @@ describe("runPreRunHooks", () => {
     }).hooks;
     let asked = 0;
     const v = await runPreRunHooks(hooks, {
-      trigger: "cron",
       now: new Date("2026-09-06T18:30:00.000Z"),
       core: {
         lastRun: async () => {
@@ -290,6 +291,40 @@ describe("паспорт → база → рантайм (хуки не долж
         preRun: [{ kind: "source_fresh", run: "system/ourvend:sync", maxAgeHours: 6 }],
         postRun: [{ kind: "coach_lite" }],
       },
+    );
+  });
+
+  it("чужой kind из карточки — «неизвестный хук», а не «битые параметры»", async () => {
+    // Владелец вписал в карточку хук, которого движок не знает. Прогон он
+    // блокирует (так и задумано), но причина обязана указывать на СЛОВО, а не
+    // отправлять искать опечатку в параметрах несуществующего хука.
+    const hooks = hooksFromCore({ pre_run: [{ kind: "moon_phase" }] });
+    assert.deepEqual(hooks, { preRun: [{ kind: "unknown", raw: "moon_phase" }], postRun: [] });
+    const v = await runPreRunHooks(hooks!, { now: new Date(), core: { lastRun: async () => null } });
+    assert.equal(v.ok, false);
+    assert.match((v as { reason: string }).reason, /неизвестный хук moon_phase/);
+  });
+
+  it("два написания рядом: берём НЕПУСТОЕ, а не первое присутствующее", () => {
+    // Так выглядит карточка, которую правили текстом config.yaml поверх уже
+    // разобранной формы: `preRun: []` остался от прошлой записи. `??` пропустил
+    // бы пустой список дальше (`[]` — не null) и молча снял бы охрану.
+    assert.deepEqual(
+      hooksFromCore({
+        preRun: [],
+        pre_run: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }],
+        postRun: [],
+        post_run: [{ kind: "coach_lite" }],
+      }),
+      {
+        preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }],
+        postRun: [{ kind: "coach_lite" }],
+      },
+    );
+    // Обратный порядок читается так же: непустое написание побеждает.
+    assert.deepEqual(
+      hooksFromCore({ pre_run: [], preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }] }),
+      { preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }], postRun: [] },
     );
   });
 });
