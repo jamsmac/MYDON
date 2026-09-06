@@ -50,7 +50,8 @@ workspace-пакета и типов).
 
 **Р-2. Инструменты именуются `<область>_<действие>` и делятся по последствию.** Читающие —
 `briefing_get`, `inbox_list`, `tasks_list`, `task_get`, `registry_search`, `events_recent`, `memory_recall`,
-`kb_read`, `agents_list`, `runs_recent`, `ventures_list`. Меняющие мир — `task_create`, `task_comment`,
+`kb_read`, `kb_tree`, `agents_list`, `runs_recent`, `ventures_list` (восемнадцатый — `kb_tree`: без дерева
+модель не знает, какую страницу просить; ruling 06.09, §4.2 всегда его требовал). Меняющие мир — `task_create`, `task_comment`,
 `task_status`, `memory_remember`, `agent_upsert`, `approval_decide`. В описании каждого меняющего
 инструмента первым предложением — что именно он изменит и где это увидит владелец.
 
@@ -103,7 +104,7 @@ owner-токен в окружении сервера. Описание `approva
 `OWNER_ACTION_TOKEN` (необязателен). Отсутствие `SERVICE_TOKEN` — понятная ошибка при старте, а не 401 позже.
 
 ### 4.2 R-A1-2 MCP-сервер (`apps/mcp/src/server.ts`)
-Транспорт stdio, `@modelcontextprotocol/sdk`. Семнадцать инструментов из Р-2 с JSON-схемами входа.
+Транспорт stdio, `@modelcontextprotocol/sdk`. Восемнадцать инструментов из Р-2 с JSON-схемами входа.
 Обязательные детали:
 - `inbox_list` = `GET /approvals/pending` + `GET /entities/pending`, одна сводка «ждёт решения: N согласований,
   M записей», далее строки. Именно этот инструмент отвечает на «что ждёт моего решения».
