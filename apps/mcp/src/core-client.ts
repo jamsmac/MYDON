@@ -1,0 +1,608 @@
+import type { AutonomyTier, Domain } from "@mydon/shared";
+
+/**
+ * Единственная дверь в Core для MCP-сервера и CLI (Р-1, R-A1-1).
+ *
+ * Обе оболочки — тонкие: здесь fetch, токены и перевод кодов ответа, там
+ * только формат вывода. Третья копия того же fetch (после `tools/*.mjs` и
+ * клиентов панели/агентов) не заводится.
+ *
+ * Формы ответов объявлены ЛОКАЛЬНО и намеренно: типы `apps/cc` тянут за собой
+ * `server-only` и сборку Next.js, а типы Core — весь NestJS.
+ */
+
+/** Дольше пятнадцати секунд Core не отвечает никогда: это уже обрыв туннеля. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Ошибка обращения к Core с переведённым текстом (Р-9).
+ *
+ * `status` = 0 означает «до Core не дошли» (сеть, туннель, таймаут).
+ * Ни одно сообщение не печатает значение токена — ни своего, ни чужого.
+ */
+export class CoreError extends Error {
+  readonly status: number;
+  readonly path: string;
+
+  constructor(status: number, path: string, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "CoreError";
+    this.status = status;
+    this.path = path;
+  }
+}
+
+// ── Формы ответов Core ──
+
+export type ApprovalDecision = "pending" | "approved" | "rejected" | "clarify";
+
+export interface Approval {
+  id: string;
+  agent: string;
+  action: string;
+  tier: AutonomyTier;
+  payload: Record<string, unknown>;
+  decision: ApprovalDecision;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface EntityCard {
+  id: string;
+  type: string;
+  name: string;
+  externalRef: string | null;
+  attrs: Record<string, unknown>;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  createdFrom: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Значение поля карточки, предложенное не владельцем и ждущее слова. */
+export interface EntityDraftField {
+  id: string;
+  entityId: string;
+  entityName: string;
+  entityType: string;
+  field: string;
+  value: string;
+  current: string | null;
+  origin: string;
+  setBy: string;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PendingEntities {
+  cards: EntityCard[];
+  fields: EntityDraftField[];
+}
+
+export type TaskStatus = "todo" | "in_progress" | "done" | "cancelled";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+export type OwnerKind = "human" | "agent";
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string | null;
+  ownerKind: OwnerKind;
+  ownerRef: string | null;
+  domain: Domain | null;
+  entityId: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  due: string | null;
+  source: string | null;
+  createdBy: string | null;
+  resultNote: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface TaskComment {
+  id: string;
+  taskId: string;
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface CoreEvent {
+  id: string;
+  source: string;
+  type: string;
+  payload: Record<string, unknown>;
+  occurredAt: string;
+  createdAt: string;
+}
+
+/** Страница знаний из белого списка корней (`docs/`, `memory/`, `routers/`…). */
+export interface DocsTreeItem {
+  path: string;
+  root: string;
+  title: string;
+  bytes: number;
+  updatedAt: string;
+  /** Личный контур владельца: содержимое отдаётся только под owner-токеном. */
+  personal?: boolean;
+}
+
+export interface DocFile extends DocsTreeItem {
+  markdown: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  business: string;
+  status: string;
+  description: string | null;
+  mission: string | null;
+  autonomyDefault: AutonomyTier;
+  skills: string[];
+  schedule: { cron: string; skill: string }[];
+  archivedAt: string | null;
+  updatedAt: string;
+}
+
+export interface SkillDeckItem {
+  agent: string;
+  skill: string;
+  description: string;
+  executor: string;
+  tier: AutonomyTier | null;
+  agentStatus: string;
+  autonomyDefault: AutonomyTier;
+  enabled: boolean;
+  crons: string[];
+  duplicates: number;
+  problems: string[];
+  hasCode: boolean;
+}
+
+export interface SkillDeck {
+  syncedAt: string | null;
+  models: { primary: string | null; fallbacks: string[] };
+  items: SkillDeckItem[];
+}
+
+export interface AgentRun {
+  id: string;
+  agentName: string;
+  skill: string;
+  trigger: string;
+  cron: string | null;
+  scheduledAt: string | null;
+  taskId: string | null;
+  approvalId: string | null;
+  startedAt: string;
+  finishedAt: string;
+  outcome: string;
+  skipReason: string | null;
+  hook: string | null;
+  reason: string;
+  action: string | null;
+  review: string | null;
+}
+
+export interface CronBoardJob {
+  id: string;
+  kind: "skill" | "monitor";
+  agent: string;
+  skill: string;
+  cron: string;
+  enabled: boolean;
+  disabledReason?: string;
+  paused: boolean;
+  nextRun: string | null;
+  last: null | { at: string; outcome: string; reason: string; runId: string };
+}
+
+export interface CronBoard {
+  tz: string;
+  now: string;
+  snapshot: { generatedAt: string; ageSec: number; stale: boolean } | null;
+  paused: { schedules: boolean; tasks: boolean };
+  jobs: CronBoardJob[];
+  upcoming24h: { at: string; jobId: string }[];
+}
+
+export interface Briefing {
+  generatedAt: string;
+  tz: string;
+  overdueMoney: number;
+  idleMachines: number;
+  pendingApprovals: number;
+  contractsDueSoon: number;
+  contractsBadDate: number;
+  overdueTasks: number;
+}
+
+/** Действующий тумблер системы: значение из базы, окружения или по умолчанию. */
+export interface SystemConfigItem {
+  key: string;
+  label: string;
+  value: string;
+  source: "db" | "env" | "default";
+  effective?: string;
+}
+
+// ── Входы мутаций ──
+
+export interface CreateTaskInput {
+  title: string;
+  ownerKind: OwnerKind;
+  ownerRef?: string;
+  domain?: Domain;
+  due?: string;
+  description?: string;
+  priority?: TaskPriority;
+  source?: string;
+  createdBy?: string;
+  clientKey?: string;
+}
+
+export interface SetTaskStatusInput {
+  status: TaskStatus;
+  actor?: string;
+  resultNote?: string;
+}
+
+export interface RecordEventInput {
+  source: string;
+  type: string;
+  payload?: Record<string, unknown>;
+  occurredAt?: string;
+  clientKey?: string;
+}
+
+export interface AgentInput {
+  name: string;
+  business?: string;
+  status?: string;
+  description?: string;
+  mission?: string;
+  nonGoals?: string[];
+  autonomyDefault?: AutonomyTier;
+  skills?: string[];
+  schedule?: { cron: string; skill: string }[];
+  budgetPerDayUsd?: number;
+  budgetOnExceeded?: string;
+  kbPages?: string[];
+}
+
+// ── Параметры чтений ──
+
+export interface TasksQuery {
+  status?: TaskStatus;
+  domain?: Domain;
+  ownerKind?: OwnerKind;
+  ownerRef?: string;
+  /** Только незакрытые. */
+  open?: boolean;
+  /** Только свободные (ничей `ownerRef`). */
+  unassigned?: boolean;
+  /** Сделанные, но не принятые. */
+  awaiting?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface EventsQuery {
+  source?: string;
+  type?: string;
+  /** Префикс типа: так перечисляется память агента (`agent.memory:`). */
+  typePrefix?: string;
+  since?: string;
+  until?: string;
+  order?: "asc" | "desc";
+  limit?: number;
+}
+
+export interface EntitiesQuery {
+  domain?: Domain;
+  type?: string;
+  q?: string;
+  /** `1` — только автоматы в эксплуатации. */
+  operational?: string;
+  id?: string;
+}
+
+export interface RunsQuery {
+  agent?: string;
+  skill?: string;
+  outcome?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+export interface CoreClientConfig {
+  baseUrl: string;
+  serviceToken: string;
+  ownerToken?: string;
+  /** Подменяется в тестах; в бою — глобальный `fetch` Node. */
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}
+
+type QueryValue = string | number | undefined;
+
+/**
+ * Собранная строка запроса. Пустые значения НЕ добавляются: `?ownerRef=`
+ * Core читает как «владелец с пустым именем» и возвращает пустой список —
+ * молчаливо неверный ответ вместо ожидаемого «все».
+ */
+function queryString(params: Record<string, QueryValue>): string {
+  const search = new URLSearchParams();
+  for (const [key, raw] of Object.entries(params)) {
+    if (raw === undefined) continue;
+    const value = typeof raw === "number" ? String(raw) : raw.trim();
+    if (!value) continue;
+    search.set(key, value);
+  }
+  const s = search.toString();
+  return s ? `?${s}` : "";
+}
+
+/** Текст ошибки Nest: `{ message: string | string[] }`. */
+function coreMessage(body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed === null || typeof parsed !== "object") return "";
+    const message = (parsed as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+    if (Array.isArray(message)) return message.filter((m) => typeof m === "string").join("; ");
+    return "";
+  } catch {
+    // Не JSON — отдаём как есть, обрезав: html-страница прокси в текст ошибки не нужна.
+    return trimmed.slice(0, 300);
+  }
+}
+
+/**
+ * Перевод кода ответа в предложение, по которому понятно, что чинить (Р-9).
+ * Значение токена сюда не попадает ни при каком коде.
+ */
+function translate(status: number, path: string, body: string): string {
+  const fromCore = coreMessage(body);
+  switch (status) {
+    case 401:
+      return "Core не принял токен: проверь SERVICE_TOKEN в окружении (то же значение, что у панели и бота).";
+    case 403:
+      return `Личный контур закрыт: нужен owner-токен (переменная OWNER_ACTION_TOKEN)${fromCore ? ` — ${fromCore}` : ""}.`;
+    case 404:
+      return `Не найдено: ${path}${fromCore ? ` — ${fromCore}` : ""}.`;
+    case 409:
+      // Конфликт объясняет сам Core («запрос уже закрыт решением…»): своими
+      // словами это пересказать нельзя, не потеряв причину.
+      return fromCore || `Конфликт состояния на ${path}.`;
+    case 429:
+      return "Core ограничил частоту запросов — повтори через несколько секунд.";
+    default:
+      return fromCore
+        ? `Core ответил ${status} на ${path}: ${fromCore}`
+        : `Core ответил ${status} на ${path}.`;
+  }
+}
+
+/** Причина обрыва: таймаут отличается от отказа в соединении на глаз. */
+function networkReason(cause: unknown, timeoutMs: number): string {
+  if (cause instanceof Error) {
+    // `AbortSignal.timeout` бракует запрос ошибкой с этим именем — иначе
+    // «истекло время» было бы не отличить от «соединение отвергнуто».
+    if (cause.name === "TimeoutError") {
+      return `истекло время ожидания (${Math.round(timeoutMs / 1000)} с)`;
+    }
+    return cause.message;
+  }
+  return String(cause);
+}
+
+interface RequestOptions {
+  method?: "GET" | "POST" | "PATCH";
+  body?: unknown;
+  query?: Record<string, QueryValue>;
+  /**
+   * Owner-действие или явно запрошенный личный контур (Р-4): только здесь
+   * добавляется `x-owner-action-token`.
+   */
+  owner?: boolean;
+}
+
+export interface CoreClient {
+  pendingApprovals(): Promise<Approval[]>;
+  pendingEntities(): Promise<PendingEntities>;
+  decideApproval(id: string, decision: Exclude<ApprovalDecision, "pending">): Promise<Approval>;
+  tasks(params: TasksQuery): Promise<Task[]>;
+  task(id: string): Promise<Task>;
+  createTask(input: CreateTaskInput): Promise<Task>;
+  commentTask(id: string, body: string): Promise<TaskComment>;
+  setTaskStatus(id: string, input: SetTaskStatusInput): Promise<Task>;
+  events(params: EventsQuery): Promise<CoreEvent[]>;
+  recordEvent(input: RecordEventInput): Promise<CoreEvent>;
+  entities(params: EntitiesQuery): Promise<EntityCard[]>;
+  docsTree(params: { root?: string }): Promise<DocsTreeItem[]>;
+  docFile(path: string): Promise<DocFile>;
+  agents(): Promise<Agent[]>;
+  skillDeck(agent?: string): Promise<SkillDeck>;
+  createAgent(input: AgentInput): Promise<Agent>;
+  updateAgent(name: string, patch: Omit<AgentInput, "name">): Promise<Agent>;
+  setAutonomy(name: string, tier: AutonomyTier): Promise<Agent>;
+  runs(params: RunsQuery): Promise<{ runs: AgentRun[] }>;
+  board(): Promise<CronBoard>;
+  briefing(): Promise<Briefing>;
+  systemConfig(): Promise<SystemConfigItem[]>;
+}
+
+export function createClient(cfg: CoreClientConfig): CoreClient {
+  const baseUrl = cfg.baseUrl.replace(/\/+$/, "");
+  const doFetch = cfg.fetchImpl ?? fetch;
+  const timeoutMs = cfg.timeoutMs ?? REQUEST_TIMEOUT_MS;
+
+  async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+    const url = `${baseUrl}${path}${queryString(opts.query ?? {})}`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-service-token": cfg.serviceToken,
+    };
+    // Заголовок закладывается сразу (Р-3): включение пояса идентичности не
+    // должно превращать owner-действия в 401.
+    if (opts.owner && cfg.ownerToken) headers["x-owner-action-token"] = cfg.ownerToken;
+
+    let res: Response;
+    try {
+      res = await doFetch(url, {
+        method: opts.method ?? "GET",
+        headers,
+        ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (cause) {
+      throw new CoreError(0, path, `Core недоступен по адресу ${url}: ${networkReason(cause, timeoutMs)}`, {
+        cause,
+      });
+    }
+
+    const text = await res.text();
+    if (!res.ok) throw new CoreError(res.status, path, translate(res.status, path, text));
+
+    const trimmed = text.trim();
+    // Пустое тело — законный ответ (204 и мутации без содержимого); только
+    // непустое уходит в разбор, иначе JSON.parse("") падал бы на успехе.
+    if (!trimmed) return undefined as T;
+    try {
+      return JSON.parse(trimmed) as T;
+    } catch {
+      throw new CoreError(res.status, path, `Core вернул на ${path} не JSON — отвечает не тот адрес.`);
+    }
+  }
+
+  /** Личный контур запрашивают явно — и тогда с owner-токеном (Р-4). */
+  const personal = (domain?: Domain): boolean => domain === "personal";
+
+  return {
+    pendingApprovals: () => request<Approval[]>("/approvals/pending"),
+    pendingEntities: () => request<PendingEntities>("/entities/pending"),
+
+    decideApproval: (id, decision) =>
+      request<Approval>(`/approvals/${encodeURIComponent(id)}/decide`, {
+        method: "POST",
+        body: { decision },
+        owner: true,
+      }),
+
+    tasks: (params) =>
+      request<Task[]>("/tasks", {
+        query: {
+          status: params.status,
+          domain: params.domain,
+          ownerKind: params.ownerKind,
+          ownerRef: params.ownerRef,
+          ...(params.open ? { open: "1" } : {}),
+          ...(params.unassigned ? { unassigned: "1" } : {}),
+          ...(params.awaiting ? { awaiting: "1" } : {}),
+          limit: params.limit,
+          offset: params.offset,
+        },
+        owner: personal(params.domain),
+      }),
+
+    task: (id) => request<Task>(`/tasks/${encodeURIComponent(id)}`),
+
+    createTask: (input) => request<Task>("/tasks", { method: "POST", body: input }),
+
+    commentTask: (id, body) =>
+      request<TaskComment>(`/tasks/${encodeURIComponent(id)}/comments`, {
+        method: "POST",
+        body: { body },
+      }),
+
+    // Статус меняет `PATCH /tasks/:id` — отдельного `/status` в Core нет.
+    setTaskStatus: (id, input) =>
+      request<Task>(`/tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: input }),
+
+    events: (params) =>
+      request<CoreEvent[]>("/events", {
+        query: {
+          source: params.source,
+          type: params.type,
+          typePrefix: params.typePrefix,
+          since: params.since,
+          until: params.until,
+          order: params.order,
+          limit: params.limit,
+        },
+      }),
+
+    recordEvent: (input) => request<CoreEvent>("/events", { method: "POST", body: input }),
+
+    entities: (params) =>
+      request<EntityCard[]>("/entities", {
+        query: {
+          domain: params.domain,
+          type: params.type,
+          q: params.q,
+          operational: params.operational,
+          id: params.id,
+        },
+        owner: personal(params.domain),
+      }),
+
+    // У `GET /docs/tree` фильтра по корню нет — дерево целиком отдаётся всегда,
+    // и отбор делается здесь, чтобы `kb_tree({root})` не врал о серверном
+    // фильтре и не тянул в модель все страницы репозитория.
+    docsTree: async (params) => {
+      const tree = await request<DocsTreeItem[]>("/docs/tree");
+      const root = params.root?.trim();
+      return root ? tree.filter((item) => item.root === root) : tree;
+    },
+
+    // Личный документ Core отдаёт только владельцу (`personalVisible`), поэтому
+    // owner-токен идёт вместе с запросом, когда он задан; решение об отказе
+    // остаётся за Core, клиент ничего не прячет сам.
+    docFile: (path) => request<DocFile>("/docs/file", { query: { path }, owner: true }),
+
+    agents: () => request<Agent[]>("/agents"),
+
+    skillDeck: (agent) => request<SkillDeck>("/agents/skills", { query: { agent } }),
+
+    createAgent: (input) => request<Agent>("/agents", { method: "POST", body: input }),
+
+    updateAgent: (name, patch) =>
+      request<Agent>(`/agents/${encodeURIComponent(name)}`, { method: "PATCH", body: patch }),
+
+    // Автономию Core меняет ТОЛЬКО этим маршрутом: общий patch карточки её
+    // сознательно отбрасывает (иначе тир поднимался бы любой правкой).
+    setAutonomy: (name, tier) =>
+      request<Agent>(`/agents/${encodeURIComponent(name)}/autonomy`, {
+        method: "PATCH",
+        body: { autonomyDefault: tier },
+        owner: true,
+      }),
+
+    runs: (params) =>
+      request<{ runs: AgentRun[] }>("/routines/runs", {
+        query: {
+          agent: params.agent,
+          skill: params.skill,
+          outcome: params.outcome,
+          from: params.from,
+          to: params.to,
+          limit: params.limit,
+        },
+      }),
+
+    board: () => request<CronBoard>("/routines/board"),
+
+    briefing: () => request<Briefing>("/registry/briefing"),
+
+    systemConfig: () => request<SystemConfigItem[]>("/system/config"),
+  };
+}

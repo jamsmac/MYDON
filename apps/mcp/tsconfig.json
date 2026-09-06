@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Node16, а не CommonJS+Node у соседей: `@modelcontextprotocol/sdk`
+    // раздаёт точки входа только через поле `exports`, а разрешение node10
+    // его не читает — импорт сервера MCP не нашёл бы ни типов, ни файла.
+    // Пакет остаётся CommonJS (в package.json нет "type"), SDK подключается
+    // по условию `require`.
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"]
+}
