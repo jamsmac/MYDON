@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BadRequestException } from "@nestjs/common";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { agentRun } from "@mydon/db";
 import {
   RunsService,
   normalizeReport,
@@ -11,32 +13,31 @@ import {
 
 type Row = Record<string, unknown>;
 
-/** Стаб: select по requestKey отдаёт existing; insert/update копятся. */
-function stub(opts: { existing?: Row } = {}) {
-  const captured = { insert: [] as Row[], update: [] as Row[] };
-  const tx = {
-    select: () => ({
-      from: () => ({ where: () => ({ limit: async () => (opts.existing ? [opts.existing] : []) }) }),
-    }),
+/**
+ * Стаб отчёта: одна цепочка `insert … onConflictDoUpdate … returning`.
+ * `inserted` — то, что вернёт постгресовое `(xmax = 0)`: true у новой строки.
+ */
+function stub(opts: { inserted?: boolean } = {}) {
+  const inserted = opts.inserted ?? true;
+  const captured = { values: [] as Row[], patch: [] as Row[], target: [] as unknown[], returning: [] as Row[] };
+  const db = {
     insert: () => ({
       values: (v: Row) => {
-        captured.insert.push(v);
-        return { returning: async () => [{ id: "r1", ...v }] };
+        captured.values.push(v);
+        return {
+          onConflictDoUpdate: (cfg: { target: unknown; set: Row }) => {
+            captured.target.push(cfg.target);
+            captured.patch.push(cfg.set);
+            return {
+              returning: async (sel: Row) => {
+                captured.returning.push(sel);
+                return [{ id: inserted ? "r1" : "r0", inserted }];
+              },
+            };
+          },
+        };
       },
-      // upsert снимка
-      onConflictDoUpdate: () => ({ returning: async () => [{ key: "schedules" }] }),
     }),
-    update: () => ({
-      set: (v: Row) => {
-        captured.update.push(v);
-        return { where: () => ({ returning: async () => [{ ...(opts.existing ?? {}), ...v }] }) };
-      },
-    }),
-  };
-  const db = {
-    transaction: async <T>(cb: (t: typeof tx) => Promise<T>): Promise<T> => cb(tx),
-    insert: tx.insert,
-    select: tx.select,
   } as never;
   return { db, captured };
 }
@@ -61,14 +62,29 @@ describe("RunsService.report (R-R-1)", () => {
     const s = new RunsService(db);
     const r = await s.report(base);
     assert.equal(r.created, true);
-    assert.equal(captured.insert.length, 1);
-    assert.equal(captured.insert[0].requestKey, base.requestKey);
-    assert.equal(captured.insert[0].skipReason, "no_signal");
-    assert.ok(captured.insert[0].startedAt instanceof Date);
+    assert.equal(r.id, "r1");
+    assert.equal(captured.values.length, 1);
+    assert.equal(captured.values[0].requestKey, base.requestKey);
+    assert.equal(captured.values[0].skipReason, "no_signal");
+    assert.ok(captured.values[0].startedAt instanceof Date);
   });
 
-  it("повтор того же requestKey → update, created: false", async () => {
-    const { db, captured } = stub({ existing: { id: "r0", requestKey: base.requestKey } });
+  it("признак «строка новая» берётся у СУБД и назван — иначе created всегда false", () => {
+    // drizzle не подставляет псевдоним сам: без `.as("inserted")` в returning
+    // уходит голое `(xmax = 0)`, постгрес зовёт колонку `?column?`, и признак
+    // теряется молча — тест на стабе этого не увидит, поэтому проверяем форму.
+    const { db, captured } = stub();
+    return new RunsService(db).report(base).then(() => {
+      const marker = captured.returning[0].inserted as { fieldAlias?: string; sql?: unknown };
+      assert.equal(marker.fieldAlias, "inserted", "маркер обязан иметь псевдоним");
+      assert.match(renderSql(marker.sql), /xmax = 0/);
+    });
+  });
+
+  it("повтор пишется ОДНИМ оператором по requestKey — гонка не даёт 500", async () => {
+    // Была связка select→insert: одновременный повтор (таймаут клиента и ретрай,
+    // пока первый запрос в полёте) упирался в UNIQUE и отдавал 500 вместо created:false.
+    const { db, captured } = stub({ inserted: false });
     const r = await new RunsService(db).report({
       ...base,
       outcome: "executed",
@@ -77,18 +93,25 @@ describe("RunsService.report (R-R-1)", () => {
     });
     assert.equal(r.created, false);
     assert.equal(r.id, "r0");
-    assert.equal(captured.update.length, 1);
-    assert.equal(captured.update[0].outcome, "executed");
-    assert.equal(captured.update[0].skipReason, null);
+    assert.equal(captured.patch.length, 1);
+    assert.equal(captured.target[0], agentRun.requestKey, "цель конфликта — уникальный requestKey");
+    const patch = captured.patch[0];
+    assert.equal(patch.outcome, "executed");
+    assert.equal(patch.skipReason, null);
+    // Опознание прогона и время старта первой попытки повтор НЕ переписывает.
+    for (const key of ["requestKey", "agentName", "skill", "trigger", "startedAt"]) {
+      assert.equal(key in patch, false, `повтор не должен переписывать ${key}`);
+    }
+    assert.ok(patch.finishedAt instanceof Date, "а вот время финиша обновляется");
   });
 });
 
-/** Стаб выборки: запоминает limit и число условий, строк не отдаёт. */
+/** Стаб выборки: запоминает limit и САМО условие, строк не отдаёт. */
 function listStub() {
-  const captured: { limit: number | null; conds: number } = { limit: null, conds: 0 };
+  const captured: { limit: number | null; where: unknown } = { limit: null, where: undefined };
   const chain = {
     where: (c: unknown) => {
-      captured.conds = c === undefined ? 0 : 1;
+      captured.where = c;
       return chain;
     },
     orderBy: () => chain,
@@ -101,12 +124,17 @@ function listStub() {
   return { db, captured };
 }
 
+/** Текст условия/запроса — заглушка SQL не проверяет, а перепутанный столбец обязан падать. */
+function renderSql(query: unknown): string {
+  return new PgDialect().sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]).sql;
+}
+
 describe("RunsService.list — рамки выборки", () => {
   it("по умолчанию 50, потолок 200, мусорный limit не уезжает в SQL", async () => {
     const plain = listStub();
     await new RunsService(plain.db).list();
     assert.equal(plain.captured.limit, 50);
-    assert.equal(plain.captured.conds, 0, "без фильтров условие не добавляем");
+    assert.equal(plain.captured.where, undefined, "без фильтров условие не добавляем");
 
     const huge = listStub();
     await new RunsService(huge.db).list({ limit: 5000 });
@@ -119,12 +147,28 @@ describe("RunsService.list — рамки выборки", () => {
     const fraction = listStub();
     await new RunsService(fraction.db).list({ limit: Number("10.5") });
     assert.equal(fraction.captured.limit, 10, "дробь драйвер не примет в LIMIT");
+
+    for (const bad of [0, -5]) {
+      const zero = listStub();
+      await new RunsService(zero.db).list({ limit: bad });
+      assert.equal(zero.captured.limit, 50, `limit=${bad} — это «не задан», а не пустой журнал`);
+    }
   });
 
-  it("фильтры доходят до запроса одним условием", async () => {
+  it("фильтры доходят до запроса своими столбцами", async () => {
     const { db, captured } = listStub();
     await new RunsService(db).list({ agent: "vendhub-ops", skill: "monitor-stock", outcome: "failed" });
-    assert.equal(captured.conds, 1);
+    const text = renderSql(captured.where);
+    assert.match(text, /"agent_run"\."agent_name" = \$\d/);
+    assert.match(text, /"agent_run"\."skill" = \$\d/);
+    assert.match(text, /"agent_run"\."outcome" = \$\d/);
+    assert.equal(text.split(" and ").length, 3, "три фильтра — три условия, ни одно не потерялось");
+
+    const one = listStub();
+    await new RunsService(one.db).list({ skill: "monitor-stock" });
+    const onlySkill = renderSql(one.captured.where);
+    assert.match(onlySkill, /"agent_run"\."skill" = \$\d/);
+    assert.equal(/agent_name/.test(onlySkill), false, "непереданный агент не должен появляться в запросе");
   });
 
   it("byId с неверным идентификатором не ходит в базу", async () => {
@@ -138,9 +182,12 @@ describe("RunsService.list — рамки выборки", () => {
 });
 
 describe("RunsService.lastPerJob — последний прогон каждого задания", () => {
-  it("сырые строки execute приходят в форме карточки", async () => {
+  it("сырые строки execute приходят в форме карточки, запрос — distinct on", async () => {
+    const queries: unknown[] = [];
     const db = {
-      execute: async () => [
+      execute: async (q: unknown) => {
+        queries.push(q);
+        return [
         {
           id: "r1", agent_name: "vendhub-ops", skill: "monitor-stock", trigger: "cron", cron: "0 8 * * *",
           scheduled_at: null, request_key: "k1", trace_key: null, task_id: null, approval_id: null,
@@ -148,11 +195,15 @@ describe("RunsService.lastPerJob — последний прогон каждо�
           outcome: "executed", skip_reason: null, hook: null, reason: "готово", action: null, review: null,
           created_at: new Date("2026-09-06T03:00:04.000Z"),
         },
-      ],
+        ];
+      },
     } as never;
     const [row] = await new RunsService(db).lastPerJob();
     assert.equal(row.agentName, "vendhub-ops");
     assert.equal(row.startedAt.toISOString(), "2026-09-06T03:00:01.000Z");
+    const text = renderSql(queries[0]);
+    assert.match(text, /distinct on \("agent_run"\."agent_name", "agent_run"\."skill"\)/);
+    assert.match(text, /order by "agent_run"\."agent_name", "agent_run"\."skill", "agent_run"\."started_at" desc/);
   });
 });
 
@@ -175,6 +226,25 @@ describe("normalizeReport — валидация тела", () => {
     assert.throws(() => normalizeReport({ ...base, outcome: "done" as never }), BadRequestException);
     assert.throws(() => normalizeReport({ ...base, skipReason: "tired" as never }), BadRequestException);
     assert.throws(() => normalizeReport({ ...base, trigger: "webhook" as never }), BadRequestException);
+  });
+  it("null в необязательных полях = поля нет (JSON присылает пропуски именно так)", () => {
+    const n = normalizeReport({
+      ...base,
+      outcome: "executed",
+      skipReason: null,
+      hook: null,
+      cron: null,
+      scheduledAt: null,
+      traceKey: null,
+      taskId: null,
+      approvalId: null,
+      action: null,
+      review: null,
+    });
+    assert.equal(n.outcome, "executed");
+    assert.equal(n.skipReason, null);
+    assert.equal(n.hook, null);
+    assert.equal(n.scheduledAt, null);
   });
   it("hook без hook_blocked → 400; taskId не uuid → 400", () => {
     assert.throws(() => normalizeReport({ ...base, hook: "quiet_hours" }), BadRequestException);
@@ -209,6 +279,21 @@ describe("snapshotFromBody — снимок расписаний (R-R-2)", () =>
       () => snapshotFromBody({ ...ok, jobs: [{ ...ok.jobs[0], mode: "eager" }] }),
       BadRequestException,
     );
+  });
+  it("не-список вместо jobs/notWired/monitors → 400, а не тихо пустой снимок", () => {
+    for (const field of ["jobs", "notWired", "monitors"]) {
+      assert.throws(
+        () => snapshotFromBody({ ...ok, [field]: "нет" }),
+        (e: unknown) => e instanceof BadRequestException && new RegExp(field).test(String((e as Error).message)),
+        `${field} строкой должен отклоняться`,
+      );
+    }
+  });
+  it("не-объект в paused и в элементе списка → 400, а не TypeError 500", () => {
+    assert.throws(() => snapshotFromBody({ ...ok, paused: "да" }), BadRequestException);
+    assert.throws(() => snapshotFromBody({ ...ok, jobs: [null] }), BadRequestException);
+    assert.throws(() => snapshotFromBody({ ...ok, notWired: ["vendhub-ceo"] }), BadRequestException);
+    assert.throws(() => snapshotFromBody({ ...ok, monitors: [42] }), BadRequestException);
   });
   it("чужая причина notWired → 400 с именем задания", () => {
     assert.throws(

@@ -15,24 +15,29 @@ import { DB, type Db } from "../db/db.module";
 
 export type AgentRunRow = typeof agentRun.$inferSelect;
 
+/**
+ * Тело отчёта о прогоне. Необязательные поля приходят из JSON и `null`, и
+ * пропущенными — рантайм сериализует «нет значения» и так, и так, поэтому тип
+ * принимает оба варианта, а `normalizeReport` сводит их к одному.
+ */
 export interface ReportRunInput {
   agentName: string;
   skill: string;
   trigger: RunTrigger;
-  cron?: string;
-  scheduledAt?: string;
+  cron?: string | null;
+  scheduledAt?: string | null;
   requestKey: string;
-  traceKey?: string;
-  taskId?: string;
-  approvalId?: string;
+  traceKey?: string | null;
+  taskId?: string | null;
+  approvalId?: string | null;
   startedAt: string;
   finishedAt: string;
   outcome: RunOutcome;
-  skipReason?: SkipReason;
-  hook?: string;
+  skipReason?: SkipReason | null;
+  hook?: string | null;
   reason: string;
-  action?: string;
-  review?: string;
+  action?: string | null;
+  review?: string | null;
 }
 
 export interface ScheduleSnapshot {
@@ -69,14 +74,20 @@ function optUuid(v: unknown, field: string): string | null {
 
 /** Проверка тела отчёта; длинные тексты режем, а не отвергаем (журнал не должен терять прогон). */
 export function normalizeReport(input: ReportRunInput): typeof agentRun.$inferInsert {
+  // `null` в необязательном поле — тот же «нет значения», что и пропуск: иначе
+  // честный `{"hook": null}` от рантайма получил бы 400 на ровном месте.
+  const skipReason = input.skipReason ?? undefined;
+  const hook = input.hook ?? undefined;
+  const scheduledAt = input.scheduledAt ?? undefined;
+
   if (typeof input.agentName !== "string" || !input.agentName) throw new BadRequestException("agentName обязателен");
   if (typeof input.skill !== "string" || !input.skill) throw new BadRequestException("skill обязателен");
   if (typeof input.requestKey !== "string" || !input.requestKey) throw new BadRequestException("requestKey обязателен");
   if (!(RUN_TRIGGERS as readonly string[]).includes(input.trigger)) throw new BadRequestException("trigger: cron | task | manual");
   if (!isRunOutcome(input.outcome)) throw new BadRequestException("outcome: approval_requested | executed | skipped | failed");
-  if (input.skipReason !== undefined && !isSkipReason(input.skipReason)) throw new BadRequestException("skipReason неизвестен");
-  if (input.skipReason !== undefined && input.outcome !== "skipped") throw new BadRequestException("skipReason только при outcome=skipped");
-  if (input.hook !== undefined && input.skipReason !== "hook_blocked") throw new BadRequestException("hook только при skipReason=hook_blocked");
+  if (skipReason !== undefined && !isSkipReason(skipReason)) throw new BadRequestException("skipReason неизвестен");
+  if (skipReason !== undefined && input.outcome !== "skipped") throw new BadRequestException("skipReason только при outcome=skipped");
+  if (hook !== undefined && skipReason !== "hook_blocked") throw new BadRequestException("hook только при skipReason=hook_blocked");
   if (typeof input.reason !== "string" || !input.reason) throw new BadRequestException("reason обязателен");
   const startedAt = isoDate(input.startedAt, "startedAt");
   const finishedAt = isoDate(input.finishedAt, "finishedAt");
@@ -86,7 +97,7 @@ export function normalizeReport(input: ReportRunInput): typeof agentRun.$inferIn
     skill: input.skill.slice(0, 64),
     trigger: input.trigger,
     cron: optText(input.cron, "cron", 64),
-    scheduledAt: input.scheduledAt === undefined ? null : isoDate(input.scheduledAt, "scheduledAt"),
+    scheduledAt: scheduledAt === undefined ? null : isoDate(scheduledAt, "scheduledAt"),
     requestKey: input.requestKey.slice(0, 300),
     traceKey: optText(input.traceKey, "traceKey", 300),
     taskId: optUuid(input.taskId, "taskId"),
@@ -94,8 +105,8 @@ export function normalizeReport(input: ReportRunInput): typeof agentRun.$inferIn
     startedAt,
     finishedAt,
     outcome: input.outcome,
-    skipReason: input.skipReason ?? null,
-    hook: optText(input.hook, "hook", 64),
+    skipReason: skipReason ?? null,
+    hook: optText(hook, "hook", 64),
     reason: input.reason.slice(0, REASON_MAX),
     action: optText(input.action, "action", ACTION_MAX),
     review: optText(input.review, "review", REVIEW_MAX),
@@ -113,6 +124,21 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], message: str
   return hit;
 }
 
+/** Список из тела: пропуск — пусто, а вот строка вместо массива — 400, не «нет заданий». */
+function listOf(v: unknown, field: string): unknown[] {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v)) throw new BadRequestException(`${field}: ожидается список`);
+  return v;
+}
+
+/** Объект из тела: null, массив и скаляр дают 400, а не TypeError на чтении поля. */
+function objectOf(v: unknown, field: string): Record<string, unknown> {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) {
+    throw new BadRequestException(`${field}: ожидается объект`);
+  }
+  return v as Record<string, unknown>;
+}
+
 function assertCron(expr: unknown, who: string): string {
   if (typeof expr !== "string" || !expr.trim()) throw new BadRequestException(`${who}: cron пуст`);
   try {
@@ -125,25 +151,25 @@ function assertCron(expr: unknown, who: string): string {
 
 /** Снимок из тела запроса: чужой tz/mode — 400, битый cron — 400 с именем задания. */
 export function snapshotFromBody(body: unknown): ScheduleSnapshot {
-  const b = (body ?? {}) as Record<string, unknown>;
+  const b = objectOf(body ?? {}, "снимок");
   if (b.tz !== TZ) throw new BadRequestException(`tz должен быть ${TZ}`);
   const generatedAt = isoDate(b.generatedAt, "generatedAt").toISOString();
-  const p = (b.paused ?? {}) as Record<string, unknown>;
+  const p = objectOf(b.paused ?? {}, "paused");
   const paused = { schedules: p.schedules === true, tasks: p.tasks === true };
-  const jobs = (Array.isArray(b.jobs) ? b.jobs : []).map((j) => {
-    const x = j as Record<string, unknown>;
+  const jobs = listOf(b.jobs, "jobs").map((j) => {
+    const x = objectOf(j, "jobs[]");
     if (typeof x.agent !== "string" || typeof x.skill !== "string") throw new BadRequestException("jobs[]: agent/skill");
     const mode = oneOf(x.mode, ["durable-task", "legacy"] as const, `${x.agent}/${x.skill}: mode`);
     return { agent: x.agent, skill: x.skill, cron: assertCron(x.cron, `${x.agent}/${x.skill}`), mode };
   });
-  const notWired = (Array.isArray(b.notWired) ? b.notWired : []).map((j) => {
-    const x = j as Record<string, unknown>;
+  const notWired = listOf(b.notWired, "notWired").map((j) => {
+    const x = objectOf(j, "notWired[]");
     if (typeof x.agent !== "string" || typeof x.skill !== "string") throw new BadRequestException("notWired[]: agent/skill");
     const reason = oneOf(x.reason, ["no_implementation", "llm_route_off"] as const, `${x.agent}/${x.skill}: reason`);
     return { agent: x.agent, skill: x.skill, reason };
   });
-  const monitors = (Array.isArray(b.monitors) ? b.monitors : []).map((m) => {
-    const x = m as Record<string, unknown>;
+  const monitors = listOf(b.monitors, "monitors").map((m) => {
+    const x = objectOf(m, "monitors[]");
     if (typeof x.name !== "string") throw new BadRequestException("monitors[]: name");
     const enabled = x.enabled === true;
     const reason = (["off", "no_credentials"] as const).find((r) => r === x.reason);
@@ -156,15 +182,17 @@ export function snapshotFromBody(body: unknown): ScheduleSnapshot {
 
 export interface AgentRunView {
   id: string; agentName: string; skill: string; trigger: string; cron: string | null; scheduledAt: string | null;
-  requestKey: string; taskId: string | null; approvalId: string | null; startedAt: string; finishedAt: string;
+  requestKey: string; traceKey: string | null; taskId: string | null; approvalId: string | null;
+  startedAt: string; finishedAt: string;
   outcome: string; skipReason: string | null; hook: string | null; reason: string; action: string | null; review: string | null;
 }
 
 export function toView(r: AgentRunRow): AgentRunView {
   return {
     id: r.id, agentName: r.agentName, skill: r.skill, trigger: r.trigger, cron: r.cron,
-    scheduledAt: r.scheduledAt?.toISOString() ?? null, requestKey: r.requestKey, taskId: r.taskId,
-    approvalId: r.approvalId, startedAt: r.startedAt.toISOString(), finishedAt: r.finishedAt.toISOString(),
+    scheduledAt: r.scheduledAt?.toISOString() ?? null, requestKey: r.requestKey, traceKey: r.traceKey,
+    taskId: r.taskId, approvalId: r.approvalId, startedAt: r.startedAt.toISOString(),
+    finishedAt: r.finishedAt.toISOString(),
     outcome: r.outcome, skipReason: r.skipReason, hook: r.hook, reason: r.reason, action: r.action, review: r.review,
   };
 }
@@ -187,19 +215,33 @@ export function rowFromRaw(r: Record<string, unknown>): AgentRunRow {
 export class RunsService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
-  /** Идемпотентно по requestKey: повтор обновляет поля исхода (реплика/повтор тика). */
+  /**
+   * Идемпотентно по requestKey: повтор обновляет поля исхода (реплика/повтор тика).
+   *
+   * ОДНИМ оператором `insert … on conflict do update`, а не «выбрать и решить»:
+   * при одновременном повторе (клиент отвалился по таймауту и ретраит, пока
+   * первый запрос ещё в полёте) связка select→insert упиралась бы в UNIQUE
+   * `request_key` и отдавала 500 вместо честного `created: false`.
+   *
+   * `created` берём у самой СУБД: в `returning` системный `xmax` равен нулю
+   * ровно у свежевставленной строки — иначе пришлось бы гадать по сравнению
+   * временных меток.
+   */
   async report(input: ReportRunInput): Promise<{ id: string; created: boolean }> {
     const row = normalizeReport(input);
-    return this.db.transaction(async (tx) => {
-      const [existing] = await tx.select().from(agentRun).where(eq(agentRun.requestKey, row.requestKey)).limit(1);
-      if (existing) {
-        const { requestKey: _k, agentName: _a, skill: _s, trigger: _t, startedAt: _st, ...patch } = row;
-        await tx.update(agentRun).set(patch).where(eq(agentRun.id, existing.id)).returning();
-        return { id: existing.id, created: false };
-      }
-      const [created] = await tx.insert(agentRun).values(row).returning();
-      return { id: created!.id, created: true };
-    });
+    // Опознание прогона и время старта первой попытки повтор не переписывает:
+    // иначе ретрай сдвинул бы начало и соврал бы о длительности.
+    const { requestKey: _k, agentName: _a, skill: _s, trigger: _t, startedAt: _st, ...patch } = row;
+    const [saved] = await this.db
+      .insert(agentRun)
+      .values(row)
+      .onConflictDoUpdate({ target: agentRun.requestKey, set: patch })
+      // `.as("inserted")` обязателен: без псевдонима drizzle пишет в returning
+      // голое `(xmax = 0)`, постгрес называет колонку `?column?`, и признак
+      // «строка новая» молча терялся бы — created всегда был бы false.
+      .returning({ id: agentRun.id, inserted: sql<boolean>`(xmax = 0)`.as("inserted") });
+    if (!saved) throw new BadRequestException("Прогон не сохранён");
+    return { id: saved.id, created: saved.inserted };
   }
 
   async list(filter: { agent?: string; skill?: string; outcome?: RunOutcome; limit?: number } = {}): Promise<AgentRunRow[]> {
@@ -209,10 +251,11 @@ export class RunsService {
       ...(filter.outcome ? [eq(agentRun.outcome, filter.outcome)] : []),
     ];
     // `limit` приходит из строки запроса через Number(): «abc» даёт NaN, «10.5» —
-    // дробь. И то и другое ушло бы в `limit $1` и вернуло владельцу 500 от
-    // драйвера вместо журнала, поэтому приводим к целому здесь, у границы.
-    const asked = typeof filter.limit === "number" && Number.isFinite(filter.limit) ? Math.trunc(filter.limit) : 50;
-    const limit = Math.min(Math.max(asked, 1), LIST_MAX);
+    // дробь, «0» — пустой ответ. Всё это уехало бы в `limit $1` и вернуло
+    // владельцу 500 от драйвера или пустой журнал, поэтому у границы приводим к
+    // целому, а всё бессмысленное считаем «лимит не задан».
+    const asked = typeof filter.limit === "number" && Number.isFinite(filter.limit) ? Math.trunc(filter.limit) : 0;
+    const limit = asked > 0 ? Math.min(asked, LIST_MAX) : 50;
     const q = this.db.select().from(agentRun);
     return (conds.length ? q.where(and(...conds)) : q).orderBy(desc(agentRun.startedAt)).limit(limit);
   }
@@ -246,9 +289,10 @@ export class RunsService {
 
   async putSnapshot(snapshot: ScheduleSnapshot): Promise<{ storedAt: string }> {
     const storedAt = new Date();
+    const payload = snapshot as unknown as Record<string, unknown>;
     await this.db.insert(agentRuntimeSnapshot)
-      .values({ key: SNAPSHOT_KEY, payload: snapshot as unknown as Record<string, unknown>, updatedAt: storedAt })
-      .onConflictDoUpdate({ target: agentRuntimeSnapshot.key, set: { payload: snapshot as unknown as Record<string, unknown>, updatedAt: storedAt } });
+      .values({ key: SNAPSHOT_KEY, payload, updatedAt: storedAt })
+      .onConflictDoUpdate({ target: agentRuntimeSnapshot.key, set: { payload, updatedAt: storedAt } });
     return { storedAt: storedAt.toISOString() };
   }
 

@@ -1,7 +1,9 @@
+import "reflect-metadata";
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import { BadRequestException } from "@nestjs/common";
 import { RoutinesController } from "./routines.controller";
+import { RoutinesTokenGuard } from "./routines-token.guard";
 import type { AgentRunRow } from "./runs.service";
 
 /** Строка журнала — ровно то, что отдаёт база (все поля, даты объектами). */
@@ -14,7 +16,7 @@ function runRow(over: Partial<AgentRunRow> = {}): AgentRunRow {
     cron: "0 8 * * *",
     scheduledAt: new Date("2026-09-06T03:00:00.000Z"),
     requestKey: "k1",
-    traceKey: null,
+    traceKey: "trace-2026-09-06-01",
     taskId: null,
     approvalId: null,
     startedAt: new Date("2026-09-06T03:00:01.000Z"),
@@ -68,6 +70,14 @@ describe("GET /routines/runs — фильтры журнала", () => {
     // Даты в ответе — ISO-строки: панель и бот читают JSON, а не объекты Date.
     assert.equal(res.runs[0].startedAt, "2026-09-06T03:00:01.000Z");
     assert.equal(res.runs[0].scheduledAt, "2026-09-06T03:00:00.000Z");
+    // traceKey нужен плейбэку: по нему прогон сшивается с задачей и согласованием.
+    assert.equal(res.runs[0].traceKey, "trace-2026-09-06-01");
+  });
+
+  it("повторённый параметр (?agent=a&agent=b) не уезжает в запрос массивом", async () => {
+    const { controller, calls } = stubRuns([]);
+    await controller.list(["vendhub-ops", "vendhub-ceo"], undefined, ["skipped", "failed"], ["10", "99"]);
+    assert.deepEqual(calls.list[0], { agent: "vendhub-ops", outcome: "skipped", limit: 10 });
   });
 
   it("чужой outcome отбрасывает, а не превращает в 400 или пустой список", async () => {
@@ -91,6 +101,43 @@ describe("GET /routines/runs/last — последний прогон задан
     assert.deepEqual(calls.last[0], { agent: "vendhub-ops", skill: "monitor-stock" });
     assert.equal(res.run?.outcome, "executed");
     assert.equal(res.run?.finishedAt, "2026-09-06T03:00:04.000Z");
+  });
+});
+
+describe("Журнал прогонов за сервисным токеном и на чтение (волна R)", () => {
+  const prev = process.env.SERVICE_TOKEN;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.SERVICE_TOKEN;
+    else process.env.SERVICE_TOKEN = prev;
+  });
+
+  const ctx = (headers: Record<string, string> = {}) =>
+    ({
+      switchToHttp: () => ({ getRequest: () => ({ method: "GET", headers }) }),
+      getHandler: () => (): void => undefined,
+      getClass: () => class {},
+    }) as unknown as Parameters<RoutinesTokenGuard["canActivate"]>[0];
+
+  it("анонимный GET отклоняется — глобальный guard чтения пропускает, этот нет", () => {
+    process.env.SERVICE_TOKEN = "secret";
+    assert.throws(() => new RoutinesTokenGuard().canActivate(ctx()), /токен/);
+    assert.throws(() => new RoutinesTokenGuard().canActivate(ctx({ "x-service-token": "wrong" })), /токен/);
+  });
+
+  it("GET с верным токеном проходит (и заголовком, и Bearer)", () => {
+    process.env.SERVICE_TOKEN = "secret";
+    assert.equal(new RoutinesTokenGuard().canActivate(ctx({ "x-service-token": "secret" })), true);
+    assert.equal(new RoutinesTokenGuard().canActivate(ctx({ authorization: "Bearer secret" })), true);
+  });
+
+  it("токен не настроен — журнал всё равно закрыт (fail-closed)", () => {
+    delete process.env.SERVICE_TOKEN;
+    assert.throws(() => new RoutinesTokenGuard().canActivate(ctx()), /токен/);
+  });
+
+  it("guard навешен на КОНТРОЛЛЕР — маршруты Task 4 закроются сами", () => {
+    const guards: unknown = Reflect.getMetadata("__guards__", RoutinesController);
+    assert.ok(Array.isArray(guards) && guards.includes(RoutinesTokenGuard), "нет @UseGuards(RoutinesTokenGuard)");
   });
 });
 
