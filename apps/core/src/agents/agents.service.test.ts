@@ -640,6 +640,7 @@ function statusDb(opts: {
   runs?: Row[];
   onExecute?: (query: unknown) => void;
   onTaskWhere?: (condition: unknown) => void;
+  onAgentWhere?: (condition: unknown) => void;
 }) {
   const счётчик = { select: 0, execute: 0 };
   const db = {
@@ -648,7 +649,12 @@ function statusDb(opts: {
       return {
         from: (table: unknown) =>
           table === agent
-            ? { where: () => ({ orderBy: async () => opts.agents ?? [] }) }
+            ? {
+                where: (condition: unknown) => {
+                  opts.onAgentWhere?.(condition);
+                  return { orderBy: async () => opts.agents ?? [] };
+                },
+              }
             : {
                 where: async (condition: unknown) => {
                   opts.onTaskWhere?.(condition);
@@ -792,16 +798,23 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
     assert.equal(кривой.paused.tasks, true, "не «0» — значит пауза, а не «работаем»");
   });
 
-  it("архивных в сетке нет: список берётся без них", async () => {
-    // `list()` фильтрует `archived_at is null` в SQL — заглушка отдаёт то, что
-    // вернул бы Postgres. Проверяем, что сервис не подмешивает архив вторым
-    // запросом и не показывает его строкой.
-    const { db, счётчик } = statusDb({ agents: [card()] });
+  it("архивных в сетке нет: фильтр `archived_at is null` уходит в SQL", async () => {
+    // ЗАХВАТ WHERE И НАСТОЯЩИЙ SQL, а не «заглушка вернула одну строку»
+    // (круг починок, C-8). Прежний тест назывался «архивных в сетке нет», но
+    // заглушка условие игнорировала: он проверял только, что сервис не делает
+    // второй запрос. Снятие фильтра из `list()` он бы не заметил — а именно
+    // оно и вернуло бы архивных агентов на главный экран. Приём тот же, что у
+    // соседнего теста про `distinct on`: рендерим условие диалектом Postgres.
+    let условие: unknown;
+    const { db, счётчик } = statusDb({ agents: [card()], onAgentWhere: (c) => (условие = c) });
     const view = await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: false })).statuses();
     assert.deepEqual(
       view.agents.map((a) => a.name),
       ["vendhub-ops"],
     );
+    assert.notEqual(условие, undefined, "`list()` обязан фильтровать, а не звать `where()` пустым");
+    const sql = new PgDialect().sqlToQuery(условие as Parameters<PgDialect["sqlToQuery"]>[0]).sql;
+    assert.match(sql, /"agent"\."archived_at" is null/);
     assert.equal(счётчик.select, 2, "две выборки: карточки и задачи");
     assert.equal(счётчик.execute, 1, "последние прогоны — один distinct on, а не запрос на агента");
   });

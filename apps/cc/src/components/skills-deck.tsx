@@ -7,7 +7,7 @@ import { runSkill } from "../app/skills/actions";
 import type { SkillDeck, SkillDeckItem } from "../lib/core";
 import { plural, when } from "../lib/format";
 import { BUSINESS_LABEL, TIER_LABEL } from "../lib/labels";
-import { runnable } from "../lib/skills";
+import { implemented, runnable } from "../lib/skills";
 import { Av8 } from "./av8";
 
 /** Состояние агента словами: цвет лампы дублируется текстом, а не заменяется им. */
@@ -140,8 +140,9 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
   const [taskId, setTaskId] = useState<string | null>(null);
 
   // Навык «реализован», если его есть чем исполнить: тело файла у модели или
-  // код в реестре агентов.
-  const implemented = item.executor === "llm" || item.hasCode;
+  // код в реестре агентов. Правило — ОДНО, из `lib/skills.ts` (C-7): здесь
+  // стояла его вторая копия, а кнопку «Запустить» гасит первая.
+  const реализован = implemented(item);
   // Запускается только закреплённый навык работающего агента: остальное Core
   // отклонит, и честнее не давать нажать, чем показать отказ после нажатия.
   // Само правило — в `lib/skills.ts`: та же кнопка стоит в карточке агента.
@@ -197,7 +198,7 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
         {item.hasCode && item.executor === "llm" && <span className="pill warn">исполнится код</span>}
         {/* Обратный случай: обещан код, а кода нет. Запускать нечем — метка
             объясняет заблокированную кнопку прямо в карточке. */}
-        {!implemented && <span className="pill bad">не реализован</span>}
+        {!реализован && <span className="pill bad">не реализован</span>}
       </div>
 
       {item.problems.length > 0 && (

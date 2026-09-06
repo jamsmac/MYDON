@@ -188,3 +188,6 @@ export * from "./run-timeline";
 
 /** Heartbeat Telegram-бота: одно число для бота и Core (волна A2, Р-5). */
 export * from "./bot-heartbeat";
+
+/** Паузы парка агентов: одно правило чтения тумблера для Core и рантайма (C-6). */
+export * from "./agent-pause";

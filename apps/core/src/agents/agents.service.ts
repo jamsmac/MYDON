@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { agent, agentRun, agentSkillCatalog, auditLog, task } from "@mydon/db";
-import { TZ } from "@mydon/shared";
+import { TZ, agentWorkPaused } from "@mydon/shared";
 import { and, asc, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { DB, type Db } from "../db/db.module";
 import { settingValue } from "../system/settings";
@@ -402,11 +402,12 @@ export class AgentsService {
     // `value` — действующее значение тумблера; поле `effective` есть только у
     // источника учёта, у пауз его нет (прецедент — `BoardService.board`).
     //
-    // ОТКАЗ В СТОРОНУ ПАУЗЫ: ключа нет или значение не «0» — считаем «на паузе».
-    // У обоих тумблеров дефолт в `config-spec` равен «1», и выключатель всего
-    // парка обязан ломаться в «выключено»: пустой или чужой ответ настроек не
-    // должен рисовать двенадцать работающих агентов там, где задачи стоят.
-    const flag = (key: string): boolean => config.find((i) => i.key === key)?.value !== "0";
+    // ПРАВИЛО ЧТЕНИЯ — ОБЩЕЕ (`agentWorkPaused` из `@mydon/shared`, C-6): те же
+    // тумблеры читают рантайм агентов и доска рутин. Раньше здесь стояло своё
+    // сравнение без `trim()`, и `" 0 "` рисовал паузу при работающих агентах.
+    // Отказ в сторону паузы (ключа нет / значение не «0») живёт внутри общей
+    // функции: у обоих тумблеров дефолт в `config-spec` равен «1».
+    const flag = (key: string): boolean => agentWorkPaused(config.find((i) => i.key === key)?.value);
     const paused = { schedules: flag("AGENTS_SCHEDULES_PAUSED"), tasks: flag("AGENTS_TASKS_PAUSED") };
 
     const agents = rows.map((row): AgentStatusRow => {
