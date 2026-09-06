@@ -161,12 +161,21 @@ export interface SkillDeckItem {
   skill: string;
   description: string;
   executor: string;
-  tier: AutonomyTier | null;
+  /**
+   * Тир навыка. Необязательный, как в Core (`CatalogSkillInput.tier?: Tier`):
+   * у навыка без тира поля в ответе НЕТ, а не `null`. Раньше здесь стояло
+   * `tier: AutonomyTier | null`, и `item.tier ?? "—"` спасал только случайно —
+   * любая проверка `tier === null` считала бы такой навык описанным.
+   */
+  tier?: AutonomyTier;
   agentStatus: string;
   autonomyDefault: AutonomyTier;
   enabled: boolean;
   crons: string[];
+  /** Сколько агентов несут навык с этим именем (себя включая): 1 — уникальный. */
   duplicates: number;
+  /** Самый строгий тир среди одноимённых навыков; `null` — тира нет ни у кого. */
+  tierFloor: AutonomyTier | null;
   problems: string[];
   hasCode: boolean;
 }
@@ -508,7 +517,11 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
 
   return {
     pendingApprovals: () => request<Approval[]>("/approvals/pending"),
-    pendingEntities: () => request<PendingEntities>("/entities/pending"),
+
+    // Owner-токен нужен и на ЧТЕНИЕ: `/entities/pending` проходит через
+    // `excludePersonal`, и без заголовка очередь входящих недосчитала бы
+    // карточки личного контура — молча, «пусто» вместо «не тебе».
+    pendingEntities: () => request<PendingEntities>("/entities/pending", { owner: true }),
 
     decideApproval: (id, decision) =>
       request<Approval>(`/approvals/${encodeURIComponent(id)}/decide`, {
@@ -533,7 +546,10 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
         owner: personal(params.domain),
       }),
 
-    task: (id) => request<Task>(`/tasks/${encodeURIComponent(id)}`),
+    // Задача по идентификатору — с owner-токеном: `GET /tasks/:id` гейтит
+    // личный контур и отвечает на него 404 «не найдено». Без заголовка
+    // `task_get` говорил бы «нет такой», хотя `task_status` её меняет.
+    task: (id) => request<Task>(`/tasks/${encodeURIComponent(id)}`, { owner: true }),
 
     createTask: (input) => request<Task>("/tasks", { method: "POST", body: input }),
 
@@ -591,6 +607,8 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
 
     agents: () => request<Agent[]>("/agents"),
 
+    // `agent` — необязательный отбор: без него дека приходит целиком (её и
+    // показывает панель `/skills`).
     skillDeck: (agent) => request<SkillDeck>("/agents/skills", { query: { agent } }),
 
     createAgent: (input) => request<Agent>("/agents", { method: "POST", body: input }),
@@ -619,7 +637,9 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
         },
       }),
 
-    briefing: () => request<Briefing>("/registry/briefing"),
+    // Брифинг тоже под `excludePersonal`: без owner-токена владелец получил бы
+    // сводку без собственных дел и счёл бы её полной.
+    briefing: () => request<Briefing>("/registry/briefing", { owner: true }),
 
     systemConfig: () => request<SystemConfigItem[]>("/system/config"),
   };

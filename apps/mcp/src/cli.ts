@@ -98,10 +98,35 @@ function isCommand(value: string): value is Command {
  */
 class UsageError extends Error {}
 
-/** Строковое значение флага; булев флаг без значения (`true`) — как «не задано». */
+/**
+ * Источник задач, созданных этой командой.
+ *
+ * Отличается от `mcp` у инструмента `task_create` намеренно: происхождение
+ * задачи видно в карточке, и «модель завела сама» против «владелец набрал в
+ * терминале» — разные истории. До волны A1 задача из CLI приходила вовсе без
+ * источника и в ленте выглядела ничьей.
+ */
+const TASK_SOURCE = "mydon-cli";
+
+/**
+ * Строковое значение флага; отсутствие — `undefined`, флаг без значения —
+ * usage-ошибка.
+ *
+ * Раньше `--status` в конце строки или перед другим флагом (парсер отдаёт
+ * такой флаг как `true`) молча превращался в «не задано»: `mydon tasks
+ * --status --limit 10` выводил ВСЕ задачи, а спрашивали про одно состояние.
+ * Тихо отброшенный фильтр опаснее отказа — ответ выглядит здоровым и отвечает
+ * не на тот вопрос. `numFlag` на том же вводе отказывает; правило у CLI одно.
+ */
 function strFlag(flags: ParsedArgs["flags"], name: string): string | undefined {
   const raw = flags[name];
-  return typeof raw === "string" && raw.trim() ? raw : undefined;
+  if (raw === undefined) return undefined;
+  // Не строка — флаг дан без значения (парсер отдаёт `true`); пустая строка
+  // (`--status=`) — он же, только записанный иначе: значения нет ни там, ни там.
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new UsageError(`--${name} требует значения`);
+  }
+  return raw;
 }
 
 /** Числовое значение флага; отсутствие — `undefined`, а не число, кривое значение — usage-ошибка. */
@@ -234,6 +259,7 @@ async function handleTaskCreate(parsed: ParsedArgs, deps: CliDeps): Promise<stri
   const input: CreateTaskInput = {
     title,
     ownerKind,
+    source: TASK_SOURCE,
     ownerRef: strFlag(parsed.flags, "owner"),
     domain: strFlag(parsed.flags, "domain") as Domain | undefined,
     due: strFlag(parsed.flags, "due"),

@@ -239,7 +239,7 @@ function argOf(calls: Call[], method: string): Record<string, unknown> {
 
 describe("Состав инструментов (R-A1-2)", () => {
   const NAMES = [
-    // читающие (12)
+    // читающие (13)
     "briefing_get",
     "inbox_list",
     "tasks_list",
@@ -250,6 +250,7 @@ describe("Состав инструментов (R-A1-2)", () => {
     "kb_read",
     "kb_tree",
     "agents_list",
+    "skills_deck",
     "runs_recent",
     "ventures_list",
     // меняющие мир (6)
@@ -261,11 +262,11 @@ describe("Состав инструментов (R-A1-2)", () => {
     "approval_decide",
   ];
 
-  it("восемнадцать инструментов R-A1-2 присутствуют по именам, и ровно они", () => {
+  it("девятнадцать инструментов присутствуют по именам, и ровно они", () => {
     const built = tools(stubClient().client).map((t) => t.name);
-    assert.equal(NAMES.length, 18);
+    assert.equal(NAMES.length, 19);
     assert.deepEqual([...built].sort(), [...NAMES].sort());
-    assert.equal(new Set(built).size, 18, "имена инструментов повторяются");
+    assert.equal(new Set(built).size, 19, "имена инструментов повторяются");
   });
 
   it("списки читающих и меняющих совпадают с флагом mutates", () => {
@@ -278,7 +279,7 @@ describe("Состав инструментов (R-A1-2)", () => {
     assert.deepEqual(names(false), [...READING_TOOLS].sort());
     assert.deepEqual(names(true), [...MUTATING_TOOLS].sort());
     assert.equal(MUTATING_TOOLS.length, 6);
-    assert.equal(READING_TOOLS.length, 12);
+    assert.equal(READING_TOOLS.length, 13);
   });
 
   it("у каждого инструмента непустое описание и объектная схема входа", () => {
@@ -678,8 +679,8 @@ describe("Поведение инструментов", () => {
     const { client, calls } = stubClient();
     const res = await callTool(tools(client), "runs_recent", { outcome: "ok" });
     assert.equal(res.isError, true);
-    // Core неизвестный исход молча отбрасывает и отдаёт ВЕСЬ журнал — молчать
-    // об ошибке здесь значило бы соврать про фильтр.
+    // Core на такой исход отвечает 400 (31087ba); отбой на месте экономит
+    // сетевой запрос и называет модели годные значения.
     assert.equal(calls.length, 0);
     assert.match(textOf(res), /executed/);
   });
@@ -736,6 +737,48 @@ describe("Поведение инструментов", () => {
     const out = textOf(await callTool(tools(client), "runs_recent", { agent: "vendhub-ops" }));
     assert.match(out, /vendhub-ops\/parts-audit/);
     assert.match(out, /executed/);
+  });
+
+  it("skills_deck отдаёт отбор по агенту Core, а не режет ответ сам", async () => {
+    // Дубли и «тир не ниже» дека считает по одноимённым навыкам ВСЕХ агентов:
+    // отфильтруй мы ответ у себя — числа остались бы, а причина исчезла.
+    const { client, calls } = stubClient({
+      skillDeck: async () => ({
+        syncedAt: NOW,
+        models: { primary: "claude-sonnet", fallbacks: [] },
+        items: [
+          {
+            agent: "vendhub-ops",
+            skill: "parts-audit",
+            description: "сверка узлов",
+            executor: "code",
+            tier: "T1",
+            agentStatus: "active",
+            autonomyDefault: "T0",
+            enabled: true,
+            crons: [],
+            duplicates: 1,
+            tierFloor: "T1",
+            problems: [],
+            hasCode: true,
+          },
+        ],
+      }),
+    });
+    const out = textOf(await callTool(tools(client), "skills_deck", { agent: "vendhub-ops" }));
+    const call = calls.find((c) => c.method === "skillDeck");
+    assert.ok(call, "клиент не звал skillDeck");
+    assert.deepEqual(call.args, ["vendhub-ops"]);
+    assert.match(out, /vendhub-ops\/parts-audit/);
+    assert.match(out, /claude-sonnet/);
+    assert.doesNotMatch(out, /[{}]/);
+  });
+
+  it("skills_deck без агента просит деку целиком", async () => {
+    const { client, calls } = stubClient();
+    const out = textOf(await callTool(tools(client), "skills_deck", {}));
+    assert.deepEqual(calls.find((c) => c.method === "skillDeck")?.args, [undefined]);
+    assert.match(out, /Навыков нет/);
   });
 
   it("approval_decide зовёт решение владельца ровно один раз", async () => {

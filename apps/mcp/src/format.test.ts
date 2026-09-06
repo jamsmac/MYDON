@@ -270,6 +270,41 @@ describe("formatTasks — список задач", () => {
   });
 });
 
+describe("Полная страница — тоже неполный ответ", () => {
+  // Инструменты просят у Core РОВНО `limit` записей, поэтому список длиннее
+  // предела не приходит никогда: без этой пометки «Задачи: 50» при трёхстах
+  // открытых задачах модель читала как «всего 50». Проверяем каждый из
+  // четырёх списковых форматтеров: пометка живёт в общем помощнике, а
+  // потеряться может в любом из них по отдельности.
+  const ПРЕДЕЛ = 3;
+
+  it("страница заполнена доверху — честная строка «могут быть ещё»", () => {
+    const задачи = Array.from({ length: ПРЕДЕЛ }, (_, i) => task({ id: `t-${i}` }));
+    assert.match(formatTasks(задачи, ПРЕДЕЛ), /Показаны первые 3 — в списке задач могут быть ещё\./);
+
+    const события = Array.from({ length: ПРЕДЕЛ }, () => event());
+    assert.match(formatEvents(события, ПРЕДЕЛ), /Показаны первые 3 — в ленте событий могут быть ещё\./);
+
+    const прогоны = Array.from({ length: ПРЕДЕЛ }, () => run());
+    assert.match(formatRuns(прогоны, ПРЕДЕЛ), /Показаны первые 3 — в журнале прогонов могут быть ещё\./);
+
+    const карточки = Array.from({ length: ПРЕДЕЛ }, (_, i) => entityCard({ id: `e-${i}` }));
+    assert.match(formatEntities(карточки, ПРЕДЕЛ), /Показаны первые 3 — в реестре могут быть ещё\./);
+  });
+
+  it("страница неполная — пометки нет, иначе она перестанет что-то значить", () => {
+    const задачи = Array.from({ length: ПРЕДЕЛ - 1 }, (_, i) => task({ id: `t-${i}` }));
+    assert.doesNotMatch(formatTasks(задачи, ПРЕДЕЛ), /Показаны первые/);
+  });
+
+  it("список длиннее предела — прежняя пометка обрезки, и только она", () => {
+    const задачи = Array.from({ length: ПРЕДЕЛ + 2 }, (_, i) => task({ id: `t-${i}` }));
+    const out = formatTasks(задачи, ПРЕДЕЛ);
+    assert.match(out, /Показаны первые 3 из 5\./);
+    assert.doesNotMatch(out, /могут быть ещё/);
+  });
+});
+
 describe("formatTask — карточка одной задачи", () => {
   it("несёт статус, владельца, приоритет и срок по Ташкенту", () => {
     const t = task({
@@ -379,7 +414,8 @@ describe("formatDeck — колода навыков", () => {
           autonomyDefault: "T0",
           enabled: true,
           crons: ["0 8 * * *"],
-          duplicates: 0,
+          duplicates: 1,
+          tierFloor: "T1",
           problems: [],
           hasCode: true,
         },
@@ -390,6 +426,38 @@ describe("formatDeck — колода навыков", () => {
     assert.match(out, /refill-check/);
     assert.match(out, /T1/);
     assert.match(out, /claude-sonnet/);
+    // Уникальный навык — без «×N»: пометка о дублях там значила бы неправду.
+    assert.doesNotMatch(out, /×/);
+  });
+
+  it("одноимённый навык у нескольких агентов — число и самый строгий тир", () => {
+    // То же, что показывает панель `/skills`: «тир T0» без этой пометки
+    // читалось бы как разрешение, хотя у одноимённого навыка тир выше.
+    const deck: SkillDeck = {
+      syncedAt: null,
+      models: { primary: null, fallbacks: [] },
+      items: [
+        {
+          agent: "vendhub-ops",
+          skill: "refill-check",
+          description: "проверка остатков",
+          executor: "cron",
+          agentStatus: "active",
+          autonomyDefault: "T0",
+          enabled: true,
+          crons: [],
+          duplicates: 3,
+          tierFloor: "T3",
+          problems: ["нет кода"],
+          hasCode: false,
+        },
+      ],
+    };
+    const out = formatDeck(deck);
+    // Тира у самого навыка нет — поля в ответе Core просто не будет.
+    assert.match(out, /тир —/);
+    assert.match(out, /×3, тир не ниже T3/);
+    assert.match(out, /проблемы: нет кода/);
   });
 });
 

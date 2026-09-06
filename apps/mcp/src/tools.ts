@@ -27,6 +27,7 @@ import {
   clamp,
   formatAgents,
   formatBriefing,
+  formatDeck,
   formatDoc,
   formatEntities,
   formatEvents,
@@ -145,6 +146,7 @@ export const READING_TOOLS: string[] = [
   "kb_read",
   "kb_tree",
   "agents_list",
+  "skills_deck",
   "runs_recent",
   "ventures_list",
 ];
@@ -328,9 +330,9 @@ function beltSentence(posture: OwnerPosture): string {
 // ── Сборка инструментов ──
 
 /**
- * Восемнадцать инструментов R-A1-2: двенадцать читающих и шесть меняющих
- * мир (Р-2). Порядок в массиве — порядок в `tools/list`: сначала чтения,
- * потом изменения, чтобы список читался по нарастанию последствий.
+ * Инструменты R-A1-2: тринадцать читающих и шесть меняющих мир (Р-2).
+ * Порядок в массиве — порядок в `tools/list`: сначала чтения, потом
+ * изменения, чтобы список читался по нарастанию последствий.
  */
 export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefinition[] {
   return [
@@ -529,6 +531,27 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
       run: async () => formatAgents(await client.agents()),
     },
     {
+      name: "skills_deck",
+      description: `Витрина навыков агентов — та же дека, что на /skills: навык, тир, кроны, дубли и найденные проблемы. Без «agent» — по всем агентам. ${READ_ONLY}`,
+      inputSchema: schema({
+        agent: {
+          type: "string",
+          description: "Имя агента — оставить только его навыки (см. agents_list).",
+        },
+        limit: LIMIT_PROP,
+      }),
+      mutates: false,
+      run: async (args) => {
+        const limit = limitOf(args);
+        const agent = optionalString(args, "agent");
+        // Отбор по агенту делает Core (`?agent=`), а не мы по ответу: дека
+        // считает дубли и `tierFloor` по одноимённым навыкам ВСЕХ агентов, и
+        // фильтрация на нашей стороне сохранила бы числа, но потеряла причину.
+        const deck = await client.skillDeck(agent);
+        return formatDeck(deck, limit);
+      },
+    },
+    {
       name: "runs_recent",
       description: `Журнал прогонов агентов — та же лента, что на /flows: кто, какой навык, каким триггером и с каким исходом. ${READ_ONLY}`,
       inputSchema: schema({
@@ -547,9 +570,9 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         const limit = limitOf(args);
         const agent = optionalString(args, "agent");
         const skill = optionalString(args, "skill");
-        // Значение вне словаря отбиваем здесь: Core неизвестный исход молча
-        // ОТБРАСЫВАЕТ (routines.controller.ts) и отдаёт весь журнал — модель
-        // прочитала бы его как отфильтрованный.
+        // Значение вне словаря отбиваем ДО сети: Core с 31087ba отвечает на
+        // него 400, и без `enum` модель получила бы отказ вместо подсказки,
+        // какие исходы бывают. Дешевле и понятнее сказать это на месте.
         const outcome = optionalEnum(args, "outcome", RUN_OUTCOMES);
         const query: RunsQuery = {
           limit,
@@ -589,9 +612,13 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           ? cards.filter((card) => verdictOf(card).toLowerCase() === verdict.toLowerCase())
           : cards;
         // Окно заполнено доверху — значит, за ним может быть ещё; молчать об
-        // этом нельзя ни при пустом ответе, ни при полном.
+        // этом нельзя ни при пустом ответе, ни при полном. Говорим это только
+        // при отборе по вердикту: там просмотр шире страницы и о его границе
+        // больше сказать некому. Без вердикта окно = страница, и о полной
+        // странице уже честно сообщает `formatEntities` — двух одинаковых
+        // строк подряд быть не должно.
         const capped =
-          cards.length >= scan
+          verdict && cards.length >= scan
             ? `\nПросмотрены первые ${cards.length} карточек — в реестре могут быть ещё.`
             : "";
         if (picked.length === 0) {

@@ -141,6 +141,24 @@ function truncationNote(l: Limited<unknown>): string {
   return l.truncated ? `Показаны первые ${l.shown.length} из ${l.total}.` : "";
 }
 
+/**
+ * Пометка о неполноте страницы: обрезанной ЗДЕСЬ или полной у Core.
+ *
+ * Одного `truncationNote` мало: инструменты просят у Core ровно `limit`
+ * записей, поэтому список длиннее предела не приходит никогда — и пометка была
+ * недостижима. «Задачи: 50» при трёхстах открытых задачах модель читала как
+ * «всего 50» и отвечала владельцу неправдой. Полная страница — тот же повод
+ * сказать, что за ней может быть ещё (так уже делает `ventures_list`).
+ *
+ * `where` — где именно «могут быть ещё»: список общий, а честная фраза должна
+ * называть источник, иначе она не подсказывает, чем сузить выборку.
+ */
+function pageNote(l: Limited<unknown>, limit: number, where: string): string {
+  const cut = truncationNote(l);
+  if (cut) return cut;
+  return l.total >= limit ? `Показаны первые ${l.total} — ${where} могут быть ещё.` : "";
+}
+
 // ── Форматтеры ──
 
 /**
@@ -195,7 +213,7 @@ export function formatTasks(tasks: Task[], limit: number = MAX_LIST_ITEMS): stri
   if (tasks.length === 0) return "Задач нет.";
   const l = limitList(tasks, limit);
   const lines = [`Задачи: ${l.total}`];
-  const note = truncationNote(l);
+  const note = pageNote(l, limit, "в списке задач");
   if (note) lines.push(note);
   for (const t of l.shown) {
     const due = t.due ? `, срок ${dueLabel(t.due)}` : "";
@@ -232,7 +250,7 @@ export function formatEvents(events: CoreEvent[], limit: number = MAX_LIST_ITEMS
   if (events.length === 0) return "Событий нет.";
   const l = limitList(events, limit);
   const lines = [`События: ${l.total}`];
-  const note = truncationNote(l);
+  const note = pageNote(l, limit, "в ленте событий");
   if (note) lines.push(note);
   for (const e of l.shown) {
     lines.push(`• ${stamp(e.occurredAt)} · ${e.source} · ${e.type} · ${payloadPreview(e.payload)}`);
@@ -249,7 +267,7 @@ export function formatRuns(runs: AgentRun[], limit: number = MAX_LIST_ITEMS): st
   if (runs.length === 0) return "Запусков нет.";
   const l = limitList(runs, limit);
   const lines = [`Запуски: ${l.total}`];
-  const note = truncationNote(l);
+  const note = pageNote(l, limit, "в журнале прогонов");
   if (note) lines.push(note);
   for (const r of l.shown) {
     const reason = r.reason ? ` (${r.reason})` : r.skipReason ? ` (пропуск: ${r.skipReason})` : "";
@@ -265,7 +283,7 @@ export function formatEntities(entities: EntityCard[], limit: number = MAX_LIST_
   if (entities.length === 0) return "Карточек нет.";
   const l = limitList(entities, limit);
   const lines = [`Карточки: ${l.total}`];
-  const note = truncationNote(l);
+  const note = pageNote(l, limit, "в реестре");
   if (note) lines.push(note);
   for (const c of l.shown) {
     const ref = c.externalRef ? ` (${c.externalRef})` : "";
@@ -314,8 +332,13 @@ export function formatDeck(deck: SkillDeck, limit: number = MAX_LIST_ITEMS): str
     const tier = item.tier ?? "—";
     const disabled = item.enabled ? "" : " · выключен";
     const problems = item.problems.length ? ` · проблемы: ${item.problems.join("; ")}` : "";
+    // Одноимённый навык у нескольких агентов — как на `/skills` в панели:
+    // сколько их и какой тир получится самым строгим. Без этого «тир T0»
+    // читалось бы как разрешение, хотя у одноимённого навыка тир выше.
+    const floor = item.tierFloor ? `, тир не ниже ${item.tierFloor}` : "";
+    const dup = item.duplicates > 1 ? ` · ×${item.duplicates}${floor}` : "";
     lines.push(
-      `• ${item.agent}/${item.skill} · ${item.description} · тир ${tier}${disabled}${problems}`,
+      `• ${item.agent}/${item.skill} · ${item.description} · тир ${tier}${disabled}${dup}${problems}`,
     );
   }
   return clamp(lines.join("\n"), MAX_RESPONSE_CHARS);

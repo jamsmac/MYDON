@@ -141,6 +141,26 @@ describe("Клиент Core (R-A1-1)", () => {
     assert.equal(headersOf(f, 1)["x-owner-action-token"], undefined);
   });
 
+  it("читающие маршруты под `excludePersonal` несут owner-токен", async () => {
+    // Р-4 прячет личное только у ленты задач БЕЗ домена. Эти три маршрута Core
+    // гейтит сам: без заголовка `inbox_list` недосчитал бы личные карточки,
+    // `task_get` ответил бы «не найдено», а брифинг пришёл бы неполным.
+    const f = fetchStub({ status: 200, body: {} });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      ownerToken: "o",
+      fetchImpl: f,
+    });
+    await c.pendingEntities();
+    await c.task("11111111-1111-4111-8111-111111111111");
+    await c.briefing();
+    for (const [i, path] of ["/entities/pending", "/tasks/", "/registry/briefing"].entries()) {
+      assert.ok(callsOf(f)[i]!.arguments[0].includes(path), `вызов ${i} ушёл не на ${path}`);
+      assert.equal(headersOf(f, i)["x-owner-action-token"], "o", `${path} без owner-токена`);
+    }
+  });
+
   it("owner-токен не задан — заголовка нет, вызов всё равно уходит", async () => {
     const f = fetchStub({ status: 200, body: {} });
     const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: f });

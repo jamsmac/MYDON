@@ -239,12 +239,31 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
     assert.deepEqual(seenInput, {
       title: "Заправить точку 12",
       ownerKind: "human",
+      // Источник проставлен и здесь: задача из терминала владельца не должна
+      // приходить в Core ничьей, а `mcp` соврал бы про происхождение.
+      source: "mydon-cli",
       ownerRef: undefined,
       domain: undefined,
       due: undefined,
       description: undefined,
       priority: undefined,
     });
+  });
+
+  it("известный флаг без значения — usage-ошибка, а не тихо потерянный фильтр", async () => {
+    // `--status` перед другим флагом парсер отдаёт как `true`. Раньше
+    // `strFlag` считал это «не задано» и печатал ВСЕ задачи на вопрос про
+    // одно состояние; `--limit` в том же положении отказывал. Правило одно.
+    const client = stubClient({ tasks: async () => [] });
+    for (const argv of [
+      ["tasks", "--status", "--limit", "10"],
+      ["tasks", "--status="],
+      ["task-create", "--title", "--yes"],
+    ]) {
+      const result = await runCommand(parseArgs(argv), { client });
+      assert.equal(result.code, 2, `${argv.join(" ")} → ${result.text}`);
+      assert.match(result.text, /требует значения|title/);
+    }
   });
 
   it("mydon events печатает то же, что formatEvents", async () => {
