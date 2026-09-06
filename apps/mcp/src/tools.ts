@@ -1,6 +1,6 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { AUTONOMY_TIERS, DOMAINS, type AutonomyTier, type Domain } from "@mydon/shared";
+import { AUTONOMY_TIERS, DOMAINS, RUN_OUTCOMES, type AutonomyTier, type Domain } from "@mydon/shared";
 import type {
   Agent,
   AgentInput,
@@ -127,7 +127,7 @@ export interface OwnerPosture {
   beltUnknown?: boolean;
 }
 
-/** Имена читающих инструментов (Р-2 + `kb_tree` из §4.2). */
+/** Имена читающих инструментов (Р-2). */
 export const READING_TOOLS: string[] = [
   "briefing_get",
   "inbox_list",
@@ -224,6 +224,14 @@ const TASK_PRIORITIES: readonly TaskPriority[] = ["low", "normal", "high", "urge
 const OWNER_KINDS: readonly OwnerKind[] = ["human", "agent"];
 const DECISIONS = ["approved", "rejected", "clarify"] as const;
 
+/**
+ * Статусы карточки агента. Список закрытый: Core проверяет его `@IsIn` при
+ * `forbidNonWhitelisted` (`apps/core/src/agents/agents.service.ts`,
+ * `AGENT_STATUSES`). Объявлен здесь, а не импортирован: модуль Core тянет за
+ * собой весь NestJS, а `@mydon/shared` этих статусов пока не знает.
+ */
+const AGENT_STATUSES = ["active", "paused", "draft", "deprecated"] as const;
+
 /** Источник событий агента в шине Core — ровно тот, что пишет runner. */
 function agentSource(name: string): string {
   return name.startsWith("agent:") ? name : `agent:${name}`;
@@ -300,8 +308,9 @@ function beltSentence(posture: OwnerPosture): string {
 // ── Сборка инструментов ──
 
 /**
- * Семнадцать инструментов Р-2 плюс `kb_tree` (обязательная деталь §4.2:
- * без дерева модель не знает, какой путь просить у `kb_read`).
+ * Восемнадцать инструментов R-A1-2: двенадцать читающих и шесть меняющих
+ * мир (Р-2). Порядок в массиве — порядок в `tools/list`: сначала чтения,
+ * потом изменения, чтобы список читался по нарастанию последствий.
  */
 export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefinition[] {
   return [
@@ -472,9 +481,10 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         const file = await client.docFile(requireString(args, "path"));
         // Пометка нужна владельцу, а не Core: по тексту ответа должно быть
         // видно, что открыт ЛИЧНЫЙ круг, а не рабочая страница.
-        const mark = file.personal
-          ? "Личный контур владельца: страница из личного круга, Core отдал её под owner-токеном.\n\n"
-          : "";
+        // Почему Core её отдал — вопрос пояса (при выключенном сервисного
+        // токена достаточно), и врать об этом в пометке нельзя: она говорит
+        // ЧТО открыто, а не по какому праву.
+        const mark = file.personal ? "Личный контур: страница из личного круга владельца.\n\n" : "";
         return mark + formatDoc(file);
       },
     },
@@ -507,7 +517,12 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
       inputSchema: schema({
         agent: { type: "string", description: "Имя агента." },
         skill: { type: "string", description: "Навык." },
-        outcome: { type: "string", description: "Исход прогона, например ok, skipped, failed." },
+        outcome: {
+          type: "string",
+          description:
+            "Исход прогона: approval_requested — попросил разрешения, executed — сделал, skipped — промолчал, failed — упал.",
+          enum: [...RUN_OUTCOMES],
+        },
         limit: LIMIT_PROP,
       }),
       mutates: false,
@@ -515,7 +530,10 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         const limit = limitOf(args);
         const agent = optionalString(args, "agent");
         const skill = optionalString(args, "skill");
-        const outcome = optionalString(args, "outcome");
+        // Значение вне словаря отбиваем здесь: Core неизвестный исход молча
+        // ОТБРАСЫВАЕТ (routines.controller.ts) и отдаёт весь журнал — модель
+        // прочитала бы его как отфильтрованный.
+        const outcome = optionalEnum(args, "outcome", RUN_OUTCOMES);
         const query: RunsQuery = {
           limit,
           ...(agent ? { agent } : {}),
@@ -540,18 +558,31 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
       run: async (args) => {
         const limit = limitOf(args);
         const verdict = optionalString(args, "verdict");
+        // Вердикт лежит в `attrs`, фильтровать по нему Core не умеет. Поэтому
+        // при отборе просматриваем максимальное окно, а не запрошенную
+        // страницу: «таких кандидатов нет» иначе было бы утверждением про
+        // первые пятьдесят карточек, а звучало бы как про весь реестр.
+        const scan = verdict ? MAX_LIMIT : limit;
         const cards = await client.entities({
           domain: VENTURE_DOMAIN,
           type: VENTURE_TYPE,
-          limit,
+          limit: scan,
         });
         const picked = verdict
           ? cards.filter((card) => verdictOf(card).toLowerCase() === verdict.toLowerCase())
           : cards;
+        // Окно заполнено доверху — значит, за ним может быть ещё; молчать об
+        // этом нельзя ни при пустом ответе, ни при полном.
+        const capped =
+          cards.length >= scan ? `\nПросмотрены первые ${cards.length} карточек — в реестре могут быть ещё.` : "";
         if (picked.length === 0) {
-          return verdict ? `Кандидатов с вердиктом ${verdict} нет.` : "Кандидатов нет.";
+          const head = verdict ? `Кандидатов с вердиктом ${verdict} нет.` : "Кандидатов нет.";
+          return `${head}${capped}`;
         }
-        return clamp(`${verdictSummary(picked)}\n${formatEntities(picked, limit)}`, MAX_RESPONSE_CHARS);
+        return clamp(
+          `${verdictSummary(picked)}\n${formatEntities(picked, limit)}${capped}`,
+          MAX_RESPONSE_CHARS,
+        );
       },
     },
 
@@ -602,7 +633,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           ...(priority ? { priority } : {}),
         };
         const created = await client.createTask(input);
-        return `Задача создана: ${created.id}\n${formatTask(created)}`;
+        return clamp(`Задача создана: ${created.id}\n${formatTask(created)}`, MAX_RESPONSE_CHARS);
       },
     },
     {
@@ -651,7 +682,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           actor: STATUS_ACTOR,
           ...(note ? { resultNote: note } : {}),
         });
-        return `Статус задачи ${updated.id}: ${status}.\n${formatTask(updated)}`;
+        return clamp(`Статус задачи ${updated.id}: ${status}.\n${formatTask(updated)}`, MAX_RESPONSE_CHARS);
       },
     },
     {
@@ -691,7 +722,11 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         {
           name: { type: "string", description: "Имя агента (оно же ключ карточки)." },
           business: { type: "string", description: "Направление агента, например vendhub." },
-          status: { type: "string", description: "Статус карточки, например active или paused." },
+          status: {
+            type: "string",
+            description: "Статус карточки агента.",
+            enum: [...AGENT_STATUSES],
+          },
           description: { type: "string", description: "Короткое описание агента." },
           mission: { type: "string", description: "Миссия: за что агент отвечает." },
           skills: {
@@ -711,7 +746,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
       run: async (args) => {
         const name = requireString(args, "name");
         const business = optionalString(args, "business");
-        const status = optionalString(args, "status");
+        const status = optionalEnum(args, "status", AGENT_STATUSES);
         const description = optionalString(args, "description");
         const mission = optionalString(args, "mission");
         const skills = optionalStringList(args, "skills");
@@ -724,13 +759,22 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           ...(skills ? { skills } : {}),
         };
         const existing = (await client.agents()).find((card) => card.name === name);
+        const patched = Object.keys(patch).length > 0;
         let card = existing
-          ? Object.keys(patch).length > 0
+          ? patched
             ? await client.updateAgent(name, patch)
             : existing
           : await client.createAgent({ name, ...patch });
+        const tierBefore = card.autonomyDefault;
         card = await applyAutonomy(client, card, autonomy);
-        return `${existing ? "Обновлена" : "Создана"} карточка агента ${card.name}.\n${formatAgents([card])}`;
+        // Вызов без единой правки — это чтение, и отчитываться о нём как об
+        // изменении нельзя: владелец решит, что карточку кто-то трогал.
+        const headline = !existing
+          ? `Создана карточка агента ${card.name}.`
+          : patched || card.autonomyDefault !== tierBefore
+            ? `Обновлена карточка агента ${card.name}.`
+            : `Карточка агента ${card.name}: изменений не было.`;
+        return clamp(`${headline}\n${formatAgents([card])}`, MAX_RESPONSE_CHARS);
       },
     },
     {

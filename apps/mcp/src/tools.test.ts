@@ -132,7 +132,7 @@ const RUN: AgentRun = {
   approvalId: null,
   startedAt: NOW,
   finishedAt: NOW,
-  outcome: "ok",
+  outcome: "executed",
   skipReason: null,
   hook: null,
   reason: "",
@@ -236,7 +236,7 @@ function argOf(calls: Call[], method: string): Record<string, unknown> {
 
 describe("Состав инструментов (R-A1-2)", () => {
   const NAMES = [
-    // читающие (11)
+    // читающие (12)
     "briefing_get",
     "inbox_list",
     "tasks_list",
@@ -245,10 +245,11 @@ describe("Состав инструментов (R-A1-2)", () => {
     "events_recent",
     "memory_recall",
     "kb_read",
+    "kb_tree",
     "agents_list",
     "runs_recent",
     "ventures_list",
-    // меняющие (6)
+    // меняющие мир (6)
     "task_create",
     "task_comment",
     "task_status",
@@ -257,16 +258,10 @@ describe("Состав инструментов (R-A1-2)", () => {
     "approval_decide",
   ];
 
-  it("семнадцать инструментов Р-2 присутствуют по именам", () => {
+  it("восемнадцать инструментов R-A1-2 присутствуют по именам, и ровно они", () => {
     const built = tools(stubClient().client).map((t) => t.name);
-    assert.equal(NAMES.length, 17);
-    for (const name of NAMES) assert.ok(built.includes(name), `нет инструмента ${name}`);
-  });
-
-  it("плюс kb_tree — обязательная деталь §4.2, всего восемнадцать", () => {
-    const built = tools(stubClient().client).map((t) => t.name);
-    assert.ok(built.includes("kb_tree"));
-    assert.equal(built.length, 18);
+    assert.equal(NAMES.length, 18);
+    assert.deepEqual([...built].sort(), [...NAMES].sort());
     assert.equal(new Set(built).size, 18, "имена инструментов повторяются");
   });
 
@@ -616,6 +611,47 @@ describe("Поведение инструментов", () => {
     assert.doesNotMatch(out, /Кандидат B/);
   });
 
+  it("исход прогона вне словаря отбивается до Core", async () => {
+    const { client, calls } = stubClient();
+    const res = await callTool(tools(client), "runs_recent", { outcome: "ok" });
+    assert.equal(res.isError, true);
+    // Core неизвестный исход молча отбрасывает и отдаёт ВЕСЬ журнал — молчать
+    // об ошибке здесь значило бы соврать про фильтр.
+    assert.equal(calls.length, 0);
+    assert.match(textOf(res), /executed/);
+  });
+
+  it("статус карточки агента вне словаря Core отбивается до вызова", async () => {
+    const { client, calls } = stubClient({ agents: async () => [agentCard()] });
+    const res = await callTool(tools(client), "agent_upsert", {
+      name: "vendhub-ops",
+      status: "включён",
+    });
+    assert.equal(res.isError, true);
+    assert.equal(calls.length, 0);
+    assert.match(textOf(res), /deprecated/);
+  });
+
+  it("agent_upsert без единой правки честно говорит, что изменений не было", async () => {
+    const { client, calls } = stubClient({ agents: async () => [agentCard()] });
+    const out = textOf(await callTool(tools(client), "agent_upsert", { name: "vendhub-ops" }));
+    assert.match(out, /изменений не было/);
+    assert.ok(!calls.some((c) => c.method === "updateAgent"));
+    assert.ok(!calls.some((c) => c.method === "setAutonomy"));
+  });
+
+  it("ventures_list не выдаёт «нет таких» за приговор всему реестру", async () => {
+    const full = Array.from({ length: MAX_LIMIT }, (_, i) =>
+      entity({ id: `v${i}`, name: `Кандидат ${i}`, attrs: { verdict: "NO" } }),
+    );
+    const { client, calls } = stubClient({ entities: async () => full });
+    const out = textOf(await callTool(tools(client), "ventures_list", { verdict: "GO" }));
+    // При отборе по вердикту просматриваем максимальное окно, а не страницу.
+    assert.equal(argOf(calls, "entities").limit, MAX_LIMIT);
+    assert.match(out, /Кандидатов с вердиктом GO нет\./);
+    assert.match(out, /Просмотрены первые 200 карточек/);
+  });
+
   it("пустой список навыков не стирает навыки агента", async () => {
     const { client, calls } = stubClient({ agents: async () => [agentCard()] });
     await callTool(tools(client), "agent_upsert", { name: "vendhub-ops", skills: [] });
@@ -633,7 +669,7 @@ describe("Поведение инструментов", () => {
     const { client } = stubClient({ runs: async () => ({ runs: [RUN] }) });
     const out = textOf(await callTool(tools(client), "runs_recent", { agent: "vendhub-ops" }));
     assert.match(out, /vendhub-ops\/parts-audit/);
-    assert.match(out, /ok/);
+    assert.match(out, /executed/);
   });
 
   it("approval_decide зовёт решение владельца ровно один раз", async () => {
