@@ -639,6 +639,23 @@ describe("Поведение инструментов", () => {
     assert.equal(autonomy.args[1], "T1");
   });
 
+  it("правки карточки подписаны инструментом: журнал не выдаст их за действие владельца", async () => {
+    // Core ставит «owner», если подписи нет, поэтому её отсутствие означало бы,
+    // что владелец не отличит свою правку карточки от правки модели.
+    const пусто = stubClient({ agents: async () => [] });
+    await callTool(tools(пусто.client), "agent_upsert", { name: "new-agent" });
+    assert.equal(пусто.calls.find((c) => c.method === "createAgent")!.args[1], "mcp");
+
+    const есть = stubClient({ agents: async () => [agentCard()] });
+    await callTool(tools(есть.client), "agent_upsert", {
+      name: "vendhub-ops",
+      mission: "следить за узлами",
+      autonomyDefault: "T1",
+    });
+    assert.equal(есть.calls.find((c) => c.method === "updateAgent")!.args[2], "mcp");
+    assert.equal(есть.calls.find((c) => c.method === "setAutonomy")!.args[2], "mcp");
+  });
+
   it("ventures_list просит кандидатов домена mydon и считает вердикты", async () => {
     const { client, calls } = stubClient({
       entities: async () => [

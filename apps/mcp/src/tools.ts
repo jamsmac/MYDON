@@ -889,9 +889,9 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         const patched = Object.keys(patch).length > 0;
         let card = existing
           ? patched
-            ? await client.updateAgent(name, patch)
+            ? await client.updateAgent(name, patch, MCP_ACTOR)
             : existing
-          : await client.createAgent({ name, ...patch });
+          : await client.createAgent({ name, ...patch }, MCP_ACTOR);
         const tierBefore = card.autonomyDefault;
         card = await applyAutonomy(client, card, autonomy);
         // Вызов без единой правки — это чтение, и отчитываться о нём как об
@@ -953,7 +953,7 @@ async function applyAutonomy(
   wanted: AutonomyTier | undefined,
 ): Promise<Agent> {
   if (wanted === undefined || wanted === card.autonomyDefault) return card;
-  return client.setAutonomy(card.name, wanted);
+  return client.setAutonomy(card.name, wanted, MCP_ACTOR);
 }
 
 /** Вердикт кандидата лежит в `attrs`; его отсутствие — тоже ответ. */

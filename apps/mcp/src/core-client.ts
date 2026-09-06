@@ -463,9 +463,10 @@ export interface CoreClient {
   docFile(path: string): Promise<DocFile>;
   agents(params?: AgentsQuery): Promise<Agent[]>;
   skillDeck(agent?: string): Promise<SkillDeck>;
-  createAgent(input: AgentInput): Promise<Agent>;
-  updateAgent(name: string, patch: Omit<AgentInput, "name">): Promise<Agent>;
-  setAutonomy(name: string, tier: AutonomyTier): Promise<Agent>;
+  /** `actor` — подпись правки: без неё Core запишет в журнал владельца. */
+  createAgent(input: AgentInput, actor?: string): Promise<Agent>;
+  updateAgent(name: string, patch: Omit<AgentInput, "name">, actor?: string): Promise<Agent>;
+  setAutonomy(name: string, tier: AutonomyTier, actor?: string): Promise<Agent>;
   runs(params: RunsQuery): Promise<{ runs: AgentRun[] }>;
   briefing(): Promise<Briefing>;
   systemConfig(): Promise<SystemConfigItem[]>;
@@ -650,17 +651,21 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
     // показывает панель `/skills`).
     skillDeck: (agent) => request<SkillDeck>("/agents/skills", { query: { agent } }),
 
-    createAgent: (input) => request<Agent>("/agents", { method: "POST", body: input }),
+    createAgent: (input, actor) =>
+      request<Agent>("/agents", { method: "POST", body: { ...input, ...(actor ? { actor } : {}) } }),
 
-    updateAgent: (name, patch) =>
-      request<Agent>(`/agents/${encodeURIComponent(name)}`, { method: "PATCH", body: patch }),
+    updateAgent: (name, patch, actor) =>
+      request<Agent>(`/agents/${encodeURIComponent(name)}`, {
+        method: "PATCH",
+        body: { ...patch, ...(actor ? { actor } : {}) },
+      }),
 
     // Автономию Core меняет ТОЛЬКО этим маршрутом: общий patch карточки её
     // сознательно отбрасывает (иначе тир поднимался бы любой правкой).
-    setAutonomy: (name, tier) =>
+    setAutonomy: (name, tier, actor) =>
       request<Agent>(`/agents/${encodeURIComponent(name)}/autonomy`, {
         method: "PATCH",
-        body: { autonomyDefault: tier },
+        body: { autonomyDefault: tier, ...(actor ? { actor } : {}) },
         owner: true,
       }),
 
