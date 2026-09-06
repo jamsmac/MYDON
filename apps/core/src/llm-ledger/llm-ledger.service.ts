@@ -13,12 +13,13 @@ import {
   tashkentDayStartOf,
   type LlmBudgetAction,
   type LlmBudgetSnapshot,
+  type LlmLedgerConsumer,
   type LlmLedgerMonitoring,
   type LlmReserveResponse,
   type LlmSettlementOutboxMonitoring,
   type LlmSpendStatus,
 } from "@mydon/shared";
-import { and, asc, eq, gt, gte, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { DB, type Db } from "../db/db.module";
 import { meteredLlmRouteEnabled, resolveConfigValue } from "../system/config-spec";
 import type {
@@ -96,6 +97,50 @@ export interface SettlementAnomaly {
 }
 
 /**
+ * Потребитель, чьи вызовы идут ДРУГИМ маршрутом и другими учётными данными.
+ *
+ * Эмбеддинги ходят своим ключом и своим адресом (`EMBED_BASE_URL`,
+ * `EMBED_API_KEY`, `EMBED_PRICE_PROVIDER_ID`, `EMBED_MODEL` —
+ * `apps/agents/src/embedding.ts`), но пишутся в ту же `llm_spend`.
+ */
+const EMBEDDINGS_CONSUMER = "embeddings" satisfies LlmLedgerConsumer;
+
+/**
+ * Маршрут, о котором говорит `latestCompleted`: всё, кроме эмбеддингов.
+ *
+ * ПОЧЕМУ ЭТО НУЖНО (круг починок 2, Ф-2). `latestCompleted` — единственное
+ * утверждение снимка о том, проходят ли вызовы ПРЯМО СЕЙЧАС (строка «Модели»
+ * в `apps/core/src/apps/apps-health.ts` судит по его статусу), а бралось оно
+ * запросом по ВСЕЙ таблице. Отзыв `LLM_API_KEY` закрывает каждый вызов
+ * агентов/бота/панели как `failed`, но следом штатно оседает один успешный
+ * вызов эмбеддингов — и строка снова зеленела. На практике это не разовая
+ * ошибка, а МЕРЦАНИЕ `ok`↔`bad` по тому, чей вызов завершился последним; для
+ * здоровья это хуже стабильного красного. Зеркально: отзыв `EMBED_API_KEY`
+ * красил «Модели» при живой модели.
+ *
+ * ПОЧЕМУ ИСКЛЮЧЕНИЕМ ПОТРЕБИТЕЛЯ, А НЕ ФИЛЬТРОМ ПО ПРОВАЙДЕРУ/МОДЕЛИ.
+ *  • Провайдер в `llm_spend` не один даже у «моделей»: агенты пишут
+ *    `LLM_PRICE_PROVIDER_ID` (`apps/agents/src/model-gateway.ts`), а
+ *    бот/панель/документы — литерал `"anthropic"` (`packages/assistant`,
+ *    `packages/documents`). Фильтр по `catalogPrice.provider` молча спрятал бы
+ *    отказы бота и панели — обмен одной слепоты на другую.
+ *  • Модель тем более: у основного маршрута есть цепочка запасных
+ *    (`LLM_FALLBACK_MODELS`), и вызов записывается под ДРУГОЙ моделью ровно
+ *    тогда, когда маршрут деградировал, — то есть фильтр ослеп бы в самый
+ *    нужный момент.
+ *  • Исключение по потребителю режет ровно по границе учётных данных: у
+ *    эмбеддингов свой ключ и свой адрес, у остальных — общий путь к модели.
+ * Новый потребитель по умолчанию ПОПАДАЕТ в маршрут: лишний шум честнее
+ * молчаливой дыры в списке.
+ *
+ * Отдельная строка здоровья для эмбеддингов, возможно, заслужена — но это
+ * другой срез, и без неё их отказы по-прежнему видны в `failuresToday`.
+ */
+export function latestCompletedRouteScope(): SQL {
+  return ne(llmSpend.consumer, EMBEDDINGS_CONSUMER);
+}
+
+/**
  * Единственная точка решения «можно ли потратить деньги на LLM».
  *
  * Резерв и все settlement/release берут один транзакционный advisory-lock
@@ -163,7 +208,12 @@ export class LlmLedgerService {
           failedAt: llmSpend.failedAt,
         })
         .from(llmSpend)
-        .where(or(eq(llmSpend.status, "settled"), eq(llmSpend.status, "failed")))
+        .where(
+          and(
+            or(eq(llmSpend.status, "settled"), eq(llmSpend.status, "failed")),
+            latestCompletedRouteScope(),
+          ),
+        )
         .orderBy(sql`${completedAt} desc nulls last`, asc(llmSpend.id))
         .limit(1),
       this.db

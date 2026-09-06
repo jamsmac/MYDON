@@ -223,7 +223,8 @@ jobs:
           DATABASE_URL: postgresql://mydon:mydon@127.0.0.1:5432/mydon
         run: node packages/db/dist/migration-0084.integration.js
 
-      # СЦЕНАРИИ УЗЛОВ (спека vendhub-parts, У1–У6) НА НАСТОЯЩЕМ SQL. Между
+      # СЦЕНАРИИ НА НАСТОЯЩЕМ SQL (узлы У1–У6 спеки vendhub-parts, отбор строки
+      # «Модели» по своему маршруту). Между
       # «юнит-тесты зелёные» и «работает» лежит весь сырой SQL сервисов и все
       # ограничения базы: заглушка drizzle запросы не исполняет, а уникальные
       # индексы исполняет только Postgres. Именно эти сценарии 04.09 поймали два
@@ -236,13 +237,16 @@ jobs:
       # локально те же сценарии идут на нём, см. tools/pglite-checks/README.md).
       # Шаг идёт ПОСЛЕ смоуков: он создаёт и удаляет свои базы и в базу `mydon`
       # не пишет, но порядок делает вывод читаемым.
-      - name: Scenarios on real SQL (parts U1-U6)
+      - name: Scenarios on real SQL
         env:
           CHECKS_DATABASE_URL: postgresql://mydon:mydon@127.0.0.1:5432/mydon
         run: |
           node tools/pglite-checks/run-migrations.mjs
-          for c in check-0084 check-parts-u1 check-parts-u2 check-parts-u3 check-parts-u4 check-parts-u5 check-parts-u6; do
-            node tools/pglite-checks/$c.mjs
+          # ПОИСК ПО КАТАЛОГУ, А НЕ РУКОПИСНЫЙ СПИСОК (тот же урок, что у
+          # скриптов deploy ниже): новый сценарий должен гоняться сам по факту
+          # своего появления, иначе он молча остаётся непроверенным.
+          for c in tools/pglite-checks/check-*.mjs; do
+            node "$c"
           done
 
       # Раньше continue-on-error:true молча прятал 5 high-уязвимостей —

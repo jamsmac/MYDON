@@ -387,8 +387,15 @@ function молчитПосле(снимок: МониторСнимка | null,
   return nextOccurrences(снимок.cron, lastRun.at, 2)[1] ?? null;
 }
 
-/** Монитор ledger → поля, которые решают судьбу строки моделей. */
-function ledgerСловами(m: Awaited<ReturnType<LlmLedgerService["monitoring"]>>) {
+/**
+ * Монитор ledger → поля, которые решают судьбу строки моделей.
+ *
+ * ЭКСПОРТИРУЕТСЯ РАДИ СЦЕНАРИЯ НА НАСТОЯЩЕМ SQL
+ * (`tools/pglite-checks/check-llm-latest.mjs`): вторая, «тестовая» копия этого
+ * перевода доказывала бы саму себя, а спорное место — именно стык снимка
+ * ledger со строкой.
+ */
+export function ledgerСловами(m: Awaited<ReturnType<LlmLedgerService["monitoring"]>>) {
   return {
     meteredEnabled: m.catalogPrice.meteredEnabled,
     hasActivePrice: m.catalogPrice.hasActivePrice,
