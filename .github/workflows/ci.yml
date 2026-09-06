@@ -59,7 +59,7 @@ jobs:
       # Factory (tools/import-ventures.mjs): ошибка в сигнатуре «виденного»
       # задвоила бы реестр кандидатов.
       - name: Tools (unit)
-        run: node --test tools/apply-passport-fields.test.mjs tools/import-ventures.test.mjs
+        run: node --test tools/apply-passport-fields.test.mjs tools/import-ventures.test.mjs tools/repo-audit.test.mjs
 
       - uses: pnpm/action-setup@v4
         with:
