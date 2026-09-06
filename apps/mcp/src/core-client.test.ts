@@ -24,17 +24,15 @@ describe("Клиент Core (R-A1-1)", () => {
     const f = fetchStub({ status: 200, body: [] });
     const c = createClient({ baseUrl: "http://core", serviceToken: "s", ownerToken: "o", fetchImpl: f });
     await c.tasks({});
-    const init = (f as unknown as { mock: { calls: { arguments: [string, RequestInit] }[] } }).mock.calls[0]!.arguments[1];
-    assert.equal((init.headers as Record<string, string>)["x-service-token"], "s");
-    assert.equal((init.headers as Record<string, string>)["x-owner-action-token"], undefined);
+    assert.equal(headersOf(f)["x-service-token"], "s");
+    assert.equal(headersOf(f)["x-owner-action-token"], undefined);
   });
 
   it("owner-действие несёт owner-токен", async () => {
     const f = fetchStub({ status: 200, body: {} });
     const c = createClient({ baseUrl: "http://core", serviceToken: "s", ownerToken: "o", fetchImpl: f });
     await c.decideApproval("11111111-1111-4111-8111-111111111111", "approved");
-    const init = (f as unknown as { mock: { calls: { arguments: [string, RequestInit] }[] } }).mock.calls[0]!.arguments[1];
-    assert.equal((init.headers as Record<string, string>)["x-owner-action-token"], "o");
+    assert.equal(headersOf(f)["x-owner-action-token"], "o");
   });
 
   it("переводит коды Core и никогда не печатает токен", async () => {
@@ -111,16 +109,77 @@ describe("Клиент Core (R-A1-1)", () => {
     assert.equal(callsOf(f)[0]!.arguments[1].method, "PATCH");
   });
 
-  it("пустое тело ответа не роняет разбор", async () => {
+  it("пустое тело на успехе — ошибка, а не молчаливый undefined", async () => {
     const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: fetchStub({ status: 200, text: "   " }) });
-    assert.equal(await c.commentTask("11111111-1111-4111-8111-111111111111", "готово"), undefined);
+    await assert.rejects(
+      () => c.commentTask("11111111-1111-4111-8111-111111111111", "готово"),
+      (e: unknown) => {
+        assert.ok(e instanceof CoreError);
+        assert.equal(e.status, 200);
+        assert.match(e.message, /пустой ответ/);
+        return true;
+      },
+    );
   });
 
-  it("у каждого запроса есть сигнал таймаута", async () => {
+  it("2xx с телом не-JSON — ошибка про чужой адрес", async () => {
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      fetchImpl: fetchStub({ status: 200, text: "<html>502 Bad Gateway</html>" }),
+    });
+    await assert.rejects(
+      () => c.briefing(),
+      (e: unknown) => {
+        assert.ok(e instanceof CoreError);
+        assert.match(e.message, /не JSON/);
+        return true;
+      },
+    );
+  });
+
+  it("обрыв на чтении тела — тоже CoreError, а не сырое исключение", async () => {
+    // fetch резолвится по заголовкам: обрыв туннеля случается уже на потоке тела.
+    const torn = (async () => ({
+      ok: true,
+      status: 200,
+      text: async () => {
+        throw new TypeError("terminated");
+      },
+    })) as unknown as typeof fetch;
+    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: torn });
+    await assert.rejects(
+      () => c.briefing(),
+      (e: unknown) => {
+        assert.ok(e instanceof CoreError);
+        assert.equal(e.status, 0);
+        assert.match(e.message, /недоступен .*http:\/\/core/);
+        return true;
+      },
+    );
+  });
+
+  it("таймаут назван таймаутом, а не отказом в соединении", async () => {
+    const hang = ((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("This operation was aborted")));
+      })) as unknown as typeof fetch;
+    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: hang, timeoutMs: 5 });
+    await assert.rejects(() => c.briefing(), /истекло время ожидания \(0 с\)/);
+  });
+
+  it("у каждого запроса есть сигнал прерывания", async () => {
     const f = fetchStub({ status: 200, body: {} });
     const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: f });
     await c.briefing();
     assert.ok(callsOf(f)[0]!.arguments[1].signal instanceof AbortSignal);
+  });
+
+  it("запрос без тела идёт без Content-Type", async () => {
+    const f = fetchStub({ status: 200, body: {} });
+    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: f });
+    await c.briefing();
+    assert.equal(headersOf(f)["Content-Type"], undefined);
   });
 
   it("дека навыков фильтруется по агенту только когда агент назван", async () => {
@@ -140,6 +199,15 @@ describe("Клиент Core (R-A1-1)", () => {
     const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: fetchStub({ status: 200, body: tree }) });
     assert.deepEqual((await c.docsTree({ root: "docs" })).map((i) => i.path), ["docs/MCP.md"]);
     assert.equal((await c.docsTree({})).length, 2);
+  });
+
+  it("предел выдачи реестра уходит в Core", async () => {
+    const f = fetchStub({ status: 200, body: [] });
+    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: f });
+    await c.entities({ q: "kaffit", limit: 20 });
+    const url = callsOf(f)[0]!.arguments[0];
+    assert.match(url, /q=kaffit/);
+    assert.match(url, /limit=20/);
   });
 
   it("тело мутации уходит как JSON", async () => {

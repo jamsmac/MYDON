@@ -58,6 +58,13 @@ export interface EntityCard {
   createdFrom: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Направление карточки (код организации). Есть только у `GET /entities`:
+   * очередь `pending` домена не считает. По нему инструменты отсекают личный
+   * контур из безадресных поисков (Р-4).
+   */
+  domain?: Domain | null;
+  geo?: { lat: number; lng: number; address: string | null } | null;
 }
 
 /** Значение поля карточки, предложенное не владельцем и ждущее слова. */
@@ -189,28 +196,6 @@ export interface AgentRun {
   review: string | null;
 }
 
-export interface CronBoardJob {
-  id: string;
-  kind: "skill" | "monitor";
-  agent: string;
-  skill: string;
-  cron: string;
-  enabled: boolean;
-  disabledReason?: string;
-  paused: boolean;
-  nextRun: string | null;
-  last: null | { at: string; outcome: string; reason: string; runId: string };
-}
-
-export interface CronBoard {
-  tz: string;
-  now: string;
-  snapshot: { generatedAt: string; ageSec: number; stale: boolean } | null;
-  paused: { schedules: boolean; tasks: boolean };
-  jobs: CronBoardJob[];
-  upcoming24h: { at: string; jobId: string }[];
-}
-
 export interface Briefing {
   generatedAt: string;
   tz: string;
@@ -310,6 +295,12 @@ export interface EntitiesQuery {
   /** `1` — только автоматы в эксплуатации. */
   operational?: string;
   id?: string;
+  /**
+   * Сколько карточек вернуть (Core: по умолчанию 500, потолок 5000).
+   * Обрезать выдачу должен Core, а не туннель: без параметра каждый поиск
+   * тащил бы полтысячи карточек со всеми `attrs` ради десятка строк.
+   */
+  limit?: number;
 }
 
 export interface RunsQuery {
@@ -392,17 +383,14 @@ function translate(status: number, path: string, body: string): string {
   }
 }
 
-/** Причина обрыва: таймаут отличается от отказа в соединении на глаз. */
-function networkReason(cause: unknown, timeoutMs: number): string {
-  if (cause instanceof Error) {
-    // `AbortSignal.timeout` бракует запрос ошибкой с этим именем — иначе
-    // «истекло время» было бы не отличить от «соединение отвергнуто».
-    if (cause.name === "TimeoutError") {
-      return `истекло время ожидания (${Math.round(timeoutMs / 1000)} с)`;
-    }
-    return cause.message;
-  }
-  return String(cause);
+/**
+ * Причина обрыва. Про таймаут знает вызывающий (он сам его и объявил): у
+ * прерванного запроса имя ошибки — общее `AbortError`, и по нему «истекло
+ * время» не отличить от «соединение отвергнуто».
+ */
+function networkReason(cause: unknown, timeoutMs: number, timedOut: boolean): string {
+  if (timedOut) return `истекло время ожидания (${Math.round(timeoutMs / 1000)} с)`;
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 interface RequestOptions {
@@ -436,7 +424,6 @@ export interface CoreClient {
   updateAgent(name: string, patch: Omit<AgentInput, "name">): Promise<Agent>;
   setAutonomy(name: string, tier: AutonomyTier): Promise<Agent>;
   runs(params: RunsQuery): Promise<{ runs: AgentRun[] }>;
-  board(): Promise<CronBoard>;
   briefing(): Promise<Briefing>;
   systemConfig(): Promise<SystemConfigItem[]>;
 }
@@ -446,41 +433,73 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
   const doFetch = cfg.fetchImpl ?? fetch;
   const timeoutMs = cfg.timeoutMs ?? REQUEST_TIMEOUT_MS;
 
+  /**
+   * Один сетевой вызов целиком: и заголовки, и ТЕЛО.
+   *
+   * Тело читается внутри той же защиты сознательно: `fetch` резолвится, как
+   * только пришли заголовки, — обрыв туннеля или срабатывание таймаута посреди
+   * потока тела выбрасывает сырой `DOMException`/`TypeError` уже ПОСЛЕ него.
+   * Оставь чтение снаружи — и такая ошибка ушла бы наверх мимо `CoreError`,
+   * то есть мимо единственного контракта этого модуля (Р-9).
+   */
+  async function fetchBody(
+    url: string,
+    path: string,
+    init: RequestInit,
+  ): Promise<{ ok: boolean; status: number; body: string }> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    try {
+      const res = await doFetch(url, { ...init, signal: controller.signal });
+      return { ok: res.ok, status: res.status, body: await res.text() };
+    } catch (cause) {
+      throw new CoreError(
+        0,
+        path,
+        `Core недоступен по адресу ${url}: ${networkReason(cause, timeoutMs, timedOut)}`,
+        { cause },
+      );
+    } finally {
+      // Ради этой строки здесь свой контроллер, а не `AbortSignal.timeout`:
+      // тот держит таймер до конца срока и после давно полученного ответа.
+      clearTimeout(timer);
+    }
+  }
+
   async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     const url = `${baseUrl}${path}${queryString(opts.query ?? {})}`;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "x-service-token": cfg.serviceToken,
-    };
+    const headers: Record<string, string> = { "x-service-token": cfg.serviceToken };
+    // Тип содержимого — только там, где содержимое есть: на GET он ничего не
+    // описывает и лишь путает прокси и журнал запросов.
+    if (opts.body !== undefined) headers["Content-Type"] = "application/json";
     // Заголовок закладывается сразу (Р-3): включение пояса идентичности не
     // должно превращать owner-действия в 401.
     if (opts.owner && cfg.ownerToken) headers["x-owner-action-token"] = cfg.ownerToken;
 
-    let res: Response;
-    try {
-      res = await doFetch(url, {
-        method: opts.method ?? "GET",
-        headers,
-        ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch (cause) {
-      throw new CoreError(0, path, `Core недоступен по адресу ${url}: ${networkReason(cause, timeoutMs)}`, {
-        cause,
-      });
+    const { ok, status, body } = await fetchBody(url, path, {
+      method: opts.method ?? "GET",
+      headers,
+      ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }),
+    });
+
+    if (!ok) throw new CoreError(status, path, translate(status, path, body));
+
+    const trimmed = body.trim();
+    // Пустое тело на успехе — не «ничего не вернулось», а сломанный ответ: все
+    // обёрнутые здесь маршруты Core отдают JSON. Тихо вернуть `undefined` под
+    // объявленным типом значило бы уронить форматтер в рантайме при молчащем
+    // компиляторе.
+    if (!trimmed) {
+      throw new CoreError(status, path, `Core вернул пустой ответ на ${path} — ожидались данные.`);
     }
-
-    const text = await res.text();
-    if (!res.ok) throw new CoreError(res.status, path, translate(res.status, path, text));
-
-    const trimmed = text.trim();
-    // Пустое тело — законный ответ (204 и мутации без содержимого); только
-    // непустое уходит в разбор, иначе JSON.parse("") падал бы на успехе.
-    if (!trimmed) return undefined as T;
     try {
       return JSON.parse(trimmed) as T;
     } catch {
-      throw new CoreError(res.status, path, `Core вернул на ${path} не JSON — отвечает не тот адрес.`);
+      throw new CoreError(status, path, `Core вернул на ${path} не JSON — отвечает не тот адрес.`);
     }
   }
 
@@ -551,6 +570,7 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
           q: params.q,
           operational: params.operational,
           id: params.id,
+          limit: params.limit,
         },
         owner: personal(params.domain),
       }),
@@ -598,8 +618,6 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
           limit: params.limit,
         },
       }),
-
-    board: () => request<CronBoard>("/routines/board"),
 
     briefing: () => request<Briefing>("/registry/briefing"),
 
