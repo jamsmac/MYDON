@@ -22,6 +22,7 @@ import {
 import { runOurvendAccounting } from "./ourvend-accounting";
 import { ourvendConfigFromEnv, runOurvendSync } from "./ourvend-sync";
 import { isLlmSkill, registerLlmSkills } from "./llm-skill";
+import { hooksFromCore } from "./hooks";
 import { isKbPagePath, loadAgents, type AgentDefinition } from "./registry";
 import { journalFromRunResult, reportRun } from "./run-journal";
 import { runSkill } from "./runner";
@@ -63,6 +64,9 @@ function toPassport(a: AgentDefinition): Record<string, unknown> {
     ...(a.kbPages !== undefined ? { kbPages: a.kbPages } : {}),
     ...(a.mission !== undefined ? { mission: a.mission } : {}),
     ...(a.nonGoals !== undefined ? { nonGoals: a.nonGoals } : {}),
+    // Хуки тоже едут в базу: агенты грузятся ИЗ базы, и без переноса хук
+    // паспорта существовал бы только в файле — то есть нигде.
+    ...(a.hooks !== undefined ? { hooks: a.hooks } : {}),
   };
 }
 
@@ -81,6 +85,7 @@ function fromCore(row: {
   breakGlass: unknown;
   ideaChannels: unknown;
   kbPages?: unknown;
+  hooks?: unknown;
   mission?: string | null;
   nonGoals?: unknown;
 }): AgentDefinition {
@@ -115,6 +120,7 @@ function fromCore(row: {
   const nonGoals = Array.isArray(row.nonGoals)
     ? (row.nonGoals as unknown[]).filter((s): s is string => typeof s === "string" && s.trim().length > 0)
     : [];
+  const hooks = hooksFromCore(row.hooks);
   const onExceeded =
     row.budgetOnExceeded === "pause" ||
     row.budgetOnExceeded === "downgrade" ||
@@ -138,6 +144,7 @@ function fromCore(row: {
     ...(kbPages.length ? { kbPages } : {}),
     ...(typeof row.mission === "string" && row.mission.trim() ? { mission: row.mission.trim() } : {}),
     ...(nonGoals.length ? { nonGoals } : {}),
+    ...(hooks !== undefined ? { hooks } : {}),
     dir: "(из базы)",
   };
 }

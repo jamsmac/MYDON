@@ -3,6 +3,9 @@ import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { AutonomyTier } from "@mydon/shared";
 import { asBudgetStrategy, type BudgetStrategy } from "./budget";
+import { parseHooks, type AgentHooks } from "./hooks";
+
+export type { AgentHooks } from "./hooks";
 
 /** Расписание запуска навыка агента. */
 export interface AgentSchedule {
@@ -40,6 +43,8 @@ export interface AgentDefinition {
   mission?: string;
   /** Чего агент НЕ делает (паспорт: non_goals). */
   nonGoals?: string[];
+  /** Хуки прогона (паспорт: hooks) — проверки владельца вокруг навыка (волна R). */
+  hooks?: AgentHooks;
   dir: string;
 }
 
@@ -113,6 +118,14 @@ export function loadAgents(agentsDir: string): {
         ? (raw.kb_pages as unknown[]).map((s) => (typeof s === "string" ? s.split("#")[0].trim() : s)).filter(isKbPagePath)
         : [];
 
+      // Замечания к хукам — предупреждение, а не ошибка паспорта: паспорт
+      // остаётся валидным, а блокировать прогон будет рантайм (unknown-хук).
+      // Полный разбор с текстами замечаний — в check-passports.
+      const parsedHooks = parseHooks(raw.hooks);
+      for (const problem of parsedHooks.problems) {
+        console.warn(`[registry] ${name}: ${problem}`);
+      }
+
       const nonGoals: string[] = Array.isArray(raw.non_goals)
         ? (raw.non_goals as unknown[]).filter((s): s is string => typeof s === "string" && s.trim().length > 0)
         : [];
@@ -133,6 +146,9 @@ export function loadAgents(agentsDir: string): {
         ...(kbPages.length ? { kbPages } : {}),
         ...(typeof raw.mission === "string" && raw.mission.trim() ? { mission: raw.mission.trim() } : {}),
         ...(nonGoals.length ? { nonGoals } : {}),
+        ...(parsedHooks.hooks.preRun.length || parsedHooks.hooks.postRun.length
+          ? { hooks: parsedHooks.hooks }
+          : {}),
         dir,
       });
     } catch (err) {

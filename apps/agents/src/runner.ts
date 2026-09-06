@@ -12,6 +12,7 @@ import type {
   AgentsCoreClient,
 } from "./core-client";
 import { EXECUTORS } from "./executors";
+import { runPostRunHooks, runPreRunHooks } from "./hooks";
 import { checkLimit, dailyCap, startOfTashkentDay } from "./limits";
 import { NO_SIGNAL_SIGNATURE, matchesSignature, signature } from "./memory";
 import { effectiveActionTier, explainPolicy, requiresApproval } from "./policy";
@@ -111,8 +112,10 @@ function taskResultNote(proposal: { action: string; facts: Record<string, unknow
  * При текущем пороге (T0 — «всё вручную», ответ владельца Ф6) предложение
  * всегда идёт через согласование. Исполнение появится, когда владелец
  * поднимет порог.
+ *
+ * Хуки паспорта вокруг этого тела — в обёртке `runSkill` ниже.
  */
-export async function runSkill(
+async function runSkillInner(
   agent: AgentDefinition,
   skill: string,
   core: AgentsCoreClient,
@@ -460,4 +463,59 @@ export async function runSkill(
     ...(proposal.next && proposal.next.length ? { next: proposal.next } : {}),
     reason: approvalReason,
   };
+}
+
+/**
+ * Прогон навыка с хуками паспорта (волна R, Р-4): pre_run → навык → post_run.
+ *
+ * Хуки — правила ЭТОГО агента, а не движка, поэтому они снаружи тела: встроенные
+ * проверки (статус, бюджет, потолок, дельта-память) остаются внутри и здесь не
+ * дублируются. pre_run спрашиваем только у активного агента — неактивный и так
+ * не запускается, и незачем дёргать журнал ради заведомого пропуска.
+ */
+export async function runSkill(
+  agent: AgentDefinition,
+  skill: string,
+  core: AgentsCoreClient,
+  threshold: AutonomyTier,
+  skillFloor?: AutonomyTier,
+  invocation?: SkillRunContext,
+): Promise<RunResult> {
+  const hooks = agent.hooks;
+  if (hooks && hooks.preRun.length > 0 && agent.status === "active") {
+    const verdict = await runPreRunHooks(hooks, {
+      ...(invocation?.trigger ? { trigger: invocation.trigger } : {}),
+      now: new Date(),
+      core,
+    });
+    if (!verdict.ok) {
+      const note = `Не запускал: ${verdict.reason}.`;
+      return {
+        agent: agent.name,
+        skill,
+        outcome: "skipped",
+        skipReason: "hook_blocked",
+        hook: verdict.hook,
+        reason: verdict.reason,
+        // Core не знает kind hook_blocked (§7 спеки): task-режим коммитит как
+        // no_signal с причиной хука в примечании. В журнале прогона исход
+        // остаётся точным — hook_blocked + имя хука.
+        ...(invocation?.task ? { commit: { outcome: "no_signal", note } } : {}),
+      };
+    }
+  }
+
+  const result = await runSkillInner(agent, skill, core, threshold, skillFloor, invocation);
+
+  if (hooks && hooks.postRun.length > 0) {
+    // Разбор до записи в журнал: заметка едет в той же строке прогона (review).
+    const { review } = await runPostRunHooks(hooks, {
+      agent: agent.name,
+      skill,
+      result: { outcome: result.outcome, skipReason: result.skipReason ?? null, reason: result.reason },
+      core,
+    });
+    return review === undefined ? result : { ...result, review };
+  }
+  return result;
 }

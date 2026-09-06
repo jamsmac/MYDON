@@ -5,12 +5,17 @@
  *  • расписание зовёт несуществующий навык — задание не выполнится, и никто не заметит;
  *  • неизвестный статус — движок не поймёт, запускать агента или нет;
  *  • нет mission/non_goals — границы роли не заданы, агент выйдет за них,
- *    хотя в шаблоне _template эти поля есть, то есть это принятый стандарт.
+ *    хотя в шаблоне _template эти поля есть, то есть это принятый стандарт;
+ *  • битый или чужой `hooks` — рантайм фейлится закрыто и БЛОКИРУЕТ навык
+ *    (волна R, Р-4), поэтому опечатку в хуке нужно увидеть здесь, а не в
+ *    журнале пропущенных прогонов.
  *
  * Запуск: pnpm --filter @mydon/agents check:passports
  */
 import fs from "node:fs";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
+import { parseHooks } from "./hooks";
 import { isKbPagePath } from "./registry";
 import { loadSkillMeta } from "./skill-loader";
 import { hasCodeSkill } from "./skills";
@@ -91,7 +96,17 @@ export interface PassportCheck {
   problems: string[];
 }
 
-export function checkPassport(name: string, cfg: Passport, skills: string[]): PassportCheck {
+/**
+ * `hooksRaw` идёт отдельным параметром, а не полем `Passport`: местный разбор
+ * YAML умышленно минимален и вложенные списки (`hooks.pre_run[]`) не читает —
+ * их отдаёт вызывающий через настоящий `parseYaml`.
+ */
+export function checkPassport(
+  name: string,
+  cfg: Passport,
+  skills: string[],
+  hooksRaw?: unknown,
+): PassportCheck {
   const problems: string[] = [];
 
   if (!cfg.business) problems.push("нет направления");
@@ -102,6 +117,8 @@ export function checkPassport(name: string, cfg: Passport, skills: string[]): Pa
 
   if (!cfg.mission) problems.push("нет mission — границы роли не заданы");
   if (!Array.isArray(cfg.non_goals) || cfg.non_goals.length === 0) problems.push("нет non_goals");
+
+  problems.push(...parseHooks(hooksRaw).problems);
 
   for (const s of cfg.schedule) {
     if (!s.skill) {
@@ -152,6 +169,19 @@ export function checkLinks(
   return problems;
 }
 
+/**
+ * `hooks:` из файла настоящим YAML-разбором. Битый YAML не роняет проверку:
+ * иначе одна опечатка прятала бы замечания по ВСЕМ остальным паспортам.
+ */
+function hooksFromYaml(text: string): { raw: unknown; problem?: string } {
+  try {
+    const doc = parseYaml(text) as Record<string, unknown> | null;
+    return { raw: doc?.hooks };
+  } catch (err) {
+    return { raw: undefined, problem: `hooks: YAML не читается (${err instanceof Error ? err.message : String(err)})` };
+  }
+}
+
 export function checkAll(dir: string): PassportCheck[] {
   // Замечания к frontmatter навыков (нет тира, name ≠ файла и т.п.) — по
   // каталогу агента. Раньше рантайм молча выбрасывал битый frontmatter; теперь
@@ -182,8 +212,11 @@ export function checkAll(dir: string): PassportCheck[] {
       const skills = fs.existsSync(skillsDir)
         ? fs.readdirSync(skillsDir).map((f) => f.replace(/\.md$/, ""))
         : [];
-      const cfg = parsePassport(fs.readFileSync(cfgPath, "utf8"));
-      const check = checkPassport(name, cfg, skills);
+      const text = fs.readFileSync(cfgPath, "utf8");
+      const cfg = parsePassport(text);
+      const yaml = hooksFromYaml(text);
+      const check = checkPassport(name, cfg, skills, yaml.raw);
+      if (yaml.problem !== undefined) check.problems.push(yaml.problem);
       check.problems.push(...(skillProblems.get(name) ?? []));
       check.problems.push(...checkLinks(cfg, metasByAgent.get(name) ?? [], sharedDir, hasCodeSkill));
       return check;
