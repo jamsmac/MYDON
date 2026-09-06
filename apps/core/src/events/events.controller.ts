@@ -40,21 +40,27 @@ export class CreateEventDto {
   clientKey?: string;
 }
 
-/** Потолок и умолчание страницы ленты — те же рамки, что у журнала рутин. */
+/**
+ * Потолок страницы ленты — те же рамки, что у журнала рутин.
+ *
+ * Умолчание НЕ трогаем: без `?limit=` лента отдаёт столько же, сколько до
+ * волны A1 (`EventsService.list`, 100). Новому клиенту (MCP) нужна страница
+ * поменьше — он присылает pageSize явно; менять умолчание значило бы урезать
+ * выборку существующему читателю (`CoreClient.listEvents` → `memory-rag`)
+ * ради чужого удобства, причём молча.
+ */
 const LIST_MAX = 200;
-const LIST_DEFAULT = 50;
 
 /**
- * Фильтр событий. Раньше ?since=abc уходил в new Date() и падал
- * с 500 (Invalid time value) уже на уровне драйвера.
+ * Фильтр событий для счётчика и «самого свежего»: ровно те поля, которые эти
+ * маршруты ДЕЙСТВИТЕЛЬНО учитывают.
  *
- * ДТО общее для трёх маршрутов, но рамки выборки (`typePrefix`, `until`,
- * `order`, `limit`) читает ТОЛЬКО лента: `count` и `latest` берут отсюда
- * `type`, `source`, `since`. До волны A1 остальные поля отбивались пайпом как
- * незнакомые на всех трёх — теперь на счётчике и «самом свежем» они молча
- * ничего не меняют; расширять их фильтр — отдельная задача, не эта.
+ * Отдельный класс, а не общий с лентой: с общим `?typePrefix=` на
+ * `/events/count` прошёл бы валидацию и молча не сузил бы счёт — ответ
+ * выглядел бы здоровым и был бы неверным. Молчаливое игнорирование хуже
+ * прежней 400: у вызывающего не остаётся ни одной подсказки.
  */
-export class ListEventsDto {
+export class FilterEventsDto {
   @IsOptional()
   @IsString()
   @MaxLength(128)
@@ -65,6 +71,20 @@ export class ListEventsDto {
   @MaxLength(128)
   source?: string;
 
+  @IsOptional()
+  @IsISO8601()
+  since?: string;
+}
+
+/**
+ * Фильтр ленты. Раньше ?since=abc уходил в new Date() и падал
+ * с 500 (Invalid time value) уже на уровне драйвера.
+ *
+ * Наследует отбор счётчика и добавляет рамки выборки, которые есть только у
+ * ленты. Поля объявлены в одном месте: разъехавшись, `?source=` снова начал бы
+ * значить разное на соседних маршрутах.
+ */
+export class ListEventsDto extends FilterEventsDto {
   /**
    * Префикс типа: `agent.memory:` перечисляет память агента одним `like`,
    * а не перебором всех типов на стороне вызывающего.
@@ -73,10 +93,6 @@ export class ListEventsDto {
   @IsString()
   @MaxLength(128)
   typePrefix?: string;
-
-  @IsOptional()
-  @IsISO8601()
-  since?: string;
 
   @IsOptional()
   @IsISO8601()
@@ -98,11 +114,12 @@ export class ListEventsDto {
  * Предел страницы у границы, а не только в ДТО: пайп отобьёт мусор из строки
  * запроса, но контроллер не должен быть без него беззащитным — NaN уехал бы
  * в `limit $1` и вернул 500 от драйвера вместо ленты. То же правило, что в
- * `RunsService.list`: бессмысленное значение считаем «предел не задан».
+ * `RunsService.list`: бессмысленное значение считаем «предел не задан», и
+ * тогда предел вообще не уходит в сервис — умолчание остаётся его.
  */
-function pageLimit(limit?: number): number {
+function pageLimit(limit?: number): number | undefined {
   const asked = typeof limit === "number" && Number.isFinite(limit) ? Math.trunc(limit) : 0;
-  return asked > 0 ? Math.min(asked, LIST_MAX) : LIST_DEFAULT;
+  return asked > 0 ? Math.min(asked, LIST_MAX) : undefined;
 }
 
 @Controller("events")
@@ -131,6 +148,7 @@ export class EventsController {
    */
   @Get()
   list(@Query() filter: ListEventsDto) {
+    const pageSize = pageLimit(filter.limit);
     return this.events.list({
       ...(filter.source ? { source: filter.source } : {}),
       ...(filter.type ? { type: filter.type } : {}),
@@ -138,13 +156,13 @@ export class EventsController {
       ...(filter.since ? { since: new Date(filter.since) } : {}),
       ...(filter.until ? { until: new Date(filter.until) } : {}),
       order: filter.order ?? "desc",
-      limit: pageLimit(filter.limit),
+      ...(pageSize !== undefined ? { limit: pageSize } : {}),
     });
   }
 
   /** Счётчик событий под фильтр (источник/тип/с даты). */
   @Get("count")
-  async count(@Query() filter: ListEventsDto) {
+  async count(@Query() filter: FilterEventsDto) {
     const count = await this.events.count({
       ...(filter.source ? { source: filter.source } : {}),
       ...(filter.type ? { type: filter.type } : {}),
@@ -155,7 +173,7 @@ export class EventsController {
 
   /** Самое свежее событие под фильтр (источник/тип) — для дельта-памяти агента. */
   @Get("latest")
-  async latest(@Query() filter: ListEventsDto) {
+  async latest(@Query() filter: FilterEventsDto) {
     const row = await this.events.latest({
       ...(filter.source ? { source: filter.source } : {}),
       ...(filter.type ? { type: filter.type } : {}),
