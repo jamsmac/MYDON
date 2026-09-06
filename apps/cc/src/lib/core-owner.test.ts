@@ -68,9 +68,30 @@ describe("core.ts — owner-токен только для owner-действи�
     const cap = stubFetch();
     await core.invitePerson("p1", ["operator"]);
     await core.revokePerson("p1");
-    await core.updateAgent("scout", { autonomyDefault: "T2" });
+    // Тир меняется ТОЛЬКО этим маршрутом: общий patch карточки Core
+    // сознательно отбрасывает `autonomyDefault` (дефект Р-7 — панель слала
+    // его туда и писала «Сохранено» над неизменённым тиром).
+    await core.setAgentAutonomy("scout", "T2");
     await core.saveSystemConfig({ key: "AGENT_AUTONOMY_MAX", value: "T2" });
+    expect(cap.urls[2]).toContain("/agents/scout/autonomy");
     for (const h of cap.headers) expect(h["x-owner-action-token"]).toBe("owner-secret-token");
+  });
+
+  /**
+   * Блоки карточки агента (волна A2, R-A2-5) читают журнал прогонов и память
+   * через классовые гарды Core (`RoutinesTokenGuard`, `EventsTokenGuard`),
+   * которые — в отличие от глобального `ServiceTokenGuard` — GET анонимно НЕ
+   * пропускают. Обычный `get()` токена не несёт: без него блоки получили бы
+   * 401 вместо данных, и карточка объясняла бы это владельцу как поломку.
+   */
+  it("прогоны и память агента читаются с сервисным токеном (гарды на GET)", async () => {
+    mocks.resolveOwner.mockResolvedValue({ isOwner: false, login: null });
+    const cap = stubFetch();
+    await core.agentRuns("vendhub-ops");
+    await core.agentMemory("vendhub-ops");
+    expect(cap.urls[0]).toContain("/routines/runs?agent=vendhub-ops");
+    expect(cap.urls[1]).toContain("/events?source=agent%3Avendhub-ops");
+    for (const h of cap.headers) expect(h["x-service-token"]).toBe("shared-service-token");
   });
 
   it("saveSystemConfig и saveLlmProfile владельцем несут owner-токен (админ-поверхность /system)", async () => {

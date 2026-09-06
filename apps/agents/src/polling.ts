@@ -1,3 +1,5 @@
+import { agentWorkPaused } from "@mydon/shared";
+
 /** Без env задачи агентов проверяются раз в пять минут. */
 export const DEFAULT_AGENT_TASK_INTERVAL_MS = 5 * 60_000;
 
@@ -16,10 +18,12 @@ export interface AgentPauseEnv {
  * Паузы fail-closed: только точное `0` разрешает соответствующий вид работы.
  * Так отсутствие или мусор в env не запускают агентов до того, как Core успел
  * отдать безопасный fallback из панели.
+ *
+ * ПРАВИЛО ОБЩЕЕ С CORE (`@mydon/shared`, круг починок C-6): те же тумблеры
+ * читают `GET /agents/status` и доска рутин, и раньше они сравнивали значение
+ * БЕЗ `trim()` — `" 0 "` давал «пауза» на экране при работающих агентах.
  */
-function pauseEnabled(raw: string | undefined): boolean {
-  return raw?.trim() !== "0";
-}
+const pauseEnabled = agentWorkPaused;
 
 /** Управляет только cron-навыками из паспортов агентов. */
 export function agentSchedulesPaused(env: AgentPauseEnv = process.env): boolean {

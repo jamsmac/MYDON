@@ -21,6 +21,7 @@ import {
   notesToAck,
   pendingNotes,
 } from "./briefing";
+import { heartbeatEvent } from "./heartbeat";
 import { deliverWeeklyDigest } from "./weekly-delivery";
 import { buildDigest, digestKey } from "./staff-digest";
 import { CoreClient, type PersonRow } from "./core-client";
@@ -43,7 +44,8 @@ import { handleAfterPhoto } from "./field-work";
 import { handlePartCountPhoto } from "./part-count";
 import { summarizeActions } from "./owner-actions";
 import { asStaffMode } from "./as-staff";
-import { InvalidTokenError, TelegramApi, TelegramError, type TgUpdate } from "./telegram";
+import { pollOnce } from "./poll";
+import { TelegramApi, TelegramError, type TgUpdate } from "./telegram";
 import { доставитьНазначения } from "./tasks-push";
 import { разослатьПодтверждения } from "./task-confirm";
 
@@ -889,6 +891,26 @@ async function main(): Promise<void> {
   }, notifyEveryMs).unref();
 
   /**
+   * Heartbeat (Р-5, круг починок A-1): единственный сигнал в Core, что
+   * Telegram-поллер жив — offset опроса живёт только в памяти процесса
+   * (`telegram.ts`).
+   *
+   * ЗОВЁТСЯ ИЗ ЦИКЛА ОПРОСА, А НЕ ПО ТАЙМЕРУ. Прежний
+   * `setInterval(...).unref()` доказывал живой ПРОЦЕСС, а не живой поллер:
+   * процесс живёт и когда опрос навсегда ушёл в `idle()` по
+   * `InvalidTokenError`, — и панель писала «бот отвечает» над мёртвым ботом.
+   * Дедуп по пятиминутному бакету (`heartbeatEvent`) делает частый вызов
+   * идемпотентным, поэтому свой таймер больше не нужен. Отказ отправки НЕ
+   * должен ронять бота — heartbeat диагностика, а не работа.
+   */
+  const sendHeartbeat = (): void => {
+    const event = heartbeatEvent(new Date());
+    void deps.core
+      .recordEvent(event.type, event.payload, event.source, event.clientKey)
+      .catch((err: unknown) => console.warn("Heartbeat не отправлен:", err));
+  };
+
+  /**
    * Один update из пачки.
    *
    * Ошибку не выпускаем в цикл опроса: offset сдвигается уже при ПОЛУЧЕНИИ
@@ -1127,27 +1149,18 @@ ${DECIDED_LABEL[parsed.decision]}`,
     }
   };
 
-  // Опрос обновлений
+  // Опрос обновлений. Один проход — `pollOnce` (там же и heartbeat: сигнал
+  // обязан доказывать проход опроса, а не жизнь процесса).
   for (;;) {
-    try {
-      const updates = await tg.getUpdates();
-      for (const u of updates) {
-        try {
-          await processUpdate(u);
-        } catch (err) {
-          console.error("Сообщение из пачки не обработано (пачка продолжена):", err);
-        }
-      }
-    } catch (err) {
-      if (err instanceof InvalidTokenError) {
-        // Неверный токен не «пройдёт сам»: вместо бесконечного потока одинаковых
-        // ошибок говорим один раз понятно и ждём, пока значение исправят.
-        console.error(`\nБОТ НЕ ЗАПУСТИЛСЯ: ${err.message}\n`);
-        await idle();
-      }
-      console.error("Ошибка опроса Telegram:", err);
-      await new Promise((r) => setTimeout(r, 5_000));
-    }
+    const исход = await pollOnce({
+      getUpdates: () => tg.getUpdates(),
+      processUpdate,
+      onPass: sendHeartbeat,
+    });
+    // Токен неверен — работать нечем и не станет: ждём правки значения. Сигнала
+    // «жив» отсюда не уходит, и панель приложений через 25 минут скажет об этом.
+    if (исход === "invalid_token") await idle();
+    if (исход === "failed") await new Promise((r) => setTimeout(r, 5_000));
   }
 }
 

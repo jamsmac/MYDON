@@ -1,0 +1,417 @@
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { eq, sql } from "drizzle-orm";
+import { outboxDelivery } from "@mydon/db";
+import { BOT_HEARTBEAT_INTERVAL_MS, BOT_HEARTBEAT_SOURCE, BOT_HEARTBEAT_TYPE, TZ } from "@mydon/shared";
+import { DB, type Db } from "../db/db.module";
+import { EventsService } from "../events/events.service";
+import { LlmLedgerService } from "../llm-ledger/llm-ledger.service";
+import { HEALTH_RUNS_DEFAULT, OurvendHealthService } from "../ourvend/ourvend-health.service";
+import { rawStaleHours } from "../ourvend/sync-runs";
+import { disabledReasonText, nextOccurrences } from "../routines/board";
+import { RunsService } from "../routines/runs.service";
+import {
+  FACES,
+  rowFromHeartbeat,
+  rowFromLlm,
+  rowFromMonitor,
+  rowFromOurvendAccounting,
+  rowFromOurvendSync,
+  rowFromOutbox,
+  splitSections,
+  unavailableRow,
+  type FaceMeta,
+  type HealthRow,
+  type MonitorRunLite,
+  type MonitorSnapshotLite,
+} from "./apps-health";
+
+/**
+ * Сборка здоровья приложений (волна A2, R-A2-2; решение Р-6).
+ *
+ * ОДНА ДВЕРЬ ДЛЯ ПАНЕЛИ. До этого среза здоровье было размазано по шести
+ * адресам (`/ourvend/health`, `/llm-ledger/monitoring`, снимок расписаний,
+ * журнал прогонов, у outbox не было GET вовсе, у бота — ничего), и панель
+ * либо ходила бы по всем, либо повторяла бы правила оценки у себя. Правила
+ * живут в `apps-health.ts` чистыми функциями, здесь — только выборки.
+ *
+ * КАЖДЫЙ ИСТОЧНИК В СВОЁМ `catch`. Витрина, которая гаснет целиком из-за
+ * одной из девяти строк, хуже витрины, которая честно говорит, какая строка не
+ * посчиталась (тот же приём, что у паритета внутри `OurvendHealthService`).
+ * Недоступность источника даёт ЕГО строке «не оценить» с причиной, а не 500 на
+ * весь ответ.
+ */
+
+/** Единственное назначение доставок сегодня; новое потребует своего лица. */
+const NOTION_DESTINATION = "notion-report";
+
+/**
+ * Мониторы, у которых нет своего разбора: строка целиком из снимка и журнала.
+ * Ключ лица здесь совпадает с именем монитора в снимке расписаний.
+ */
+const ПРОСТЫЕ_МОНИТОРЫ: readonly FaceMeta[] = [
+  FACES.fx,
+  FACES.coffee,
+  FACES.maintenance,
+  FACES.globerent,
+];
+
+export interface AppsHealthView {
+  tz: typeof TZ;
+  now: string;
+  outside: HealthRow[];
+  internal: HealthRow[];
+}
+
+/**
+ * Итог чтения источника: значение либо ЯРЛЫК того, что не прочиталось.
+ *
+ * Именно ярлык, а не текст исключения: сообщение драйвера несёт хост и
+ * пользователя базы (постановление ветки). Маршрут с тех пор закрыт токеном
+ * (`ReadTokenGuard`, круг починок C-1), но ярлык остаётся: сервисный токен
+ * держат ещё бот и агенты, а строка подключения к базе Core им ни к чему.
+ */
+type Чтение<T> = { ok: true; value: T } | { ok: false; источник: string };
+
+interface МониторСнимка extends MonitorSnapshotLite {
+  cron: string;
+}
+
+interface СчётДоставок {
+  counts: Record<string, number>;
+  oldestPendingAt: Date | null;
+  lastSentAt: Date | null;
+  lastSkippedAt: Date | null;
+  lastFailedAt: Date | null;
+}
+
+@Injectable()
+export class AppsHealthService {
+  private readonly logger = new Logger(AppsHealthService.name);
+
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly runs: RunsService,
+    private readonly ourvend: OurvendHealthService,
+    private readonly llm: LlmLedgerService,
+    private readonly events: EventsService,
+  ) {}
+
+  /**
+   * `now` — параметр, а не `Date.now()` внутри: от него считаются молчание
+   * монитора и возраст heartbeat, и тест обязан уметь задать момент.
+   */
+  async health(now = new Date()): Promise<AppsHealthView> {
+    // Всё параллельно: шесть независимых чтений, и последовательный `await`
+    // добавил бы задержку ровно там, где владелец обновляет страницу.
+    const [расписания, прогоны, ourvend, ledger, доставки, сигнал] = await Promise.all([
+      this.попытка("снимок расписаний", () => this.runs.snapshot()),
+      this.попытка("журнал прогонов", () => this.runs.lastPerJob()),
+      // Тот же размер выборки, что у `/ourvend/health`: отчёт кеширован на
+      // минуту по ключу «прогоны|минута», и своё число завело бы второй кеш.
+      this.попытка("отчёт OurVend", () => this.ourvend.health(HEALTH_RUNS_DEFAULT, now)),
+      this.попытка("монитор ledger", () => this.llm.monitoring(now)),
+      this.попытка("очередь доставок", () => this.счётДоставок()),
+      this.попытка("heartbeat бота", () =>
+        this.events.latest({ source: BOT_HEARTBEAT_SOURCE, type: BOT_HEARTBEAT_TYPE }),
+      ),
+    ]);
+
+    const мониторы = снимокМониторов(расписания);
+    // Снимок опубликован хоть раз: отличает «слой агентов не запущен» от
+    // «агенты работают, но про этот монитор не сообщали».
+    const снимокЕсть = расписания.ok && расписания.value !== null;
+    const последние = последниеПрогоны(прогоны);
+    const базаОтказала = отказ(расписания) ?? отказ(прогоны);
+
+    const строкаМонитора = (face: FaceMeta): HealthRow => {
+      if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
+      const снимок = мониторы.get(face.key) ?? null;
+      const lastRun = последние.get(face.key) ?? null;
+      return rowFromMonitor(face, {
+        snapshotPublished: снимокЕсть,
+        monitor: снимок,
+        lastRun,
+        silentAfter: молчитПосле(снимок, lastRun),
+        now,
+      });
+    };
+
+    const rows: HealthRow[] = [
+      this.строкаСбора(мониторы, последние, ourvend, базаОтказала, снимокЕсть, now),
+      this.строкаУчёта(мониторы, последние, ourvend, базаОтказала, снимокЕсть, now),
+      ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => строкаМонитора(face)),
+      доставки.ok
+        ? rowFromOutbox(FACES.notion, { ...доставки.value, now })
+        : unavailableRow(FACES.notion, доставки.источник),
+      сигнал.ok
+        ? rowFromHeartbeat(FACES.bot, {
+            lastAt: сигнал.value?.occurredAt ?? null,
+            intervalMs: BOT_HEARTBEAT_INTERVAL_MS,
+            now,
+          })
+        : unavailableRow(FACES.bot, сигнал.источник),
+      ledger.ok
+        ? rowFromLlm(FACES.llm, { monitoring: ledgerСловами(ledger.value), now })
+        : unavailableRow(FACES.llm, ledger.источник),
+      // Монитор, которого нет в реестре лиц: молча пропасть с экрана он не
+      // должен — строку получает, но во «внутренних» (splitSections), потому
+      // что про связь с чужой системой у него ничего не известно.
+      ...[...мониторы.keys()]
+        .filter((name) => !ИЗВЕСТНЫЕ_МОНИТОРЫ.has(name))
+        .sort()
+        // Имя монитора приезжает из тела `PUT /routines/snapshot`, поэтому в
+        // ссылку оно уходит закодированным, а не подклеенным как есть.
+        .map((name) =>
+          строкаМонитора({
+            key: name,
+            title: name,
+            href: `/flows?agent=system&skill=${encodeURIComponent(name)}`,
+          }),
+        ),
+    ];
+
+    const { outside, internal } = splitSections(rows);
+    return { tz: TZ, now: now.toISOString(), outside, internal };
+  }
+
+  /** Сбор OurVend: снимок расписаний + журнал прогонов + отчёт `/ourvend/health`. */
+  private строкаСбора(
+    мониторы: Map<string, МониторСнимка>,
+    последние: Map<string, MonitorRunLite>,
+    ourvend: Чтение<Awaited<ReturnType<OurvendHealthService["health"]>>>,
+    базаОтказала: string | null,
+    снимокЕсть: boolean,
+    now: Date,
+  ): HealthRow {
+    const face = FACES.ourvendSync;
+    if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
+    if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
+    const h = ourvend.value;
+    return rowFromOurvendSync(face, {
+      snapshotPublished: снимокЕсть,
+      monitor: мониторы.get(face.key) ?? null,
+      lastRun: последние.get(face.key) ?? null,
+      health: {
+        runs: h.runs.length,
+        failedStreak: h.failedStreak,
+        lastSuccessAt: h.lastSuccessAt,
+        // СЫРЫЕ часы — той же функцией, по которой будит владельца сторож
+        // застоя. Поле `staleHours` в ответе округлено до 0,1 ч ДЛЯ ПОКАЗА, и
+        // сравнение по нему сдвинуло бы границу порога.
+        staleHoursRaw: rawStaleHours(h.lastSuccessAt, now),
+        staleHoursShown: h.staleHours,
+        staleThresholdH: h.staleThresholdH,
+      },
+      now,
+    });
+  }
+
+  /** Учётный снимок OurVend и сверка с зеркалом — из того же отчёта. */
+  private строкаУчёта(
+    мониторы: Map<string, МониторСнимка>,
+    последние: Map<string, MonitorRunLite>,
+    ourvend: Чтение<Awaited<ReturnType<OurvendHealthService["health"]>>>,
+    базаОтказала: string | null,
+    снимокЕсть: boolean,
+    now: Date,
+  ): HealthRow {
+    const face = FACES.ourvendAccounting;
+    if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
+    if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
+    const h = ourvend.value;
+    const снимок = мониторы.get(face.key) ?? null;
+    const lastRun = последние.get(face.key) ?? null;
+    return rowFromOurvendAccounting(face, {
+      snapshotPublished: снимокЕсть,
+      monitor: снимок,
+      lastRun,
+      // Проверка молчания — ТА ЖЕ, что у обычного монитора (круг починок, C-5).
+      // Своего сторожа у этой строки не было: `snapshotStale` вне режима `own`
+      // жёстко `false`, и мёртвый монитор учёта выглядел зелёным.
+      silentAfter: молчитПосле(снимок, lastRun),
+      health: {
+        snapshotStale: h.snapshotStale,
+        salesLagShownH: h.salesLagH,
+        parity: {
+          mode: h.parity.mode,
+          checked: h.parity.checked,
+          mismatches: h.parity.mismatches,
+          stockOk: h.parity.stockOk,
+          stockChecked: h.parity.stockChecked,
+        },
+      },
+      now,
+    });
+  }
+
+  /**
+   * Счётчики очереди доставок — ОДНИМ запросом со свернутой группировкой.
+   *
+   * Возраст самой старой неразобранной строки берём тут же (`min` по группе),
+   * а не вторым запросом: два раунда к одной таблице ради одного поля.
+   *
+   * И `max(completed_at)` ПО КАЖДОМУ ИСХОДУ (круг починок, A-2): по одним
+   * счётчикам «в таблице есть `skipped`» и «в таблице есть `dead`» вердикт
+   * врал в обе стороны — таблица бесконечна, ретенция её не чистит. Правило
+   * строки — «случилось ли это после последнего успеха», и порядок исходов
+   * стоит ровно столько же, сколько сами числа.
+   */
+  private async счётДоставок(): Promise<СчётДоставок> {
+    const rows = await this.db
+      .select({
+        status: outboxDelivery.status,
+        n: sql<number>`count(*)::int`,
+        oldest: sql<Date | string | null>`min(${outboxDelivery.createdAt})`,
+        newest: sql<Date | string | null>`max(${outboxDelivery.completedAt})`,
+      })
+      .from(outboxDelivery)
+      .where(eq(outboxDelivery.destination, NOTION_DESTINATION))
+      .groupBy(outboxDelivery.status);
+
+    const counts: Record<string, number> = {};
+    let oldestPendingAt: Date | null = null;
+    let lastSentAt: Date | null = null;
+    let lastSkippedAt: Date | null = null;
+    let lastFailedAt: Date | null = null;
+    for (const r of rows) {
+      counts[r.status] = Number(r.n);
+      const newest = дата(r.newest);
+      if (r.status === "sent") lastSentAt = позднее(lastSentAt, newest);
+      if (r.status === "skipped") lastSkippedAt = позднее(lastSkippedAt, newest);
+      // `dead` и `unknown` — один терминальный отказ на два статуса: в обоих
+      // случаях запись до Notion не дошла (у `unknown` — неизвестно, дошла ли).
+      if (r.status === "dead" || r.status === "unknown") lastFailedAt = позднее(lastFailedAt, newest);
+      if (r.status !== "pending" && r.status !== "dispatching") continue;
+      const at = дата(r.oldest);
+      // Битую дату отбрасываем здесь: ниже она ушла бы в `toISOString()` и
+      // уронила бы ВЕСЬ ответ на строке, которая всего лишь показывает возраст.
+      if (at === null) continue;
+      if (oldestPendingAt === null || at.getTime() < oldestPendingAt.getTime()) {
+        oldestPendingAt = at;
+      }
+    }
+    return { counts, oldestPendingAt, lastSentAt, lastSkippedAt, lastFailedAt };
+  }
+
+  /**
+   * Чтение источника под своим `catch`: отказ становится значением, а не
+   * исключением на весь ответ. В строку панели едет ЯРЛЫК прочитанного, а
+   * причина — только в журнал Core: маршрут читается анонимно, а сообщения
+   * драйвера несут хост и пользователя базы.
+   */
+  private async попытка<T>(что: string, fn: () => Promise<T>): Promise<Чтение<T>> {
+    try {
+      return { ok: true, value: await fn() };
+    } catch (e) {
+      const причина = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`${что} не прочитан: ${причина}`);
+      return { ok: false, источник: что };
+    }
+  }
+}
+
+/** Ключи мониторов, у которых есть своё лицо: остальные идут во «внутренние». */
+const ИЗВЕСТНЫЕ_МОНИТОРЫ = new Set<string>([
+  FACES.ourvendSync.key,
+  FACES.ourvendAccounting.key,
+  ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => face.key),
+]);
+
+/** Момент из СУБД в `Date`; битое или пустое значение — `null`, а не NaN-дата. */
+function дата(value: Date | string | null): Date | null {
+  const at = value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
+  return at !== null && Number.isFinite(at.getTime()) ? at : null;
+}
+
+/** Более поздний из двух моментов (любой может отсутствовать). */
+function позднее(a: Date | null, b: Date | null): Date | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return b.getTime() > a.getTime() ? b : a;
+}
+
+/** Ярлык не прочитавшегося источника (не текст исключения) либо `null`. */
+function отказ(чтение: Чтение<unknown>): string | null {
+  return чтение.ok ? null : чтение.источник;
+}
+
+/** Мониторы снимка по имени. Снимка нет вовсе — пустая карта: строки скажут об этом сами. */
+function снимокМониторов(
+  расписания: Чтение<Awaited<ReturnType<RunsService["snapshot"]>>>,
+): Map<string, МониторСнимка> {
+  const map = new Map<string, МониторСнимка>();
+  if (!расписания.ok || расписания.value === null) return map;
+  for (const m of расписания.value.payload.monitors) {
+    map.set(m.name, {
+      enabled: m.enabled,
+      cron: m.cron,
+      ...(m.reason ? { reason: m.reason } : {}),
+      // Объяснение выключения — из словаря доски рутин: один код причины,
+      // один текст на систему, и текст называет конкретную переменную .env.
+      ...(m.enabled ? {} : { disabledText: disabledReasonText(m.reason, m.name) }),
+    });
+  }
+  return map;
+}
+
+/** Последний прогон каждого монитора: `agent_run` c `agent_name = "system"`. */
+function последниеПрогоны(
+  прогоны: Чтение<Awaited<ReturnType<RunsService["lastPerJob"]>>>,
+): Map<string, MonitorRunLite> {
+  const map = new Map<string, MonitorRunLite>();
+  if (!прогоны.ok) return map;
+  for (const r of прогоны.value) {
+    if (r.agentName !== "system") continue;
+    map.set(r.skill, { at: r.startedAt, outcome: r.outcome, reason: r.reason });
+  }
+  return map;
+}
+
+/**
+ * Момент, после которого молчание монитора — уже не задержка тика: ВТОРОЙ
+ * плановый запуск после последнего прогона.
+ *
+ * ПОЧЕМУ ВТОРОЙ, А НЕ ПЕРВЫЙ. Первый пропуск бывает от рестарта контейнера и
+ * от задержки event loop — красить строку на нём значило бы приучить владельца
+ * к красному. Два пропуска подряд — то же правило, по которому выставлен порог
+ * застоя сбора (6 ч при кроне раз в 3 ч).
+ *
+ * `null` — расписание неизвестно или битое: судить о молчании нечем, и
+ * молчаливое «в порядке» здесь честнее выдуманного порога.
+ */
+function молчитПосле(снимок: МониторСнимка | null, lastRun: MonitorRunLite | null): Date | null {
+  if (снимок === null || !снимок.enabled || lastRun === null) return null;
+  // Разбор cron — общей функцией доски рутин (`nextOccurrences`): своя копия
+  // с другим часовым поясом или другим поведением на битом выражении дала бы
+  // «монитор молчит» там, где доска рисует ближайший запуск.
+  return nextOccurrences(снимок.cron, lastRun.at, 2)[1] ?? null;
+}
+
+/**
+ * Монитор ledger → поля, которые решают судьбу строки моделей.
+ *
+ * ЭКСПОРТИРУЕТСЯ РАДИ СЦЕНАРИЯ НА НАСТОЯЩЕМ SQL
+ * (`tools/pglite-checks/check-llm-latest.mjs`): вторая, «тестовая» копия этого
+ * перевода доказывала бы саму себя, а спорное место — именно стык снимка
+ * ledger со строкой.
+ */
+export function ledgerСловами(m: Awaited<ReturnType<LlmLedgerService["monitoring"]>>) {
+  return {
+    meteredEnabled: m.catalogPrice.meteredEnabled,
+    hasActivePrice: m.catalogPrice.hasActivePrice,
+    provider: m.catalogPrice.provider,
+    model: m.catalogPrice.model,
+    latestCompletedAt: m.latestCompleted?.completedAt ?? null,
+    // ИСХОД, А НЕ ТОЛЬКО ДАТА (круг починок, A-3): `latestCompleted` принимает
+    // и `failed`, и без статуса строка объявляла «вызовы проходят» над
+    // отозванным ключом провайдера.
+    latestCompletedStatus: m.latestCompleted?.status ?? null,
+    latestCompletedOutcome: m.latestCompleted?.outcome ?? null,
+    stuckCount: m.stuckReservations.count,
+    openCircuits: m.openCircuits.length,
+    failuresToday: m.failuresToday.count,
+    budgetRemainingUsd: m.budget.remainingUsd,
+    budgetCapUsd: m.budget.globalCapUsd,
+    ...(m.budget.configError !== undefined ? { configError: m.budget.configError } : {}),
+  };
+}

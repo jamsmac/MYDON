@@ -65,6 +65,10 @@ const REGISTRY: Record<string, { category: Category; reason: string }> = {
     category: "OWNER_TOKEN_GATE",
     reason: "лента task/entity-подзапросов гейтится excludePersonal (R-P5-7a)",
   },
+  "agents/agents.service.ts": {
+    category: "OWNER_TOKEN_GATE",
+    reason: "состояние агентов (GET /agents/status) читает задачи в работе; выборка гейтится excludePersonal → domain is distinct from 'personal' (R-A2-1)",
+  },
 
   // — Personal достижим только через явный domain-селектор → PersonalDomainGuard.
   "finance/finance.service.ts": {

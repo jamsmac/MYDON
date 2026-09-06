@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { core, CoreUnavailable, type Approval, type Briefing } from "../../lib/core";
+import { core, CoreUnavailable, type AgentsStatus, type Approval, type Briefing } from "../../lib/core";
 import { CoreDown } from "../../components/core-down";
+import { AgentGrid } from "../../components/agent-grid";
 import { ApprovalCard } from "../../components/approval-card";
 import { UpcomingRuns } from "../../components/upcoming-runs";
 import { coffeeImportDetails, stripPayload } from "../../lib/approval-details";
@@ -51,6 +52,22 @@ export default async function Main() {
     upcoming = [...groups.today, ...groups.tomorrow].slice(0, 5);
   } catch {
     upcoming = [];
+  }
+
+  // Кто из агентов сейчас работает, кто молчит и почему (R-A2-4). Считает Core:
+  // занятость выводится из задач и лизы claim, а системная пауза перекрывает её
+  // и говорит об этом. Отказ маршрута не должен уносить тревоги и очередь
+  // решений — но и ПРОПАСТЬ раздел не имеет права (круг починок, C-2): при 500
+  // или таймауте на «Главном» просто не было раздела «Агенты», и экран
+  // выглядел нормальным над не отвечающим Core. Причину показываем человеку —
+  // тем же способом, что карточка агента (`CoreUnavailable.detail`).
+  let agents: AgentsStatus | null = null;
+  let agentsError: string | null = null;
+  try {
+    agents = await core.agentsStatus();
+  } catch (err) {
+    agentsError =
+      err instanceof CoreUnavailable ? err.detail : err instanceof Error ? err.message : String(err);
   }
 
   const list = alarms(briefing);
@@ -138,6 +155,21 @@ export default async function Main() {
           Просрочек, простоев и незакрытых согласований не найдено.
         </div>
       )}
+
+      {/* «Агенты» — под тревогами (R-A2-4): сначала что горит, потом кто этим
+          занят. Двенадцать плиток на одном экране и отдельная строка про
+          системную паузу, если она включена. */}
+      {/* Три вида: строки, «Core не назвал ни одного агента» и «не прочиталось
+          с причиной». Пропажа раздела — не вариант: она читается как «агентов
+          нет» (то же правило, что у пропавшей строки в `apps-health.ts`). */}
+      <AgentGrid
+        rows={agents?.agents ?? []}
+        paused={agents?.paused ?? { schedules: false, tasks: false }}
+        // Давность состояния считаем от времени CORE: часы панели на границе
+        // суток подписали бы вчерашний прогон сегодняшним днём.
+        now={agents !== null ? new Date(agents.now) : new Date()}
+        {...(agentsError !== null ? { error: agentsError } : {})}
+      />
 
       {upcoming.length > 0 && (
         <div className="sect" style={{ marginTop: 16 }}>

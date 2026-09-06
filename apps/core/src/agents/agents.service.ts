@@ -5,11 +5,19 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { agent, agentSkillCatalog, auditLog, task } from "@mydon/db";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { agent, agentRun, agentSkillCatalog, auditLog, task } from "@mydon/db";
+import { TZ, agentWorkPaused } from "@mydon/shared";
+import { and, asc, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { DB, type Db } from "../db/db.module";
 import { settingValue } from "../system/settings";
+import { SystemService } from "../system/system.service";
 import { TasksService, type ModelEffort } from "../tasks/tasks.service";
+import {
+  computeAgentState,
+  type AgentState,
+  type ClaimedTaskLite,
+  type LastRunLite,
+} from "./agent-state";
 
 type AgentRow = typeof agent.$inferSelect;
 
@@ -76,6 +84,36 @@ export interface RunSkillInput {
   actor?: string;
 }
 
+/** Строка сетки агентов: состояние словами плюс то, из чего оно выведено (R-A2-1). */
+export interface AgentStatusRow {
+  name: string;
+  business: string;
+  /** Паспортный статус карточки — это НЕ занятость, показывается отдельно. */
+  passportStatus: string;
+  state: AgentState;
+  reason: string;
+  since?: string;
+  taskId?: string;
+  skill?: string;
+  lastRun?: { at: string; outcome: string; skipReason: string | null; reason: string };
+}
+
+export interface AgentsStatusView {
+  tz: typeof TZ;
+  now: string;
+  paused: { schedules: boolean; tasks: boolean };
+  agents: AgentStatusRow[];
+}
+
+/** Сырая строка «последнего прогона агента»: имена колонок приходят из SQL как есть. */
+interface AgentLastRunRaw {
+  agent_name: string;
+  started_at: Date | string;
+  outcome: string;
+  skip_reason: string | null;
+  reason: string;
+}
+
 /** Сырая строка «последнего запуска»: имена колонок приходят из SQL как есть. */
 interface LastRunRaw {
   owner_ref: string | null;
@@ -97,6 +135,11 @@ const RUN_TITLE_INPUT_LIMIT = 60;
 function isoOf(value: Date | string | null): string | null {
   if (value === null) return null;
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+/** Отметка времени из сырого SQL: postgres-js отдаёт `Date`, но чинить строку дешевле, чем упасть. */
+function dateOf(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
 }
 
 function stringList(value: unknown): string[] {
@@ -170,6 +213,13 @@ export class AgentsService {
     @Inject(DB) private readonly db: Db,
     /** Запуск навыка — обычная задача агенту, а не отдельный путь исполнения (R-SD-2). */
     private readonly tasks: TasksService,
+    /**
+     * Паузы системы для сетки состояний (Р-2): берём ДЕЙСТВУЮЩЕЕ значение
+     * тумблера (база > env > дефолт), как доска рутин. Читать строку из
+     * `system_config` напрямую нельзя — у `AGENTS_TASKS_PAUSED` дефолт «1», и
+     * отсутствие записи означало бы «работаем», хотя задачи выключены.
+     */
+    private readonly system: SystemService,
   ) {}
 
   /** Список агентов. По умолчанию без архивных — их не должно быть в работе. */
@@ -329,6 +379,153 @@ export class AgentsService {
       seeded += 1;
     }
     return { seeded, skipped };
+  }
+
+  /**
+   * Состояние каждого агента словами (R-A2-1, решения Р-1 и Р-2).
+   *
+   * Четыре чтения и ни одного запроса в цикле: карточки, задачи в работе,
+   * последние прогоны и тумблеры пауз. Правило состояния — в чистой функции
+   * `computeAgentState`, чтобы «работает ли он сейчас» считалось в одном месте,
+   * а не повторялось в панели третьей копией.
+   */
+  async statuses(options: { now?: Date; excludePersonal?: boolean } = {}): Promise<AgentsStatusView> {
+    const now = options.now ?? new Date();
+    const [rows, inFlight, lastRuns, config] = await Promise.all([
+      // Архивных здесь нет по построению: `list()` их отсекает. Правило архива
+      // в чистой функции — второй пояс на случай другого источника строк.
+      this.list(),
+      this.agentTasksInFlight(options.excludePersonal === true),
+      this.lastRunPerAgent(),
+      this.system.effective(),
+    ]);
+    // `value` — действующее значение тумблера; поле `effective` есть только у
+    // источника учёта, у пауз его нет (прецедент — `BoardService.board`).
+    //
+    // ПРАВИЛО ЧТЕНИЯ — ОБЩЕЕ (`agentWorkPaused` из `@mydon/shared`, C-6): те же
+    // тумблеры читают рантайм агентов и доска рутин. Раньше здесь стояло своё
+    // сравнение без `trim()`, и `" 0 "` рисовал паузу при работающих агентах.
+    // Отказ в сторону паузы (ключа нет / значение не «0») живёт внутри общей
+    // функции: у обоих тумблеров дефолт в `config-spec` равен «1».
+    const flag = (key: string): boolean => agentWorkPaused(config.find((i) => i.key === key)?.value);
+    const paused = { schedules: flag("AGENTS_SCHEDULES_PAUSED"), tasks: flag("AGENTS_TASKS_PAUSED") };
+
+    const agents = rows.map((row): AgentStatusRow => {
+      const lastRun = lastRuns.get(row.name) ?? null;
+      const verdict = computeAgentState({
+        passportStatus: row.status,
+        archivedAt: row.archivedAt,
+        claimedTasks: inFlight.get(row.name) ?? [],
+        lastRun,
+        paused,
+        now,
+        // Лиза одна на систему: своя константа здесь разошлась бы с предикатом
+        // `claimAgentRun`, и экран показывал бы работу там, где задача свободна.
+        leaseMs: TasksService.AGENT_RUN_LEASE_MS,
+      });
+      return {
+        name: row.name,
+        business: row.business,
+        passportStatus: row.status,
+        state: verdict.state,
+        reason: verdict.reason,
+        ...(verdict.since !== undefined ? { since: verdict.since.toISOString() } : {}),
+        ...(verdict.taskId !== undefined ? { taskId: verdict.taskId } : {}),
+        ...(verdict.skill !== undefined ? { skill: verdict.skill } : {}),
+        ...(lastRun !== null
+          ? {
+              lastRun: {
+                at: lastRun.at.toISOString(),
+                outcome: lastRun.outcome,
+                skipReason: lastRun.skipReason,
+                reason: lastRun.reason,
+              },
+            }
+          : {}),
+      };
+    });
+
+    return { tz: TZ, now: now.toISOString(), paused, agents };
+  }
+
+  /**
+   * Задачи агентов, о которых есть что сказать, — ОДНОЙ выборкой на всех.
+   *
+   * Берём не только `in_progress` (там живёт claim), но и остановленные Core:
+   * при блокировке исполнения Core возвращает задачу в `todo` и снимает claim
+   * (`tasks.service.ts`, release с `shouldBlock`), поэтому по одному
+   * `in_progress` затык агента не был бы виден вовсе. Закрытые задачи
+   * отсекаем: снятая блокировка на `done` — история, а не состояние.
+   *
+   * `excludePersonal` — тот же гейт owner-видимости, что у `GET /tasks`
+   * (R-P5-7b): при включённом ужесточении и не-owner запросе личные задачи из
+   * состояния уходят. Флаг выключен (дефолт) — выдача не меняется.
+   */
+  private async agentTasksInFlight(excludePersonal: boolean): Promise<Map<string, ClaimedTaskLite[]>> {
+    const rows = await this.db
+      .select({
+        id: task.id,
+        ownerRef: task.ownerRef,
+        skill: task.agentSkill,
+        claimedAt: task.agentRunClaimedAt,
+        blockedAt: task.agentExecutionBlockedAt,
+        blockedReason: task.agentExecutionBlockedReason,
+      })
+      .from(task)
+      .where(
+        and(
+          eq(task.ownerKind, "agent"),
+          notInArray(task.status, ["done", "cancelled"]),
+          or(eq(task.status, "in_progress"), isNotNull(task.agentExecutionBlockedAt)),
+          // `is distinct from`, а не `<> 'personal'`: `task.domain` бывает NULL,
+          // и обычное сравнение выбросило бы задачи без направления совсем.
+          ...(excludePersonal ? [sql`${task.domain} is distinct from 'personal'`] : []),
+        ),
+      );
+
+    const byAgent = new Map<string, ClaimedTaskLite[]>();
+    for (const row of rows) {
+      if (row.ownerRef === null) continue; // задача агента без исполнителя — не его состояние
+      const list = byAgent.get(row.ownerRef) ?? [];
+      list.push({
+        id: row.id,
+        skill: row.skill,
+        claimedAt: row.claimedAt,
+        blockedAt: row.blockedAt,
+        blockedReason: row.blockedReason,
+      });
+      byAgent.set(row.ownerRef, list);
+    }
+    return byAgent;
+  }
+
+  /**
+   * Последний прогон КАЖДОГО агента — одной выборкой (`distinct on`, как
+   * `lastRunsBySkill` выше и `RunsService.lastPerJob`). Здесь именно на агента,
+   * а не на пару агент+навык: карточке нужен один ответ «что было в прошлый раз».
+   */
+  private async lastRunPerAgent(): Promise<Map<string, LastRunLite>> {
+    const raw = (await this.db.execute(sql`
+      select distinct on (${agentRun.agentName})
+        ${agentRun.agentName} as agent_name,
+        ${agentRun.startedAt} as started_at,
+        ${agentRun.outcome} as outcome,
+        ${agentRun.skipReason} as skip_reason,
+        ${agentRun.reason} as reason
+      from ${agentRun}
+      order by ${agentRun.agentName}, ${agentRun.startedAt} desc
+    `)) as unknown as AgentLastRunRaw[];
+
+    const byAgent = new Map<string, LastRunLite>();
+    for (const row of raw) {
+      byAgent.set(row.agent_name, {
+        at: dateOf(row.started_at),
+        outcome: row.outcome,
+        skipReason: row.skip_reason,
+        reason: row.reason,
+      });
+    }
+    return byAgent;
   }
 
   /** Агенты, готовые к работе: включённые и не в архиве. */

@@ -29,6 +29,19 @@ export const DOMAIN_LABELS: Record<Domain, string> = {
 export const AUTONOMY_TIERS = ["T0", "T1", "T2", "T3", "T4"] as const;
 export type AutonomyTier = (typeof AUTONOMY_TIERS)[number];
 
+/**
+ * Строка — это тир?
+ *
+ * Тир приезжает строкой из настроек системы (`AGENT_AUTONOMY_MAX`), и сравнивать
+ * его с тиром агента можно только ПОРЯДКОМ — по месту в `AUTONOMY_TIERS`.
+ * Незнакомое значение даёт `indexOf === -1`, то есть «ниже T0», и экран
+ * объявил бы урезанным тир, которого никто не урезал. Поэтому чужое значение
+ * отсекаем здесь, а не приводим типом на месте.
+ */
+export function isAutonomyTier(v: unknown): v is AutonomyTier {
+  return typeof v === "string" && (AUTONOMY_TIERS as readonly string[]).includes(v);
+}
+
 /** Решение по запросу согласования. */
 export type ApprovalDecision = "approved" | "rejected" | "clarify";
 
@@ -172,3 +185,9 @@ export * from "./agent-runs";
 
 /** Лента прогона: события шины и аудит одной колонкой по времени (волна R). */
 export * from "./run-timeline";
+
+/** Heartbeat Telegram-бота: одно число для бота и Core (волна A2, Р-5). */
+export * from "./bot-heartbeat";
+
+/** Паузы парка агентов: одно правило чтения тумблера для Core и рантайма (C-6). */
+export * from "./agent-pause";

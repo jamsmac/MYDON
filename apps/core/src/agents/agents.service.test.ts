@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { NotFoundException } from "@nestjs/common";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { agentSkillCatalog, systemConfig } from "@mydon/db";
+import { agent, agentSkillCatalog, systemConfig } from "@mydon/db";
 import { AgentsService, type CatalogSkillInput } from "./agents.service";
 
 type Row = Record<string, unknown>;
@@ -40,10 +40,17 @@ const noTasks = {
   },
 } as never;
 
+/** Настройки системы читает только сетка состояний: в остальных сценариях вызов — регресс. */
+const noSystem = {
+  effective: async () => {
+    throw new Error("system.effective вызван вне сценария состояния агентов");
+  },
+} as never;
+
 describe("Настройки агента: конфиг-поля навыков в базе", () => {
   it("create кладёт пустые конфиг-поля по умолчанию (не теряются при загрузке из базы)", async () => {
     const { db, captured } = stub({ selectRows: [] });
-    await new AgentsService(db, noTasks).create({ name: "knowledge-curator" });
+    await new AgentsService(db, noTasks, noSystem).create({ name: "knowledge-curator" });
     const v = captured.insert[0]; // первый insert — сам агент (второй — аудит)
     assert.deepEqual(v.webSources, []);
     assert.deepEqual(v.breakGlass, []);
@@ -58,14 +65,14 @@ describe("Настройки агента: конфиг-поля навыков 
     // pre_run-проверки паспорта сразу после первого запуска.
     const hooks = { preRun: [{ kind: "quiet_hours", from: "22:00", to: "07:00" }] };
     const seed = stub({ selectRows: [] });
-    const seeded = await new AgentsService(seed.db, noTasks).seedIfEmpty([
+    const seeded = await new AgentsService(seed.db, noTasks, noSystem).seedIfEmpty([
       { name: "vendhub-ops", hooks },
     ]);
     assert.equal(seeded.seeded, 1);
     assert.deepEqual(seed.captured.insert[0].hooks, hooks, "сид кладёт хуки в карточку");
 
     const edit = stub({ existing: { id: "a1", name: "vendhub-ops" } });
-    const svc = new AgentsService(edit.db, noTasks);
+    const svc = new AgentsService(edit.db, noTasks, noSystem);
     await svc.update("vendhub-ops", { hooks: { postRun: [{ kind: "coach_lite" }] } });
     assert.deepEqual(edit.captured.update[0].hooks, { postRun: [{ kind: "coach_lite" }] });
     await svc.update("vendhub-ops", { description: "только описание" });
@@ -74,7 +81,7 @@ describe("Настройки агента: конфиг-поля навыков 
 
   it("update пишет страницы знаний (kbPages) и не трогает их, когда поле не передано", async () => {
     const { db, captured } = stub({ existing: { id: "a1", name: "globerent-sales" } });
-    const svc = new AgentsService(db, noTasks);
+    const svc = new AgentsService(db, noTasks, noSystem);
     await svc.update("globerent-sales", {
       kbPages: ["shared/kb/globerent/heli-models.md", "shared/kb/globerent/pricelist.md"],
     });
@@ -88,7 +95,7 @@ describe("Настройки агента: конфиг-поля навыков 
 
   it("update переносит каналы идей, break-glass и стратегию бюджета", async () => {
     const { db, captured } = stub({ existing: { id: "a1", name: "knowledge-curator" } });
-    await new AgentsService(db, noTasks).update("knowledge-curator", {
+    await new AgentsService(db, noTasks, noSystem).update("knowledge-curator", {
       ideaChannels: ["promtjam"],
       breakGlass: ["read-sources"],
       budgetOnExceeded: "pause",
@@ -102,7 +109,7 @@ describe("Настройки агента: конфиг-поля навыков 
 
   it("update пишет веб-источники", async () => {
     const { db, captured } = stub({ existing: { id: "a1", name: "market-analyst" } });
-    await new AgentsService(db, noTasks).update("market-analyst", {
+    await new AgentsService(db, noTasks, noSystem).update("market-analyst", {
       webSources: [{ name: "cbu", url: "https://cbu.uz" }],
     });
     assert.deepEqual(captured.update[0].webSources, [{ name: "cbu", url: "https://cbu.uz" }]);
@@ -167,7 +174,7 @@ describe("Каталог навыков — зеркало файлов (R-SD-1)
         { agentName: "old-agent", skill: "gone-two" },
       ],
     });
-    const result = await new AgentsService(fixture.db, noTasks).syncSkillCatalog([
+    const result = await new AgentsService(fixture.db, noTasks, noSystem).syncSkillCatalog([
       skill(),
       skill({ skill: "stock-watch", executor: "code", hasCode: true }),
     ]);
@@ -185,7 +192,7 @@ describe("Каталог навыков — зеркало файлов (R-SD-1)
 
   it("необязательные поля кладутся как NULL, а не как undefined", async () => {
     const fixture = catalogDb();
-    await new AgentsService(fixture.db, noTasks).syncSkillCatalog([skill()]);
+    await new AgentsService(fixture.db, noTasks, noSystem).syncSkillCatalog([skill()]);
     const row = fixture.store[0]!;
     assert.equal(row.tier, null);
     assert.equal(row.modelEffort, null);
@@ -196,7 +203,7 @@ describe("Каталог навыков — зеркало файлов (R-SD-1)
   it("дубль пары «агент + навык» называется словами, а не безымянной 400 от драйвера", async () => {
     const fixture = catalogDb();
     await assert.rejects(
-      new AgentsService(fixture.db, noTasks).syncSkillCatalog([skill(), skill()]),
+      new AgentsService(fixture.db, noTasks, noSystem).syncSkillCatalog([skill(), skill()]),
       /Дубль в каталоге: vendhub-ops\/parts-audit/,
     );
     assert.deepEqual(fixture.store, [], "битый каталог не должен затереть рабочий");
@@ -204,7 +211,7 @@ describe("Каталог навыков — зеркало файлов (R-SD-1)
 
   it("пустой список — пустой каталог (агенты не нашли ни одного навыка)", async () => {
     const fixture = catalogDb({ rows: [{ agentName: "old-agent", skill: "gone" }] });
-    const result = await new AgentsService(fixture.db, noTasks).syncSkillCatalog([]);
+    const result = await new AgentsService(fixture.db, noTasks, noSystem).syncSkillCatalog([]);
     assert.equal(result.count, 0);
     assert.deepEqual(fixture.store, []);
   });
@@ -264,6 +271,7 @@ describe("Deck навыков — что видит панель", () => {
         ],
       }),
       noTasks,
+      noSystem,
     ).skillDeck();
 
     assert.equal(deck.syncedAt, "2026-09-05T06:00:00.000Z");
@@ -294,6 +302,7 @@ describe("Deck навыков — что видит панель", () => {
         ],
       }),
       noTasks,
+      noSystem,
     ).skillDeck();
 
     assert.equal(deck.items[0]?.agentStatus, "draft");
@@ -312,6 +321,7 @@ describe("Deck навыков — что видит панель", () => {
         ],
       }),
       noTasks,
+      noSystem,
     ).skillDeck();
 
     assert.equal(deck.items[0]?.agentStatus, "deprecated");
@@ -333,6 +343,7 @@ describe("Deck навыков — что видит панель", () => {
         ],
       }),
       noTasks,
+      noSystem,
     ).skillDeck();
 
     assert.equal(deck.items[0]?.duplicates, 2);
@@ -360,6 +371,7 @@ describe("Deck навыков — что видит панель", () => {
         ],
       }),
       noTasks,
+      noSystem,
     ).skillDeck();
 
     assert.deepEqual(deck.items[0]?.lastRun, {
@@ -383,6 +395,7 @@ describe("Deck навыков — что видит панель", () => {
         },
       }),
       noTasks,
+      noSystem,
     ).skillDeck();
 
     // Заглушка не проверяет SQL — рендерим настоящий текст запроса: иначе
@@ -394,7 +407,7 @@ describe("Deck навыков — что видит панель", () => {
   });
 
   it("пустой каталог — пустой deck, а не ошибка", async () => {
-    const deck = await new AgentsService(deckDb({}), noTasks).skillDeck();
+    const deck = await new AgentsService(deckDb({}), noTasks, noSystem).skillDeck();
     assert.deepEqual(deck.items, []);
     assert.equal(deck.syncedAt, null);
   });
@@ -408,6 +421,7 @@ describe("Deck навыков — что видит панель", () => {
         ],
       }),
       noTasks,
+      noSystem,
     ).skillDeck({ agent: "vendhub-ops" });
 
     assert.deepEqual(
@@ -421,6 +435,7 @@ describe("Deck навыков — что видит панель", () => {
     const deck = await new AgentsService(
       deckDb({ joined: [catalogRow(), catalogRow({ agentName: "globerent-scout" })] }),
       noTasks,
+      noSystem,
     ).skillDeck({ agent: "нет-такого" });
     assert.deepEqual(deck.items, [], "промах фильтра не должен выглядеть как «фильтра не было»");
   });
@@ -434,6 +449,7 @@ describe("Deck навыков — что видит панель", () => {
         joined: [catalogRow({ agentName: "a-agent", tier: "T1" }), catalogRow({ agentName: "b-agent", tier: "T3" })],
       }),
       noTasks,
+      noSystem,
     ).skillDeck({ agent: "a-agent" });
 
     assert.equal(deck.items.length, 1);
@@ -499,7 +515,7 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
   it("успех: задача агенту с источником skills-deck, навыком и усилием", async () => {
     const fixture = runDb({ catalog, agent: card() });
     const spy = tasksSpy();
-    const result = await new AgentsService(fixture.db, spy.tasks).runSkill(
+    const result = await new AgentsService(fixture.db, spy.tasks, noSystem).runSkill(
       "vendhub-ops",
       "parts-audit",
       { input: "Сверить узлы на Kaffit-04", modelEffort: "high", actor: "owner" },
@@ -520,7 +536,7 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
 
   it("без входа — заголовок говорит, откуда задача, и параметров запуска нет", async () => {
     const spy = tasksSpy();
-    await new AgentsService(runDb({ catalog, agent: card() }).db, spy.tasks).runSkill(
+    await new AgentsService(runDb({ catalog, agent: card() }).db, spy.tasks, noSystem).runSkill(
       "vendhub-ops",
       "parts-audit",
       {},
@@ -535,7 +551,7 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
   it("длинный вход обрезается в заголовке, но целиком уходит в описание", async () => {
     const spy = tasksSpy();
     const long = "я".repeat(200);
-    await new AgentsService(runDb({ catalog, agent: card() }).db, spy.tasks).runSkill(
+    await new AgentsService(runDb({ catalog, agent: card() }).db, spy.tasks, noSystem).runSkill(
       "vendhub-ops",
       "parts-audit",
       { input: long },
@@ -547,7 +563,7 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
   it("переносы строк из textarea не уезжают в заголовок задачи", async () => {
     const spy = tasksSpy();
     const multiline = "Сверить узлы\n\n  на Kaffit-04";
-    await new AgentsService(runDb({ catalog, agent: card() }).db, spy.tasks).runSkill(
+    await new AgentsService(runDb({ catalog, agent: card() }).db, spy.tasks, noSystem).runSkill(
       "vendhub-ops",
       "parts-audit",
       { input: multiline },
@@ -557,7 +573,7 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
   });
 
   it("выключенный агент — отказ словами владельца (R-SD-6)", async () => {
-    const svc = new AgentsService(runDb({ catalog, agent: card({ status: "paused" }) }).db, noTasks);
+    const svc = new AgentsService(runDb({ catalog, agent: card({ status: "paused" }) }).db, noTasks, noSystem);
     await assert.rejects(
       svc.runSkill("vendhub-ops", "parts-audit", {}),
       /Агент "vendhub-ops" выключен — включи его в карточке/,
@@ -568,6 +584,7 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
     const svc = new AgentsService(
       runDb({ catalog, agent: card({ skills: ["stock-watch"] }) }).db,
       noTasks,
+      noSystem,
     );
     await assert.rejects(
       svc.runSkill("vendhub-ops", "parts-audit", {}),
@@ -576,7 +593,7 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
   });
 
   it("навыка нет в каталоге — 404 с подсказкой перезапустить агентов", async () => {
-    const svc = new AgentsService(runDb({ agent: card() }).db, noTasks);
+    const svc = new AgentsService(runDb({ agent: card() }).db, noTasks, noSystem);
     await assert.rejects(svc.runSkill("vendhub-ops", "нет-такого", {}), NotFoundException);
   });
 
@@ -588,6 +605,7 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
         agent: card(),
       }).db,
       spy.tasks,
+      noSystem,
     );
     await assert.rejects(
       svc.runSkill("vendhub-ops", "parts-audit", {}),
@@ -604,7 +622,252 @@ describe("Запуск навыка из панели (R-SD-2/6)", () => {
         agent: card(),
       }).db,
       spy.tasks,
+      noSystem,
     ).runSkill("vendhub-ops", "parts-audit", {});
     assert.equal(spy.calls.length, 1);
+  });
+});
+
+/**
+ * Сетка состояний агентов (волна A2, R-A2-1).
+ *
+ * Правило состояния проверяется чистой функцией (`agent-state.test.ts`);
+ * здесь — сборка: что читается, сколько раз и что доезжает до панели.
+ */
+function statusDb(opts: {
+  agents?: Row[];
+  tasks?: Row[];
+  runs?: Row[];
+  onExecute?: (query: unknown) => void;
+  onTaskWhere?: (condition: unknown) => void;
+  onAgentWhere?: (condition: unknown) => void;
+}) {
+  const счётчик = { select: 0, execute: 0 };
+  const db = {
+    select: () => {
+      счётчик.select += 1;
+      return {
+        from: (table: unknown) =>
+          table === agent
+            ? {
+                where: (condition: unknown) => {
+                  opts.onAgentWhere?.(condition);
+                  return { orderBy: async () => opts.agents ?? [] };
+                },
+              }
+            : {
+                where: async (condition: unknown) => {
+                  opts.onTaskWhere?.(condition);
+                  return opts.tasks ?? [];
+                },
+              },
+      };
+    },
+    execute: async (query: unknown) => {
+      счётчик.execute += 1;
+      opts.onExecute?.(query);
+      return opts.runs ?? [];
+    },
+  } as never;
+  return { db, счётчик };
+}
+
+/** Тумблеры системы: `value` — действующее значение (база > env > дефолт). */
+function systemStub(paused: { tasks: boolean; schedules: boolean }) {
+  return {
+    effective: async () => [
+      { key: "AGENTS_TASKS_PAUSED", value: paused.tasks ? "1" : "0" },
+      { key: "AGENTS_SCHEDULES_PAUSED", value: paused.schedules ? "1" : "0" },
+      { key: "LLM_MODEL", value: "gpt-5.6-sol" },
+    ],
+  } as never;
+}
+
+describe("Состояние агентов для панели (R-A2-1)", () => {
+  const card = (over: Row = {}): Row => ({
+    name: "vendhub-ops",
+    business: "vendhub",
+    status: "active",
+    archivedAt: null,
+    ...over,
+  });
+
+  it("собирает строку сетки: состояние, причина и последний прогон", async () => {
+    const now = new Date("2026-09-06T09:00:00.000Z");
+    const { db } = statusDb({
+      agents: [card(), card({ name: "globerent-scout", business: "globerent", status: "paused" })],
+      tasks: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          ownerRef: "vendhub-ops",
+          skill: "parts-audit",
+          claimedAt: new Date(now.getTime() - 60_000),
+          blockedAt: null,
+          blockedReason: null,
+        },
+      ],
+      runs: [
+        {
+          agent_name: "vendhub-ops",
+          started_at: new Date("2026-09-06T06:00:00.000Z"),
+          outcome: "skipped",
+          skip_reason: "no_signal",
+          reason: "предлагать нечего",
+        },
+      ],
+    });
+    const view = await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: false })).statuses({ now });
+
+    assert.equal(view.tz, "Asia/Tashkent");
+    assert.equal(view.now, now.toISOString());
+    assert.deepEqual(view.paused, { schedules: false, tasks: false });
+    const [ops, scout] = view.agents;
+    assert.equal(ops?.state, "working");
+    assert.equal(ops?.skill, "parts-audit");
+    assert.equal(ops?.taskId, "11111111-1111-4111-8111-111111111111");
+    assert.equal(ops?.since, new Date(now.getTime() - 60_000).toISOString());
+    assert.deepEqual(ops?.lastRun, {
+      at: "2026-09-06T06:00:00.000Z",
+      outcome: "skipped",
+      skipReason: "no_signal",
+      reason: "предлагать нечего",
+    });
+    // Паспортный статус едет рядом с состоянием: это разные ответы.
+    assert.equal(scout?.passportStatus, "paused");
+    assert.equal(scout?.state, "paused");
+    assert.match(scout?.reason ?? "", /paused/);
+    assert.equal(scout?.lastRun, undefined, "прогонов не было — ключа нет, а не пустышка");
+  });
+
+  it("системная пауза задач гасит занятость всех агентов сразу (Р-2)", async () => {
+    const now = new Date("2026-09-06T09:00:00.000Z");
+    const { db } = statusDb({
+      agents: [card(), card({ name: "globerent-scout" })],
+      tasks: [
+        {
+          id: "t1",
+          ownerRef: "vendhub-ops",
+          skill: "parts-audit",
+          claimedAt: new Date(now.getTime() - 60_000),
+          blockedAt: null,
+          blockedReason: null,
+        },
+      ],
+    });
+    const view = await new AgentsService(db, noTasks, systemStub({ tasks: true, schedules: false })).statuses({ now });
+    assert.deepEqual(view.paused, { schedules: false, tasks: true });
+    assert.deepEqual(
+      view.agents.map((a) => a.state),
+      ["paused", "paused"],
+      "иначе экран покажет работающих агентов при выключенной системе",
+    );
+    assert.match(view.agents[0]?.reason ?? "", /настройка системы, а не агента/);
+  });
+
+  it("отсутствие записи о паузе — это «пауза»: дефолт тумблера равен 1", async () => {
+    // ОТКАЗ В СТОРОНУ ПАУЗЫ. Дефолт обоих тумблеров в config-spec — «1», и
+    // выключатель всего парка обязан ломаться в «выключено»: пустой ответ
+    // настроек (сбой чтения, чужой набор ключей) не должен рисовать
+    // работающих агентов там, где задачи стоят.
+    const now = new Date("2026-09-06T09:00:00.000Z");
+    const { db } = statusDb({
+      agents: [card()],
+      tasks: [
+        {
+          id: "t1",
+          ownerRef: "vendhub-ops",
+          skill: "parts-audit",
+          claimedAt: new Date(now.getTime() - 60_000),
+          blockedAt: null,
+          blockedReason: null,
+        },
+      ],
+    });
+    const пусто = { effective: async () => [] } as never;
+    const view = await new AgentsService(db, noTasks, пусто).statuses({ now });
+    assert.deepEqual(view.paused, { schedules: true, tasks: true });
+    assert.equal(view.agents[0]?.state, "paused");
+    assert.match(view.agents[0]?.reason ?? "", /настройка системы, а не агента/);
+
+    // Только явный «0» означает «работаем»: значение с опечаткой — тоже пауза.
+    const мусор = {
+      effective: async () => [{ key: "AGENTS_TASKS_PAUSED", value: "false" }],
+    } as never;
+    const второй = statusDb({ agents: [card()] });
+    const кривой = await new AgentsService(второй.db, noTasks, мусор).statuses({ now });
+    assert.equal(кривой.paused.tasks, true, "не «0» — значит пауза, а не «работаем»");
+  });
+
+  it("архивных в сетке нет: фильтр `archived_at is null` уходит в SQL", async () => {
+    // ЗАХВАТ WHERE И НАСТОЯЩИЙ SQL, а не «заглушка вернула одну строку»
+    // (круг починок, C-8). Прежний тест назывался «архивных в сетке нет», но
+    // заглушка условие игнорировала: он проверял только, что сервис не делает
+    // второй запрос. Снятие фильтра из `list()` он бы не заметил — а именно
+    // оно и вернуло бы архивных агентов на главный экран. Приём тот же, что у
+    // соседнего теста про `distinct on`: рендерим условие диалектом Postgres.
+    let условие: unknown;
+    const { db, счётчик } = statusDb({ agents: [card()], onAgentWhere: (c) => (условие = c) });
+    const view = await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: false })).statuses();
+    assert.deepEqual(
+      view.agents.map((a) => a.name),
+      ["vendhub-ops"],
+    );
+    assert.notEqual(условие, undefined, "`list()` обязан фильтровать, а не звать `where()` пустым");
+    const sql = new PgDialect().sqlToQuery(условие as Parameters<PgDialect["sqlToQuery"]>[0]).sql;
+    assert.match(sql, /"agent"\."archived_at" is null/);
+    assert.equal(счётчик.select, 2, "две выборки: карточки и задачи");
+    assert.equal(счётчик.execute, 1, "последние прогоны — один distinct on, а не запрос на агента");
+  });
+
+  it("задачи и прогоны читаются по одному разу на всю сетку, а не на агента", async () => {
+    const агенты = Array.from({ length: 12 }, (_, i) => card({ name: `agent-${i}` }));
+    const { db, счётчик } = statusDb({ agents: агенты });
+    const view = await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: false })).statuses();
+    assert.equal(view.agents.length, 12);
+    assert.equal(счётчик.select, 2, "12 агентов не должны дать 12 выборок задач");
+    assert.equal(счётчик.execute, 1);
+  });
+
+  it("последний прогон берётся одним distinct on (agent_name)", async () => {
+    let query: unknown;
+    const { db } = statusDb({ agents: [card()], onExecute: (q) => (query = q) });
+    await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: false })).statuses();
+    // Заглушка не исполняет SQL — рендерим текст запроса, иначе сломанный
+    // запрос остался бы «зелёным» до первого открытия панели.
+    const text = new PgDialect().sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]).sql;
+    assert.match(text, /distinct on \("agent_run"\."agent_name"\)/);
+    assert.match(text, /order by "agent_run"\."agent_name", "agent_run"\."started_at" desc/);
+  });
+
+  it("личные задачи уходят из выдачи по гейту owner-видимости (R-P5-7b)", async () => {
+    // Проводка гейта проверяется ЗАХВАТОМ WHERE, а не наличием слова в файле:
+    // заглушка SQL не исполняет, и потерянный предикат остался бы «зелёным».
+    const render = (condition: unknown): string =>
+      new PgDialect().sqlToQuery(condition as Parameters<PgDialect["sqlToQuery"]>[0]).sql;
+    let открыто: unknown;
+    const { db } = statusDb({ agents: [card()], onTaskWhere: (c) => (открыто = c) });
+    await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: false })).statuses();
+    const текстБезГейта = render(открыто);
+    assert.match(текстБезГейта, /"task"\."owner_kind" = \$\d/);
+    assert.doesNotMatch(текстБезГейта, /personal/, "по умолчанию выдача прода не меняется");
+
+    let закрыто: unknown;
+    const второй = statusDb({ agents: [card()], onTaskWhere: (c) => (закрыто = c) });
+    await new AgentsService(второй.db, noTasks, systemStub({ tasks: false, schedules: false })).statuses({
+      excludePersonal: true,
+    });
+    // `is distinct from`, а не `<> 'personal'`: у задач бывает NULL-домен, и
+    // обычное сравнение выбросило бы из состояния задачи без направления.
+    assert.match(render(закрыто), /"task"\."domain" is distinct from 'personal'/);
+  });
+
+  it("задача без исполнителя не приписывается никому", async () => {
+    const { db } = statusDb({
+      agents: [card()],
+      tasks: [{ id: "t1", ownerRef: null, skill: "parts-audit", claimedAt: new Date(), blockedAt: null, blockedReason: null }],
+    });
+    const view = await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: false })).statuses();
+    assert.equal(view.agents[0]?.state, "idle");
+    assert.equal(view.agents[0]?.taskId, undefined);
   });
 });

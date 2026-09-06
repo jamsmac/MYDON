@@ -1,0 +1,651 @@
+<!-- @dsCard group="Токены" -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MYDON · Токены</title>
+<style>
+/* ==========================================================================
+   ДИЗАЙН-КИТ MYDON. Страница самодостаточна: ни одного внешнего запроса —
+   ни CDN, ни ссылок на шрифты, ни картинок. Только инлайн-CSS и инлайн-SVG.
+
+   Токены ниже перенесены ДОСЛОВНО из apps/cc/src/app/globals.css
+   (светлая — :root, строки 8–100; тёмная — [data-theme="dark"], строки 139–168).
+   Числа контраста в подписях взяты из комментариев того же файла, не пересчитаны.
+   ========================================================================== */
+
+/* ---- 1. Оболочка кита. Это НЕ продукт: своя нейтральная бумага и свои
+        переменные с приставкой --kit-, чтобы ничего не спорило с токенами. --- */
+:root {
+  --kit-bg: #f7f7f4; --kit-card: #ffffff; --kit-ink: #191b18; --kit-dim: #5b615a;
+  --kit-line: #dadfd6; --kit-line-2: #eef0ea; --kit-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--kit-bg); color: var(--kit-ink);
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+}
+.kit-wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 72px; }
+.kit-head { border-bottom: 2px solid var(--kit-ink); padding-bottom: 16px; margin-bottom: 26px; }
+.kit-crumb { margin: 0 0 8px; font-family: var(--kit-mono); font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--kit-dim); }
+.kit-crumb a { color: var(--kit-dim); }
+.kit-head h1 { margin: 0 0 6px; font-size: 30px; line-height: 1.15; letter-spacing: -0.02em; }
+.kit-lead { margin: 0; max-width: 74ch; color: var(--kit-dim); font-size: 14.5px; }
+.kit-sec { margin: 40px 0 0; }
+.kit-sec > h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: -0.01em; }
+.kit-sec > h3 { margin: 26px 0 4px; font-size: 16px; }
+.kit-p { margin: 0 0 14px; max-width: 78ch; color: var(--kit-dim); font-size: 14px; }
+.kit-p b, .kit-p strong { color: var(--kit-ink); }
+.kit-wrap a { color: inherit; }
+.kit-wrap a:hover { color: #b8480f; }
+
+/* Подпись «где живёт в коде и что значит» — обязательна под каждым компонентом. */
+.kit-src { margin: 10px 0 0; font-size: 12.5px; color: var(--kit-dim); }
+.kit-src code, code.kit-code { font-family: var(--kit-mono); font-size: 12px; background: #eceee8;
+  border: 1px solid var(--kit-line); border-radius: 5px; padding: 1px 5px; color: var(--kit-ink); }
+.kit-src.new code { background: #ffe9db; border-color: #f0c3a4; }
+
+/* Две темы рядом: командный центр тёмный, бизнес-экраны светлые — грамматика
+   обязана работать в обеих, поэтому переключателя нет, есть два блока. */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+@media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+.demo { border: 1px solid var(--kit-line); border-radius: 12px; overflow: hidden; }
+.demo > .demo-tag {
+  font-family: var(--kit-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 7px 12px; background: #eceee8; color: var(--kit-dim); border-bottom: 1px solid var(--kit-line);
+}
+.demo > .stage {
+  background: var(--bg); color: var(--tx); font-family: var(--fu); font-size: 15px; line-height: 1.45;
+  padding: 18px;
+}
+.demo .stage h1, .demo .stage h2, .demo .stage h3 { font-family: var(--fh); letter-spacing: -0.01em; margin: 0; }
+.demo .stage a { color: inherit; text-decoration: none; }
+
+/* «Как сейчас» против «предложения»: там, где дизайн-волна просит то, чего в
+   коде ещё нет, владелец выбирает, а не угадывает. */
+.vs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+@media (max-width: 900px) { .vs { grid-template-columns: 1fr; } }
+.vs-col { border: 1px solid var(--kit-line); border-radius: 12px; background: var(--kit-card); padding: 14px; }
+.vs-col.prop { border-color: #f0c3a4; background: #fffaf6; }
+.tagline { display: inline-block; font-family: var(--kit-mono); font-size: 10.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--kit-line);
+  color: var(--kit-dim); margin-bottom: 10px; }
+.tagline.now { background: #eceee8; }
+.tagline.prop { background: #ffe9db; border-color: #f0c3a4; color: #b8480f; }
+.tagline.yes { background: #edf3d4; border-color: #c3d78a; color: #4c5c14; }
+.tagline.no { background: #fbe8e9; border-color: #e7b3b7; color: #93313a; }
+
+/* Таблица токенов. */
+.tok { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+.tok th { text-align: left; padding: 8px 10px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--kit-dim); border-bottom: 1px solid var(--kit-line); font-weight: 600; white-space: nowrap; }
+.tok td { padding: 9px 10px; border-bottom: 1px solid var(--kit-line-2); vertical-align: top; }
+.tok tr:last-child td { border-bottom: none; }
+.tok .name, .tok .hex { font-family: var(--kit-mono); font-size: 12px; white-space: nowrap; }
+.tok .hex { color: var(--kit-dim); }
+.tok .why { color: var(--kit-dim); }
+.sw { display: inline-block; width: 34px; height: 22px; border-radius: 5px; border: 1px solid rgba(0,0,0,0.22);
+  vertical-align: -6px; }
+.sw.dk { border-color: rgba(255,255,255,0.28); }
+.swpair { display: flex; gap: 6px; align-items: center; }
+.swpair .sw { flex: 0 0 auto; }
+.swbg { display: inline-block; padding: 4px; border-radius: 7px; }
+.swbg.lt { background: #f4f4ee; } .swbg.dk { background: #111712; }
+
+.kit-list { margin: 8px 0 0; padding-left: 20px; color: var(--kit-dim); font-size: 14px; }
+.kit-list li { margin-bottom: 6px; }
+.kit-list b { color: var(--kit-ink); }
+.kit-foot { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--kit-line);
+  font-size: 12.5px; color: var(--kit-dim); }
+
+/* ==========================================================================
+   2. ТОКЕНЫ MYDON — дословный перенос. Светлая = база, тёмная переопределяет.
+   ========================================================================== */
+[data-theme] {
+  /* --- поверхности --- */
+  --bg: #f4f4ee;            /* холст: тёплый белый с оливковой нотой */
+  --surf: #ffffff;          /* карточка */
+  --surf-2: #fbfaf5;        /* приподнятое, ховер */
+  --field: #ffffff;         /* поле ввода — отдельно от холста */
+  --line: #dce0d7;          /* декоративные разделители (не текст) */
+  --line-soft: #e8ebe3;
+  --line-strong: #7c8b7a;   /* границы контролов — 3,26:1 */
+  /* --- оранжевый в двух глубинах --- */
+  --accent: #ff6b1a;        /* ТОЛЬКО сплошная заливка + тёмные чернила — 5,86:1 */
+  --accent-soft: rgba(255, 107, 26, 0.12);
+  --accent-line: rgba(255, 107, 26, 0.45);
+  --accent-tx: #b8480f;     /* оранжевый ТЕКСТОМ — 4,79:1 */
+  --hot: #b8480f;           /* тревога: полоска, подложка, текст */
+  --hot-soft: #fff0e7;
+  --hot-line: rgba(184, 72, 15, 0.4);
+  /* --- три уровня текста --- */
+  --tx: #172019;            /* 15,13:1 */
+  --tx-1: #172019;
+  --tx-2: #4a554a;          /*  7,07:1 */
+  --tx-3: #667066;          /*  4,67:1 */
+  /* --- состояния --- */
+  --ok: #627719;            /* «норма/хорошо» текстом — 4,56:1 */
+  --ok-soft: #edf3d4;
+  --ok-line: rgba(98, 119, 25, 0.4);
+  --ok-fill: #a8cc2a;       /* заливка + тёмные чернила — 9,02:1 */
+  --warn: #8a5a00;
+  --err: #b43c45;           /* 5,18:1, белый на нём 5,72:1 */
+  --err-soft: #fbe8e9;
+  --err-line: rgba(180, 60, 69, 0.4);
+  /* --- форма --- */
+  --r: 12px; --r-s: 10px; --bar: 64px; --tabs-h: 55px;
+  --shadow: 0 14px 44px rgba(33, 43, 34, 0.1);
+  --overlay: rgba(23, 32, 25, 0.34);
+  --agent: #6d4bb8;         /* единственный цвет вне палитры — метка ИИ-исполнителя */
+  /* --- шрифты. В панели это ЛОКАЛЬНЫЕ woff2 (Golos Text 400/500/600/700 и
+     IBM Plex Mono 400/500/600, apps/cc/src/app/layout.tsx:36–60). Кит файлов не
+     тянет: имя гарнитуры стоит первым (подхватится, если установлена в системе),
+     дальше — ближайший системный аналог. Пропорции и трекинг не менялись. --- */
+  --fh: "Golos Text", ui-sans-serif, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --fu: "Golos Text", ui-sans-serif, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --fm: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+[data-theme="dark"] {
+  --bg: #111712; --surf: #18211a; --surf-2: #202b22; --field: #18211a;
+  --line: #2c3324; --line-soft: #232a1d; --line-strong: #6b7a5b;
+  --accent: #ff7a36; --accent-soft: rgba(255, 122, 54, 0.16); --accent-line: rgba(255, 122, 54, 0.45);
+  --accent-tx: #ffa061; --hot: #ff8a4c; --hot-soft: #3b2116; --hot-line: rgba(255, 138, 76, 0.45);
+  --tx: #f0f2eb; --tx-1: #f0f2eb; --tx-2: #a5aea2; --tx-3: #8c978a;
+  --ok: #c5e56b; --ok-soft: #2d381d; --ok-line: rgba(197, 229, 107, 0.4); --ok-fill: #c5e56b;
+  --warn: #e8b866; --err: #ff8790; --err-soft: #3a1f22; --err-line: rgba(255, 135, 144, 0.4);
+  --shadow: 0 14px 44px rgba(0, 0, 0, 0.55); --overlay: rgba(0, 0, 0, 0.6); --agent: #b79bff;
+}
+
+/* ==========================================================================
+   3. ПРИМИТИВЫ ПАНЕЛИ — перенесены один в один из globals.css. Номера строк
+   стоят в подписях под каждым компонентом.
+   ========================================================================== */
+.h1 { font-family: var(--fh); font-weight: 800; font-size: 22px; margin: 0 0 2px; }
+.h2 { font-family: var(--fh); font-weight: 700; font-size: 15px; margin: 0; }
+.lead { color: var(--tx-2); font-size: 13px; margin: 0 0 18px; }
+.eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--tx-3); margin: 0 0 8px; }
+.mono, .num { font-family: var(--fm); font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+.sect { margin-top: 26px; }
+.sect-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.page-head { margin-bottom: 16px; }
+.page-head h1 { font-family: var(--fh); font-weight: 800; font-size: 22px; margin: 0 0 2px; }
+.page-head p { color: var(--tx-2); font-size: 13px; margin: 0; }
+.section-title { display: flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.13em; text-transform: uppercase; color: var(--tx-3); margin: 26px 0 11px; font-family: var(--fm); }
+.card { background: var(--surf); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; }
+.card.hot, .card.attention { border-color: var(--hot-line); }
+.card-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.panel.console { background: var(--surf); border: 1px solid var(--line-strong); border-radius: var(--r-s);
+  box-shadow: 4px 4px 0 var(--line); padding: 16px; }
+.led { display: inline-flex; align-items: center; gap: 6px; font-family: var(--fm); font-size: 11px; color: var(--tx-2); }
+.led::before { content: ""; width: 8px; height: 8px; background: currentColor; flex: 0 0 auto; }
+.led.idle { color: var(--ok); }
+.led.working { color: var(--accent-tx); }
+.led.blocked { color: var(--err); }
+.run-led.ok { color: var(--ok); }
+.run-led.warn { color: var(--accent-tx); }
+.run-led.hot { color: var(--err); }
+.run-led.muted { color: var(--tx-2); }
+.av8 { display: inline-block; width: 16px; height: 16px; color: var(--agent); vertical-align: -3px; }
+.av8 svg { display: block; width: 100%; height: 100%; }
+.grid { display: grid; gap: 10px; }
+.btn { height: 42px; padding: 0 15px; border-radius: var(--r-s); border: 1px solid var(--line);
+  background: var(--surf-2); color: var(--tx); font-weight: 600; font-size: 14px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; cursor: pointer; }
+.btn.pri, .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--tx); }
+.btn.ghost { background: transparent; }
+.btn.sm { height: 36px; padding: 0 12px; font-size: 13px; }
+.btn.ok, .btn.yes { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+.btn.no { color: var(--err); border-color: var(--err-line); background: var(--err-soft); }
+.btn:disabled { opacity: 0.55; cursor: default; }
+.chip { font-family: var(--fm); font-size: 11px; padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--tx-2); white-space: nowrap; display: inline-block; background: none; }
+.chip.b { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.chip.h { color: var(--hot); border-color: var(--hot-line); background: var(--hot-soft); }
+.chip.g { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+.chips { display: flex; gap: 7px; flex-wrap: wrap; }
+.chips .chip { font-size: 12px; color: var(--tx-2); background: var(--surf-2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px; cursor: pointer; }
+.chips .chip[aria-pressed="true"] { color: var(--tx); border-color: var(--line-strong); background: var(--surf); }
+/* `display: inline-block` добавлен КИТОМ: в панели `.pill` всегда стоит внутри
+   flex-строки и блокируется ею, а в ките таблетки бывают показаны сами по себе. */
+.pill { font-family: var(--fm); font-size: 11px; padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--tx-2); white-space: nowrap; display: inline-block; }
+.pill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+.pill.bad { color: var(--hot); border-color: var(--hot-line); background: var(--hot-soft); }
+.pill.warn { color: var(--hot); border-color: var(--hot-line); background: var(--hot-soft); }
+.pill.human { color: var(--tx-2); }
+.pill.agent { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.pill.act { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.stats { font-family: var(--fm); font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--tx-2);
+  margin-top: 5px; display: flex; gap: 9px; flex-wrap: wrap; }
+.stats b { color: var(--tx); font-weight: 500; }
+.hint { font-size: 12px; color: var(--tx-3); }
+.ok-text { color: var(--ok); font-size: 13px; }
+.warn-text { color: var(--warn); font-size: 13px; }
+.err-text { color: var(--err); font-size: 13px; }
+.empty { background: var(--surf); border: 1px dashed var(--line); border-radius: var(--r); padding: 34px 20px;
+  text-align: center; font-size: 13px; color: var(--tx-2); }
+.empty b { display: block; font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--tx); }
+.notice { background: var(--hot-soft); border: 1px solid var(--hot-line); border-radius: var(--r);
+  padding: 13px 15px; font-size: 13px; color: var(--tx-2); }
+.notice b { display: block; color: var(--tx); margin-bottom: 3px; }
+.trow { display: flex; align-items: center; gap: 11px; min-height: 52px; padding: 9px 14px;
+  background: var(--surf); border: 1px solid var(--line); border-radius: var(--r-s);
+  width: 100%; text-align: left; color: inherit; margin-bottom: 8px; }
+.trow.hot { border-left: 3px solid var(--hot); }
+.trow.is-active { border-color: var(--accent-line); background: var(--accent-soft); }
+.trow .tb { flex: 1; min-width: 0; }
+.trow .tt { font-size: 14px; font-weight: 600; line-height: 1.3; }
+.trow .tm { font-size: 12px; color: var(--tx-2); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.trow .due { font-family: var(--fm); font-size: 11.5px; color: var(--tx-2); white-space: nowrap; }
+.runs-strip { display: flex; flex-direction: column; }
+.rows { background: var(--surf); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.row { display: flex; gap: 12px; align-items: center; padding: 12px 15px; border-bottom: 1px solid var(--line-soft);
+  font-size: 14px; width: 100%; text-align: left; color: inherit; }
+.row:last-child { border-bottom: none; }
+.row .t { flex: 1; min-width: 0; }
+.row .t b { font-weight: 600; }
+.row .t small { display: block; color: var(--tx-2); font-size: 12.5px; margin-top: 2px; }
+.row .when { color: var(--tx-3); font-family: var(--fm); font-size: 11.5px; white-space: nowrap; }
+.tiles { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); }
+.tile { position: relative; display: block; width: 100%; text-align: left; color: inherit; background: var(--surf);
+  border: 1px solid var(--line); border-radius: var(--r); padding: 14px 15px 12px; overflow: hidden; }
+.tile .lab, .tile .k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tx-3); }
+.tile .v { font-family: var(--fm); font-variant-numeric: tabular-nums; font-size: 25px; font-weight: 600;
+  margin-top: 9px; line-height: 1.05; letter-spacing: -0.02em; white-space: nowrap; }
+.tile .foot { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px;
+  color: var(--tx-2); display: flex; align-items: center; gap: 7px; line-height: 1.35; }
+.tile .foot .mk { width: 5px; height: 5px; border-radius: 50%; background: var(--tx-3); flex: 0 0 auto; }
+.tile .foot .go { margin-left: auto; color: var(--tx-3); }
+.tile.is-hot { border-color: var(--hot-line); }
+.tile.is-hot::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--hot); }
+.tile.is-hot .v { color: var(--hot); }
+.tile.is-hot .foot { color: var(--hot); border-top-color: var(--hot-line); }
+.tile.zero .v { color: var(--tx-3); }
+.tile.zero .foot { color: var(--tx-3); }
+.tabs { display: flex; gap: 6px; }
+.tabs a { flex: 0 0 auto; height: 38px; padding: 0 14px; border-radius: var(--r-s); border: 1px solid var(--line);
+  background: transparent; color: var(--tx-2); font-weight: 600; font-size: 13.5px; display: inline-flex; align-items: center; }
+.tabs a.on { color: var(--tx); background: var(--accent); border-color: var(--accent); }
+.crons-wrap { overflow-x: auto; }
+.crons-table { width: 100%; min-width: 660px; border-collapse: collapse; font-size: 13px; }
+.crons-table th { text-align: left; padding: 9px 12px; white-space: nowrap; color: var(--tx-2);
+  font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--line); }
+.crons-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.crons-table tr:last-child td { border-bottom: none; }
+.crons-table .mono { font-family: var(--fm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.crons-table .dim { color: var(--tx-3); font-size: 11.5px; margin-top: 3px; }
+.crons-table tr.is-paused td { opacity: 0.55; }
+.flight { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; list-style: none;
+  margin: 0 0 14px; padding: 0; }
+.ph { min-width: 0; padding: 8px; background: var(--surf); border: 1px solid var(--line);
+  border-radius: var(--r-s); font-family: var(--fm); font-size: 12px; }
+.ph[data-state="ok"] { border-color: var(--ok); }
+.ph[data-state="warn"] { border-color: var(--accent-tx); }
+.ph[data-state="fail"] { border-color: var(--err); }
+.ph[data-state="skip"] { opacity: 0.55; }
+.ph .pt { margin: 5px 0 3px; color: var(--tx-3); font-variant-numeric: tabular-nums; }
+.ph .tt { color: var(--tx); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.ph .note { margin-top: 4px; color: var(--tx-2); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.ph a { text-decoration: underline dotted; text-underline-offset: 2px; }
+@media (max-width: 640px) { .flight { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.form { display: flex; flex-direction: column; gap: 12px; }
+.form textarea, .form select, .form input { height: 40px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--tx); padding: 0 11px; font-size: 15px; outline: none; font-family: inherit; width: 100%; }
+.form textarea { min-height: 60px; padding: 11px; resize: vertical; height: auto; }
+.btns { display: flex; gap: 8px; }
+
+/* ==========================================================================
+   4. ПРЕДЛОЖЕНИЯ ДИЗАЙН-ВОЛНЫ (§6.5 плана ARMS и срез A2). В коде этих правил
+   ПОКА НЕТ — они нарисованы здесь, чтобы владелец выбрал, а не угадывал.
+   Каждое подписано на странице отдельно.
+   ========================================================================== */
+/* ПРЕДЛОЖЕНИЕ · четвёртое состояние «не оценить» (срез A2, решение Р-4).
+   Отличается ФОРМОЙ, а не только цветом: квадрат пустой, с диагональной
+   штриховкой. Заливка = «мы знаем ответ», пустой контур = «ответа нет». */
+.led.unknown { color: var(--tx-3); }
+.led.unknown::before {
+  background: repeating-linear-gradient(45deg, currentColor 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+/* ПРЕДЛОЖЕНИЕ · `.lbl` из §6.5: моно, uppercase, трекинг 0.14em, --tx-3. */
+.lbl { font-family: var(--fm); font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--tx-3); margin: 0 0 8px; }
+/* ПРЕДЛОЖЕНИЕ · точечная сетка фона командного центра (§6.5). Чистый CSS,
+   без canvas и без WebGL — работает и при prefers-reduced-motion. */
+.bgdots { background-image: radial-gradient(var(--line-strong) 1px, transparent 1px);
+  background-size: 22px 22px; background-position: -1px -1px; }
+/* ПРЕДЛОЖЕНИЕ · строка здоровья приложения для панели `/apps` (R-A2-2). */
+.approw { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--surf);
+  border: 1px solid var(--line); border-radius: var(--r-s); margin-bottom: 8px; }
+.approw .ab { flex: 1; min-width: 0; }
+.approw .an { font-size: 14px; font-weight: 600; }
+.approw .as { font-size: 12.5px; color: var(--tx-2); margin-top: 2px; }
+.approw .aw { font-family: var(--fm); font-size: 11.5px; color: var(--tx-3); white-space: nowrap; }
+.approw[data-state="bad"] { border-left: 3px solid var(--err); }
+.approw[data-state="unknown"] { border-style: dashed; }
+/* ПРЕДЛОЖЕНИЕ · плитка агента для сетки на главной (R-A2-4). */
+.agtile { display: flex; gap: 10px; align-items: flex-start; background: var(--surf);
+  border: 1px solid var(--line-strong); border-radius: var(--r-s); box-shadow: 4px 4px 0 var(--line);
+  padding: 12px 13px; }
+.agtile .av8 { width: 26px; height: 26px; flex: 0 0 auto; vertical-align: 0; }
+.agtile .agb { flex: 1; min-width: 0; }
+.agtile .agn { font-family: var(--fm); font-size: 12.5px; font-weight: 600; color: var(--tx); overflow-wrap: anywhere; }
+.agtile .agr { font-size: 11.5px; color: var(--tx-2); margin-top: 4px; line-height: 1.35; }
+.aggrid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 640px) { .aggrid { grid-template-columns: 1fr; } }
+/* ПРЕДЛОЖЕНИЕ · пиксельные цифры (§6.5: «только для цифр и только если пройдёт
+   контраст»). Рисуются инлайн-SVG 3×5 — файла шрифта в ките нет и не будет. */
+.pixnum { display: inline-block; height: 26px; color: var(--tx); vertical-align: -3px; }
+.pixnum svg { display: block; height: 100%; width: auto; }
+.pixnum.big { height: 40px; }
+</style>
+</head>
+<body>
+<div class="kit-wrap">
+<header class="kit-head">
+<p class="kit-crumb">Дизайн-кит MYDON · <a href="index.html">обложка</a> · <a href="tokens.html">токены</a> · <a href="states.html">состояния</a> · <a href="agents.html">агенты</a> · <a href="console.html">консоль</a> · <a href="accent.html">акцент</a></p>
+<h1>Токены</h1>
+<p class="kit-lead">Палитра, типографика, радиусы и сетка командного центра — ровно те значения, что лежат
+в <code class="kit-code">apps/cc/src/app/globals.css</code>. Отношения контраста в подписях <b>процитированы
+из комментариев того же файла</b>, а не пересчитаны здесь: считал их автор палитры, и спорить с ним кит
+не должен. Светлая тема — база (<code class="kit-code">:root</code>, строки 8–100), тёмная переопределяет
+те же имена (<code class="kit-code">[data-theme="dark"]</code>, строки 139–168).</p>
+</header>
+<main>
+<section class="kit-sec">
+  <h2>1. Поверхности и линии</h2>
+  <p class="kit-p">Четыре уровня глубины и три силы линии. Холст → карточка → приподнятое → поле ввода:
+    поле объявлено отдельно от холста намеренно — на светлой теме они совпадают по цвету, но на тёмной
+    поле не должно «растворяться» в фоне.</p>
+  <div class="pair">
+    <div class="demo"><div class="demo-tag">светлая · бизнес-экраны</div>
+      <div class="stage" data-theme="light">
+        <table class="tok">
+          <thead><tr><th>Цвет</th><th>Токен</th><th>Значение</th><th>Что значит</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sw" style="background:#f4f4ee"></span></td><td class="name">--bg</td><td class="hex">#f4f4ee</td><td class="why">холст: тёплый белый с оливковой нотой</td></tr>
+            <tr><td><span class="sw" style="background:#ffffff"></span></td><td class="name">--surf</td><td class="hex">#ffffff</td><td class="why">карточка</td></tr>
+            <tr><td><span class="sw" style="background:#fbfaf5"></span></td><td class="name">--surf-2</td><td class="hex">#fbfaf5</td><td class="why">приподнятое, ховер</td></tr>
+            <tr><td><span class="sw" style="background:#ffffff"></span></td><td class="name">--field</td><td class="hex">#ffffff</td><td class="why">поле ввода — отдельно от холста</td></tr>
+            <tr><td><span class="sw" style="background:#dce0d7"></span></td><td class="name">--line</td><td class="hex">#dce0d7</td><td class="why">декоративные разделители (не текст)</td></tr>
+            <tr><td><span class="sw" style="background:#e8ebe3"></span></td><td class="name">--line-soft</td><td class="hex">#e8ebe3</td><td class="why">ещё тише: внутренние разделители</td></tr>
+            <tr><td><span class="sw" style="background:#7c8b7a"></span></td><td class="name">--line-strong</td><td class="hex">#7c8b7a</td><td class="why">границы контролов — <b>3,26:1</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="demo"><div class="demo-tag">тёмная · командный центр</div>
+      <div class="stage" data-theme="dark">
+        <table class="tok">
+          <thead><tr><th>Цвет</th><th>Токен</th><th>Значение</th><th>Что значит</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sw dk" style="background:#111712"></span></td><td class="name">--bg</td><td class="hex">#111712</td><td class="why">холст командного центра</td></tr>
+            <tr><td><span class="sw dk" style="background:#18211a"></span></td><td class="name">--surf</td><td class="hex">#18211a</td><td class="why">карточка</td></tr>
+            <tr><td><span class="sw dk" style="background:#202b22"></span></td><td class="name">--surf-2</td><td class="hex">#202b22</td><td class="why">приподнятое, ховер</td></tr>
+            <tr><td><span class="sw dk" style="background:#18211a"></span></td><td class="name">--field</td><td class="hex">#18211a</td><td class="why">поле ввода</td></tr>
+            <tr><td><span class="sw dk" style="background:#2c3324"></span></td><td class="name">--line</td><td class="hex">#2c3324</td><td class="why">декоративные разделители</td></tr>
+            <tr><td><span class="sw dk" style="background:#232a1d"></span></td><td class="name">--line-soft</td><td class="hex">#232a1d</td><td class="why">внутренние разделители</td></tr>
+            <tr><td><span class="sw dk" style="background:#6b7a5b"></span></td><td class="name">--line-strong</td><td class="hex">#6b7a5b</td><td class="why">границы контролов</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <p class="kit-src"><code>apps/cc/src/app/globals.css:18–24</code> и <code>:146–152</code> — поверхности и линии.
+    Числа контраста в тёмной теме автор в комментариях не указал: кит их <b>не выдумывает</b>.</p>
+</section>
+
+<section class="kit-sec">
+  <h2>2. Оранжевый в двух глубинах</h2>
+  <p class="kit-p">Это единственное место палитры, где роли разводит <b>форма</b>, а не оттенок.
+    <code class="kit-code">--accent</code> — яркий, только сплошная заливка и только с тёмными чернилами поверх.
+    <code class="kit-code">--accent-tx</code> / <code class="kit-code">--hot</code> — глубокий, всё что тоньше
+    заливки: текст, иконки, полоска тревоги. Причина в комментарии автора: белый текст на ярком оранжевом даёт
+    <b>2,85:1</b>, а яркий оранжевый текстом на светлом холсте — <b>2,58:1</b>. Отсюда вторая глубина.
+    Полное правило применения — на странице <a href="accent.html">«Акцент»</a>.</p>
+  <div class="pair">
+    <div class="demo"><div class="demo-tag">светлая</div>
+      <div class="stage" data-theme="light">
+        <table class="tok">
+          <thead><tr><th>Цвет</th><th>Токен</th><th>Значение</th><th>Контраст (из комментария)</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sw" style="background:#ff6b1a"></span></td><td class="name">--accent</td><td class="hex">#ff6b1a</td><td class="why"><b>5,86:1</b> с тёмными чернилами; белый на нём — 2,85:1, поэтому белого на оранжевом нет нигде</td></tr>
+            <tr><td><span class="sw" style="background:rgba(255,107,26,0.12)"></span></td><td class="name">--accent-soft</td><td class="hex">rgba(255,107,26,.12)</td><td class="why">мягкая подложка «сюда посмотри»</td></tr>
+            <tr><td><span class="sw" style="background:rgba(255,107,26,0.45)"></span></td><td class="name">--accent-line</td><td class="hex">rgba(255,107,26,.45)</td><td class="why">рамка «сюда посмотри»</td></tr>
+            <tr><td><span class="sw" style="background:#b8480f"></span></td><td class="name">--accent-tx</td><td class="hex">#b8480f</td><td class="why">оранжевый ТЕКСТОМ — <b>4,79:1</b></td></tr>
+            <tr><td><span class="sw" style="background:#b8480f"></span></td><td class="name">--hot</td><td class="hex">#b8480f</td><td class="why">тревога: полоска, подложка, текст — <b>4,79:1</b></td></tr>
+            <tr><td><span class="sw" style="background:#fff0e7"></span></td><td class="name">--hot-soft</td><td class="hex">#fff0e7</td><td class="why">подложка тревоги</td></tr>
+            <tr><td><span class="sw" style="background:rgba(184,72,15,0.4)"></span></td><td class="name">--hot-line</td><td class="hex">rgba(184,72,15,.4)</td><td class="why">рамка тревоги</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="demo"><div class="demo-tag">тёмная</div>
+      <div class="stage" data-theme="dark">
+        <table class="tok">
+          <thead><tr><th>Цвет</th><th>Токен</th><th>Значение</th><th>Контраст (из комментария)</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sw dk" style="background:#ff7a36"></span></td><td class="name">--accent</td><td class="hex">#ff7a36</td><td class="why">заливка</td></tr>
+            <tr><td><span class="sw dk" style="background:rgba(255,122,54,0.16)"></span></td><td class="name">--accent-soft</td><td class="hex">rgba(255,122,54,.16)</td><td class="why">подложка</td></tr>
+            <tr><td><span class="sw dk" style="background:rgba(255,122,54,0.45)"></span></td><td class="name">--accent-line</td><td class="hex">rgba(255,122,54,.45)</td><td class="why">рамка</td></tr>
+            <tr><td><span class="sw dk" style="background:#ffa061"></span></td><td class="name">--accent-tx</td><td class="hex">#ffa061</td><td class="why">на тёмном оранжевый читается и текстом — <b>7,00:1</b></td></tr>
+            <tr><td><span class="sw dk" style="background:#ff8a4c"></span></td><td class="name">--hot</td><td class="hex">#ff8a4c</td><td class="why">тревога</td></tr>
+            <tr><td><span class="sw dk" style="background:#3b2116"></span></td><td class="name">--hot-soft</td><td class="hex">#3b2116</td><td class="why">подложка тревоги</td></tr>
+            <tr><td><span class="sw dk" style="background:rgba(255,138,76,0.45)"></span></td><td class="name">--hot-line</td><td class="hex">rgba(255,138,76,.45)</td><td class="why">рамка тревоги</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <p class="kit-src"><code>apps/cc/src/app/globals.css:26–48</code> (светлая) и <code>:153–159</code> (тёмная) —
+    обе глубины оранжевого. Тёмные значения <b>не инвертированы механически</b>: на тёмном фоне обе глубины
+    светлее, а не темнее.</p>
+</section>
+
+<section class="kit-sec">
+  <h2>3. Три уровня текста — и почему их три, а не четыре</h2>
+  <p class="kit-p">На светлом холсте три серых, которые все проходят 4,5:1, визуально сходятся в один.
+    Уровни раздвинуты <b>по контрасту</b> (15 → 7 → 4,7), а не добавлены новые оттенки. Прежний третичный
+    <code class="kit-code">#8b958a</code> дал бы здесь 2,88:1 — то есть перестал бы быть текстом.</p>
+  <div class="pair">
+    <div class="demo"><div class="demo-tag">светлая</div>
+      <div class="stage" data-theme="light">
+        <p style="margin:0 0 6px;color:var(--tx)">Первый уровень — <code class="mono">--tx</code> #172019 · <b>15,13:1</b>. Заголовки, имена, суммы.</p>
+        <p style="margin:0 0 6px;color:var(--tx-2)">Второй уровень — <code class="mono">--tx-2</code> #4a554a · <b>7,07:1</b>. Пояснения, вторые строки.</p>
+        <p style="margin:0;color:var(--tx-3)">Третий уровень — <code class="mono">--tx-3</code> #667066 · <b>4,67:1</b>. Метки, время, подписи.</p>
+      </div>
+    </div>
+    <div class="demo"><div class="demo-tag">тёмная</div>
+      <div class="stage" data-theme="dark">
+        <p style="margin:0 0 6px;color:var(--tx)">Первый уровень — <code class="mono">--tx</code> #f0f2eb. Заголовки, имена, суммы.</p>
+        <p style="margin:0 0 6px;color:var(--tx-2)">Второй уровень — <code class="mono">--tx-2</code> #a5aea2. Пояснения, вторые строки.</p>
+        <p style="margin:0;color:var(--tx-3)">Третий уровень — <code class="mono">--tx-3</code> #8c978a. Метки, время, подписи.</p>
+      </div>
+    </div>
+  </div>
+  <p class="kit-src"><code>apps/cc/src/app/globals.css:50–59</code> — три уровня текста плюс алиас
+    <code>--tx-1</code>; <code>:160–163</code> — тёмная.</p>
+</section>
+
+<section class="kit-sec">
+  <h2>4. Состояния и метка ИИ</h2>
+  <div class="pair">
+    <div class="demo"><div class="demo-tag">светлая</div>
+      <div class="stage" data-theme="light">
+        <table class="tok">
+          <thead><tr><th>Цвет</th><th>Токен</th><th>Значение</th><th>Что значит</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sw" style="background:#627719"></span></td><td class="name">--ok</td><td class="hex">#627719</td><td class="why">«норма/хорошо» текстом — <b>4,56:1</b></td></tr>
+            <tr><td><span class="sw" style="background:#a8cc2a"></span></td><td class="name">--ok-fill</td><td class="hex">#a8cc2a</td><td class="why">заливка + тёмные чернила — <b>9,02:1</b></td></tr>
+            <tr><td><span class="sw" style="background:#edf3d4"></span></td><td class="name">--ok-soft</td><td class="hex">#edf3d4</td><td class="why">подложка «норма»</td></tr>
+            <tr><td><span class="sw" style="background:#8a5a00"></span></td><td class="name">--warn</td><td class="hex">#8a5a00</td><td class="why">предупреждение текстом</td></tr>
+            <tr><td><span class="sw" style="background:#b43c45"></span></td><td class="name">--err</td><td class="hex">#b43c45</td><td class="why"><b>5,18:1</b>; белый на нём — <b>5,72:1</b></td></tr>
+            <tr><td><span class="sw" style="background:#fbe8e9"></span></td><td class="name">--err-soft</td><td class="hex">#fbe8e9</td><td class="why">подложка сбоя</td></tr>
+            <tr><td><span class="sw" style="background:#6d4bb8"></span></td><td class="name">--agent</td><td class="hex">#6d4bb8</td><td class="why">единственный цвет вне палитры: метка ИИ-исполнителя. Не путается ни с брендом, ни с тревогой</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="demo"><div class="demo-tag">тёмная</div>
+      <div class="stage" data-theme="dark">
+        <table class="tok">
+          <thead><tr><th>Цвет</th><th>Токен</th><th>Значение</th><th>Что значит</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sw dk" style="background:#c5e56b"></span></td><td class="name">--ok</td><td class="hex">#c5e56b</td><td class="why">«норма» текстом</td></tr>
+            <tr><td><span class="sw dk" style="background:#c5e56b"></span></td><td class="name">--ok-fill</td><td class="hex">#c5e56b</td><td class="why">на тёмной заливка и текст совпали</td></tr>
+            <tr><td><span class="sw dk" style="background:#2d381d"></span></td><td class="name">--ok-soft</td><td class="hex">#2d381d</td><td class="why">подложка «норма»</td></tr>
+            <tr><td><span class="sw dk" style="background:#e8b866"></span></td><td class="name">--warn</td><td class="hex">#e8b866</td><td class="why">предупреждение текстом</td></tr>
+            <tr><td><span class="sw dk" style="background:#ff8790"></span></td><td class="name">--err</td><td class="hex">#ff8790</td><td class="why">сбой</td></tr>
+            <tr><td><span class="sw dk" style="background:#3a1f22"></span></td><td class="name">--err-soft</td><td class="hex">#3a1f22</td><td class="why">подложка сбоя</td></tr>
+            <tr><td><span class="sw dk" style="background:#b79bff"></span></td><td class="name">--agent</td><td class="hex">#b79bff</td><td class="why">метка ИИ-исполнителя</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <p class="kit-src"><code>apps/cc/src/app/globals.css:61–68</code> и <code>:86–88</code> — состояния и
+    <code>--agent</code>; <code>:164–171</code>, <code>:174</code> — тёмная. Как эти цвета превращаются в
+    состояние на экране — <a href="states.html">страница «Состояния»</a>.</p>
+</section>
+
+<section class="kit-sec">
+  <h2>5. Типографика</h2>
+  <p class="kit-p">Гарнитура одна — <b>Golos Text</b>, в двух ролях (заголовочная и текстовая), плюс
+    <b>IBM Plex Mono</b> для данных. Выбор сделан по диагнозу, а не по вкусу: Syne подключался только с
+    латиницей, и русские заголовки рендерились системным запасным шрифтом. В панели файлы локальные
+    (<code class="kit-code">next/font/local</code>), потому что <code class="kit-code">next/font/google</code>
+    забирает шрифт по сети на сборке. <b>В ките шрифтовых файлов нет вовсе</b> — стоят ближайшие системные
+    аналоги, размеры и трекинг настоящие.</p>
+  <div class="pair">
+    <div class="demo"><div class="demo-tag">светлая</div>
+      <div class="stage" data-theme="light">
+        <h1 class="h1">Командный центр</h1>
+        <p class="lead">Класс <code class="mono">.h1</code> — <code class="mono">--fh</code>, 22px, вес 800, трекинг −0.01em</p>
+        <h3 class="h2">Ближайшие 24 ч</h3>
+        <p style="margin:2px 0 12px;font-size:12px;color:var(--tx-3)">Класс <code class="mono">.h2</code> — <code class="mono">--fh</code>, 15px, вес 700</p>
+        <p style="margin:0 0 4px">Основной текст — <code class="mono">--fu</code>, 15px, интерлиньяж 1.45. Так набрано всё, что владелец читает словами.</p>
+        <p class="lead" style="margin:0 0 12px">Подводка <code class="mono">.lead</code> — 13px, <code class="mono">--tx-2</code></p>
+        <p class="eyebrow">.eyebrow · Golos, 10.5px, трекинг 0.13em</p>
+        <div class="section-title" style="margin:0 0 10px">.section-title · моно, 10.5px, трекинг 0.13em</div>
+        <p class="num" style="margin:0;font-size:25px">26 · 07:30 · 1 038</p>
+        <p class="hint" style="margin:2px 0 0">Цифры — <code class="mono">--fm</code> с <code class="mono">tabular-nums</code>: колонка чисел не «пляшет»</p>
+      </div>
+    </div>
+    <div class="demo"><div class="demo-tag">тёмная</div>
+      <div class="stage" data-theme="dark">
+        <h1 class="h1">Командный центр</h1>
+        <p class="lead">Класс <code class="mono">.h1</code> — <code class="mono">--fh</code>, 22px, вес 800, трекинг −0.01em</p>
+        <h3 class="h2">Ближайшие 24 ч</h3>
+        <p style="margin:2px 0 12px;font-size:12px;color:var(--tx-3)">Класс <code class="mono">.h2</code> — <code class="mono">--fh</code>, 15px, вес 700</p>
+        <p style="margin:0 0 4px">Основной текст — <code class="mono">--fu</code>, 15px, интерлиньяж 1.45. Так набрано всё, что владелец читает словами.</p>
+        <p class="lead" style="margin:0 0 12px">Подводка <code class="mono">.lead</code> — 13px, <code class="mono">--tx-2</code></p>
+        <p class="eyebrow">.eyebrow · Golos, 10.5px, трекинг 0.13em</p>
+        <div class="section-title" style="margin:0 0 10px">.section-title · моно, 10.5px, трекинг 0.13em</div>
+        <p class="num" style="margin:0;font-size:25px">26 · 07:30 · 1 038</p>
+        <p class="hint" style="margin:2px 0 0">Цифры — <code class="mono">--fm</code> с <code class="mono">tabular-nums</code></p>
+      </div>
+    </div>
+  </div>
+  <p class="kit-src"><code>apps/cc/src/app/globals.css:70–78</code> (переменные шрифтов),
+    <code>:262–265</code> (<code>.h1</code>, <code>.h2</code>, <code>.lead</code>, <code>.eyebrow</code>),
+    <code>:190</code> (<code>.mono/.num</code>), <code>:610–615</code> (<code>.section-title</code>);
+    файлы гарнитур — <code>apps/cc/src/app/layout.tsx:36–60</code>.</p>
+
+  <h3>5.1 Метка секции: <code class="kit-code">.lbl</code> — предложение волны</h3>
+  <p class="kit-p">План §6.5 просит один класс метки: <code class="kit-code">--fm</code>, uppercase, трекинг
+    <b>0.14em</b>, цвет <code class="kit-code">--tx-3</code>. В коде такого класса <b>нет</b>: сегодня меток две,
+    и они спорят — <code class="kit-code">.eyebrow</code> набран Golos, <code class="kit-code">.section-title</code>
+    моноширинным, трекинг у обоих 0.13em. Владельцу выбирать: свести к одной метке или оставить две роли.</p>
+  <div class="vs">
+    <div class="vs-col"><span class="tagline now">как сейчас · две метки</span>
+      <div class="demo"><div class="demo-tag">тёмная</div><div class="stage" data-theme="dark">
+        <p class="eyebrow">VendHub · vendhub-ops</p>
+        <div class="section-title" style="margin:0">Ближайшие 24 ч</div>
+      </div></div>
+      <p class="kit-src"><code>globals.css:265</code> — <code>.eyebrow</code> (Golos, 0.13em);
+        <code>globals.css:610</code> — <code>.section-title</code> (моно, 0.13em). Разные гарнитуры на одном экране.</p>
+    </div>
+    <div class="vs-col prop"><span class="tagline prop">предложение · один <code>.lbl</code></span>
+      <div class="demo"><div class="demo-tag">тёмная</div><div class="stage" data-theme="dark">
+        <p class="lbl">VendHub · vendhub-ops</p>
+        <p class="lbl" style="margin:0">Ближайшие 24 ч</p>
+      </div></div>
+      <p class="kit-src new"><code>предложение §6.5</code> — <code>.lbl</code>: моно, uppercase, трекинг 0.14em,
+        <code>--tx-3</code>. Одна метка на обе роли; разницу «где я» и «что это за блок» несёт положение, а не гарнитура.</p>
+    </div>
+  </div>
+
+  <h3>5.2 Пиксельные цифры — предложение волны, с оговоркой</h3>
+  <p class="kit-p">§6.5 разрешает пиксельный display-шрифт <b>только для цифр и только если пройдёт контраст</b>.
+    Шрифтового файла в ките нет и не будет — здесь цифры нарисованы инлайн-SVG 3×5 по той же логике, что и
+    аватары агентов. Это честная проба формы, а не готовый шрифт: решать, стоит ли заводить файл гарнитуры,
+    владельцу.</p>
+  <div class="vs">
+    <div class="vs-col"><span class="tagline now">как сейчас · IBM Plex Mono</span>
+      <div class="demo"><div class="demo-tag">тёмная</div><div class="stage bgdots" data-theme="dark" style="background-image:none">
+        <div class="tile is-hot" style="max-width:220px"><div class="lab">Ждут решения</div>
+          <div class="v">12</div><div class="foot"><span class="mk"></span>нужно внимание</div></div>
+      </div></div>
+      <p class="kit-src"><code>globals.css:436</code> — <code>.tile .v</code>: <code>--fm</code>, 25px,
+        <code>tabular-nums</code>. Читается на телефоне, проверено контрастом вместе с текстом.</p>
+    </div>
+    <div class="vs-col prop"><span class="tagline prop">предложение · пиксельные цифры</span>
+      <div class="demo"><div class="demo-tag">тёмная</div><div class="stage" data-theme="dark">
+        <div class="tile is-hot" style="max-width:220px"><div class="lab">Ждут решения</div>
+          <div style="margin-top:9px"><span class="pixnum big" style="color:var(--hot)"><svg viewBox="0 0 7 5"><rect x="1" y="0" width="1" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="1" y="2" width="1" height="1"/><rect x="1" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="4" y="0" width="1" height="1"/><rect x="5" y="0" width="1" height="1"/><rect x="6" y="0" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="5" y="2" width="1" height="1"/><rect x="6" y="2" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="5" y="4" width="1" height="1"/><rect x="6" y="4" width="1" height="1"/></svg></span></div>
+          <div class="foot"><span class="mk"></span>нужно внимание</div></div>
+      </div></div>
+      <p class="kit-src new"><code>предложение §6.5</code> — цифра как пиксельная сетка. Риск назван в самом
+        плане: мелкий кегль пиксельной цифры теряет контраст, поэтому предложение ограничено крупными числами
+        плиток и часами, а таблицы и суммы остаются на <code>--fm</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="kit-sec">
+  <h2>6. Форма: радиусы, тени, сетка</h2>
+  <div class="pair">
+    <div class="demo"><div class="demo-tag">светлая</div>
+      <div class="stage" data-theme="light">
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="card"><b>.card</b><div class="hint">радиус <code class="mono">--r</code> = 12px, мягкая тень не используется — только линия</div></div>
+          <div class="panel console"><b>.panel.console</b><div class="hint">радиус <code class="mono">--r-s</code> = 10px, жёсткая рамка <code class="mono">--line-strong</code> и смещённый контур 4px</div></div>
+        </div>
+        <p class="hint" style="margin-top:12px"><code class="mono">--shadow</code> = 0 14px 44px rgba(33,43,34,.1) — только для всплывающих слоёв, не для карточек.</p>
+      </div>
+    </div>
+    <div class="demo"><div class="demo-tag">тёмная</div>
+      <div class="stage" data-theme="dark">
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="card"><b>.card</b><div class="hint">радиус <code class="mono">--r</code> = 12px</div></div>
+          <div class="panel console"><b>.panel.console</b><div class="hint">радиус <code class="mono">--r-s</code> = 10px, смещённый контур 4px</div></div>
+        </div>
+        <p class="hint" style="margin-top:12px"><code class="mono">--shadow</code> = 0 14px 44px rgba(0,0,0,.55).</p>
+      </div>
+    </div>
+  </div>
+  <p class="kit-src"><code>apps/cc/src/app/globals.css:79–84</code> (<code>--r</code>, <code>--r-s</code>,
+    <code>--bar</code>, <code>--tabs-h</code>, <code>--shadow</code>), <code>:349</code> (<code>.card</code>),
+    <code>:358–361</code> (<code>.panel.console</code>) — приборная панель вместо бумажной карточки:
+    жёсткая рамка и смещённый контур, без размытой тени.</p>
+  <ul class="kit-list">
+    <li><b>Ширина полосы содержимого</b> — 1180px (<code class="kit-code">.wrap</code>, <code class="kit-code">globals.css:245</code>).</li>
+    <li><b>Шаг сетки</b> — 10px (<code class="kit-code">.grid</code>, <code class="kit-code">.tiles</code>), 12px на широком экране.</li>
+    <li><b>Плитки</b> — 2 колонки на телефоне, 4 на широком (<code class="kit-code">globals.css:787</code>).</li>
+    <li><b>Полоса фаз</b> — 6 колонок, ниже 900px ломается на 3 (<code class="kit-code">globals.css:1817</code>).</li>
+    <li><b>Нижняя панель</b> <code class="kit-code">--bar</code> = 64px, липкие вкладки направления <code class="kit-code">--tabs-h</code> = 55px.</li>
+  </ul>
+</section>
+</main>
+<footer class="kit-foot">
+<p>Дизайн-кит MYDON, волна §6.5 плана ARMS. Источник токенов — <code class="kit-code">apps/cc/src/app/globals.css</code>; компоненты перенесены из <code class="kit-code">apps/cc/src</code> один в один. Страница не участвует в сборке панели и не делает ни одного внешнего запроса.</p>
+</footer>
+</div>
+</body>
+</html>

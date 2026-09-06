@@ -85,6 +85,17 @@ export interface LlmLedgerMonitoring {
     /** Present when the cap is invalid; monitoring and admission fail closed. */
     configError?: string;
   };
+  /**
+   * Последний завершённый вызов ПО МАРШРУТУ МОДЕЛЕЙ: без потребителя
+   * `embeddings` (круг починок 2, Ф-2, `latestCompletedRouteScope`).
+   *
+   * У эмбеддингов свой ключ и свой адрес (`EMBED_*`), но та же таблица
+   * `llm_spend`. Пока поле бралось по всей таблице, единственное утверждение
+   * снимка «вызовы проходят прямо сейчас» мерцало по тому, чей вызов
+   * завершился последним: отзыв ключа модели прятался за штатным успехом
+   * эмбеддинга, а отзыв ключа эмбеддингов красил живую модель. Расход и
+   * отказы эмбеддингов по-прежнему считаются в `budget` и `failuresToday`.
+   */
   latestCompleted: {
     provider: string;
     consumer: LlmLedgerConsumer;

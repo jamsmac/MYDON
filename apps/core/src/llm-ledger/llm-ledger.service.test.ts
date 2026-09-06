@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import { agentTaskLlmJob, llmModelPrice, llmSpend, systemConfig } from "@mydon/db";
 import { tashkentDay } from "@mydon/shared";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { RecoverPreDispatchLlmDto } from "./llm-ledger.dto";
@@ -12,6 +14,7 @@ import {
   classifySettlementAnomaly,
   consumerRequiresAgent,
   flatOpenAiPriceTierDenial,
+  latestCompletedRouteScope,
   LLM_PRE_DISPATCH_RECOVERY_REASON,
   LLM_STUCK_RESERVATION_THRESHOLD_MINUTES,
   LlmLedgerService,
@@ -289,8 +292,22 @@ interface MonitoringFixture {
   prices?: Array<{ id?: string; model: string; validFrom: Date }>;
 }
 
+/**
+ * Куда заглушка кладёт НАСТОЯЩЕЕ условие запроса «последний завершённый».
+ *
+ * Заглушка `where` не исполняет (и не может: SQL проверяет только сервер),
+ * поэтому тест на её строках доказал бы отбор, которого нет. Здесь она
+ * ЗАПОМИНАЕТ переданное условие, а тест разбирает его диалектом Postgres —
+ * это утверждение о запросе, который уходит в базу, а не о фикстуре.
+ * Семантика («упал основной, позже прошёл embeddings») проверяется на
+ * настоящем движке: `tools/pglite-checks/check-llm-latest.mjs`.
+ */
+interface MonitoringCapture {
+  latestWhere?: unknown;
+}
+
 /** Узкий read-only DB double для проверки безопасного monitoring snapshot. */
-function monitoringDb(fixture: MonitoringFixture) {
+function monitoringDb(fixture: MonitoringFixture, capture: MonitoringCapture = {}) {
   return {
     select: (fields?: Record<string, unknown>) => ({
       from: (table: unknown) => {
@@ -317,11 +334,14 @@ function monitoringDb(fixture: MonitoringFixture) {
         }
         if (keys.includes("feature")) {
           return {
-            where: () => ({
-              orderBy: () => ({
-                limit: async () => (fixture.latest ? [fixture.latest] : []),
-              }),
-            }),
+            where: (condition: unknown) => {
+              capture.latestWhere = condition;
+              return {
+                orderBy: () => ({
+                  limit: async () => (fixture.latest ? [fixture.latest] : []),
+                }),
+              };
+            },
           };
         }
         if (keys.includes("oldestReservedAt")) {
@@ -1181,6 +1201,25 @@ describe("LLM-ledger settlement invariants", () => {
       ).monitoring(new Date("2026-08-30T12:00:00.000Z"));
       assert.equal(snapshot.latestCompleted, null);
     }
+  });
+
+  it("latestCompleted спрашивает МАРШРУТ МОДЕЛЕЙ, а не всю таблицу (Ф-2)", async () => {
+    // Строка «Модели» объявлена про конкретный маршрут, а последний
+    // завершённый вызов брался по всей `llm_spend`: один штатный успех
+    // эмбеддингов зеленил строку над отозванным ключом модели, и вердикт
+    // мерцал по тому, чей вызов завершился последним.
+    const capture: MonitoringCapture = {};
+    await new LlmLedgerService(monitoringDb({}, capture)).monitoring(
+      new Date("2026-08-30T12:00:00.000Z"),
+    );
+    assert.ok(capture.latestWhere !== undefined, "запрос ушёл вообще без условия");
+    const запрос = new PgDialect().sqlToQuery(capture.latestWhere as SQL);
+    assert.match(запрос.sql, /"consumer" <>/, `потребитель не ограничен: ${запрос.sql}`);
+    assert.ok(запрос.params.includes("embeddings"), `эмбеддинги не исключены: ${запрос.sql}`);
+    // И это ровно та область, которую объявляет экспортируемая функция.
+    assert.deepEqual(new PgDialect().sqlToQuery(latestCompletedRouteScope()).params, [
+      "embeddings",
+    ]);
   });
 
   it("missing/mismatched provider model открывает circuit; exact/dated Anthropic проходит", () => {

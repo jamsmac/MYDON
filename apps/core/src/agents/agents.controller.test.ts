@@ -1,8 +1,9 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import { plainToInstance } from "class-transformer";
 import { validate, type ValidationError } from "class-validator";
+import { ReadTokenGuard } from "../common/read-token.guard";
 import {
   AgentsController,
   CatalogSkillDto,
@@ -150,6 +151,88 @@ describe("Порядок маршрутов: «skills» не должен уех
       "иначе GET /agents/skills вернёт «Агент \"skills\" не найден»",
     );
   });
+
+  it("status объявлен выше byName (R-A2-1)", () => {
+    const methods = Object.getOwnPropertyNames(AgentsController.prototype);
+    assert.ok(
+      methods.indexOf("status") < methods.indexOf("byName"),
+      "иначе GET /agents/status вернёт «Агент \"status\" не найден», и сетка на главной опустеет",
+    );
+  });
+});
+
+describe("GET /agents/status закрыт токеном и на чтение (круг починок, C-1)", () => {
+  const prev = process.env.SERVICE_TOKEN;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.SERVICE_TOKEN;
+    else process.env.SERVICE_TOKEN = prev;
+  });
+
+  const ctx = (headers: Record<string, string> = {}) =>
+    ({
+      switchToHttp: () => ({ getRequest: () => ({ method: "GET", headers }) }),
+      getHandler: () => (): void => undefined,
+      getClass: () => class {},
+    }) as unknown as Parameters<ReadTokenGuard["canActivate"]>[0];
+
+  it("анонимный GET отклоняется — глобальный guard чтения пропускает, этот нет", () => {
+    process.env.SERVICE_TOKEN = "secret";
+    assert.throws(() => new ReadTokenGuard().canActivate(ctx()), /токен/);
+    assert.throws(() => new ReadTokenGuard().canActivate(ctx({ "x-service-token": "wrong" })), /токен/);
+  });
+
+  it("GET с верным токеном проходит (и заголовком, и Bearer)", () => {
+    process.env.SERVICE_TOKEN = "secret";
+    assert.equal(new ReadTokenGuard().canActivate(ctx({ "x-service-token": "secret" })), true);
+    assert.equal(new ReadTokenGuard().canActivate(ctx({ authorization: "Bearer secret" })), true);
+  });
+
+  it("токен не настроен — состояние всё равно закрыто (fail-closed)", () => {
+    delete process.env.SERVICE_TOKEN;
+    assert.throws(() => new ReadTokenGuard().canActivate(ctx()), /токен/);
+  });
+
+  it("guard навешен НА МАРШРУТ status", () => {
+    // Снятие `@UseGuards(ReadTokenGuard)` роняет этот ассерт: маршрут печатает
+    // `lastRun.reason` — то же поле, ради которого закрыт `/routines/runs`.
+    const guards: unknown = Reflect.getMetadata("__guards__", AgentsController.prototype.status);
+    assert.ok(
+      Array.isArray(guards) && guards.includes(ReadTokenGuard),
+      "нет @UseGuards(ReadTokenGuard) на GET /agents/status",
+    );
+  });
+
+  it("guard навешен НА МАРШРУТ skills", () => {
+    // Дека несёт `blockedReason` и `resultNote` последнего прогона навыка —
+    // тот же пересказ работы агентов, что и `agent_run.reason`. Маршрут приехал
+    // волной S, когда закрытых читающих дверей ещё не было, и до этой правки
+    // ассерт ниже пришпиливал его ОТКРЫТЫМ: закрытая дверь рядом с открытой
+    // в ту же комнату — не защита.
+    const guards: unknown = Reflect.getMetadata("__guards__", AgentsController.prototype.skills);
+    assert.ok(
+      Array.isArray(guards) && guards.includes(ReadTokenGuard),
+      "нет @UseGuards(ReadTokenGuard) на GET /agents/skills",
+    );
+  });
+
+  it("КОНТРОЛЛЕР целиком НЕ закрыт: список и карточка читаются как раньше", () => {
+    // Классовый guard закрыл бы `GET /agents` и `GET /agents/:name` — ими ходят
+    // панель, бот и MCP-сервер, и починка C-1 не имеет права их сломать.
+    // `skills` из этого списка ВЫВЕДЕН осознанно (см. тест выше): он отдаёт
+    // причины прогонов, а не карточки.
+    const guards: unknown = Reflect.getMetadata("__guards__", AgentsController);
+    assert.ok(
+      guards === undefined || (Array.isArray(guards) && !guards.includes(ReadTokenGuard)),
+      "ReadTokenGuard на классе закроет читающие маршруты панели, бота и MCP",
+    );
+    for (const route of ["list", "byName"] as const) {
+      const g: unknown = Reflect.getMetadata("__guards__", AgentsController.prototype[route]);
+      assert.ok(
+        g === undefined || (Array.isArray(g) && !g.includes(ReadTokenGuard)),
+        `маршрут ${route} не должен требовать токен: им ходят панель, бот и MCP`,
+      );
+    }
+  });
 });
 
 describe("Подпись правки карточки агента (волна A1, adversarial)", () => {
@@ -166,7 +249,14 @@ describe("Подпись правки карточки агента (волна 
         return { name: "a" };
       },
     } as never;
-    return { controller: new AgentsController(agents), calls };
+    // База контроллеру нужна только гейту личного контура (GET /agents/status):
+    // в сценариях подписи она не участвует, и её вызов был бы регрессом.
+    const noDb = {
+      select: () => {
+        throw new Error("db тронута вне сценария состояния агентов");
+      },
+    } as never;
+    return { controller: new AgentsController(agents, noDb), calls };
   }
 
   it("правка через инструмент подписана им, а не владельцем", async () => {

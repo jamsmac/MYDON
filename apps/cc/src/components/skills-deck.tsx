@@ -7,6 +7,8 @@ import { runSkill } from "../app/skills/actions";
 import type { SkillDeck, SkillDeckItem } from "../lib/core";
 import { plural, when } from "../lib/format";
 import { BUSINESS_LABEL, TIER_LABEL } from "../lib/labels";
+import { implemented, runnable } from "../lib/skills";
+import { Av8 } from "./av8";
 
 /** Состояние агента словами: цвет лампы дублируется текстом, а не заменяется им. */
 const AGENT_STATUS_LABEL: Record<SkillDeckItem["agentStatus"], string> = {
@@ -16,12 +18,22 @@ const AGENT_STATUS_LABEL: Record<SkillDeckItem["agentStatus"], string> = {
   deprecated: "в архиве",
 };
 
-/** Лампа: работает — «идёт работа», выключен — «спокойно», остальное — «не запустится». */
+/**
+ * Лампа состояния агента.
+ *
+ * ВЫКЛЮЧЕННЫЙ АГЕНТ НЕ ЗЕЛЁНЫЙ (волна A2, дефект дизайн-кита `states.html`
+ * §1.1). До этого `paused` рисовался классом `.led.idle` — тем же зелёным, что
+ * значит «повода нет, всё в норме»: цвет говорил «здоров», слово говорило
+ * «выключен». Здесь, рядом со словом, это было терпимо; в сетке из двенадцати
+ * агентов на главной ряд зелёных ламп прочитался бы как «всё хорошо» над
+ * выключенной системой. Теперь `paused` — базовая лампа (`--tx-2`): состояние
+ * известно, поэтому квадрат залит, но нормой оно не является.
+ */
 const LED_CLASS: Record<SkillDeckItem["agentStatus"], string> = {
-  active: "working",
-  paused: "idle",
-  draft: "blocked",
-  deprecated: "blocked",
+  active: "led working",
+  paused: "led",
+  draft: "led blocked",
+  deprecated: "led blocked",
 };
 
 /** Статус задачи последнего запуска приходит строкой — переводим известные. */
@@ -128,20 +140,13 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
   const [taskId, setTaskId] = useState<string | null>(null);
 
   // Навык «реализован», если его есть чем исполнить: тело файла у модели или
-  // код в реестре агентов. `executor: code` без кода — строка каталога без
-  // исполнителя: раньше кнопка была активна, задача создавалась, а worker
-  // угадывал по заголовку СОСЕДНИЙ навык (решение Р-6).
-  const implemented = item.executor === "llm" || item.hasCode;
+  // код в реестре агентов. Правило — ОДНО, из `lib/skills.ts` (C-7): здесь
+  // стояла его вторая копия, а кнопку «Запустить» гасит первая.
+  const реализован = implemented(item);
   // Запускается только закреплённый навык работающего агента: остальное Core
   // отклонит, и честнее не давать нажать, чем показать отказ после нажатия.
-  const canRun = item.agentStatus === "active" && item.enabled && implemented;
-  const hint = canRun
-    ? undefined
-    : !implemented
-      ? "Навык ещё не реализован"
-      : item.agentStatus === "active"
-        ? "Впиши навык агенту в его карточке"
-        : "Включи агента в его карточке";
+  // Само правило — в `lib/skills.ts`: та же кнопка стоит в карточке агента.
+  const { canRun, reason: hint } = runnable(item);
   // Архивный агент по расписанию не ходит, даже если строки в карточке остались.
   const crons = item.agentStatus === "deprecated" ? [] : item.crons;
 
@@ -165,7 +170,7 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
     <section className="panel console">
       <div className="eyebrow">
         {BUSINESS_LABEL[item.business] ?? item.business} · <Av8 name={item.agent} /> {item.agent}{" "}
-        <span className={`led ${LED_CLASS[item.agentStatus]}`}>
+        <span className={LED_CLASS[item.agentStatus]}>
           {AGENT_STATUS_LABEL[item.agentStatus]}
         </span>
       </div>
@@ -193,7 +198,7 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
         {item.hasCode && item.executor === "llm" && <span className="pill warn">исполнится код</span>}
         {/* Обратный случай: обещан код, а кода нет. Запускать нечем — метка
             объясняет заблокированную кнопку прямо в карточке. */}
-        {!implemented && <span className="pill bad">не реализован</span>}
+        {!реализован && <span className="pill bad">не реализован</span>}
       </div>
 
       {item.problems.length > 0 && (
@@ -266,37 +271,4 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
 function short(text: string): string {
   const one = text.replace(/\s+/g, " ").trim();
   return one.length > 140 ? `${one.slice(0, 140)}…` : one;
-}
-
-/**
- * Аватар агента: 8×8 клеток, детерминированно от имени.
- *
- * Имя рядом читается словами — картинка нужна, чтобы карточку одного агента
- * находить глазом в сетке, поэтому она aria-hidden.
- */
-function Av8({ name }: { name: string }) {
-  // FNV-1a: стабильный и короткий — одно имя всегда даёт один и тот же рисунок.
-  let hash = 2166136261;
-  for (let i = 0; i < name.length; i += 1) {
-    hash ^= name.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  const cells: { x: number; y: number }[] = [];
-  for (let y = 0; y < 8; y += 1) {
-    for (let x = 0; x < 4; x += 1) {
-      if (((hash >>> (y * 4 + x)) & 1) === 1) {
-        // Левую половину зеркалим — получается «лицо», а не случайный шум.
-        cells.push({ x, y }, { x: 7 - x, y });
-      }
-    }
-  }
-  return (
-    <span className="av8" aria-hidden="true">
-      <svg viewBox="0 0 8 8" fill="currentColor">
-        {cells.map((c) => (
-          <rect key={`${c.x}-${c.y}`} x={c.x} y={c.y} width="1" height="1" />
-        ))}
-      </svg>
-    </span>
-  );
 }

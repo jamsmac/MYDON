@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { AutonomyTier } from "@mydon/shared";
 import { core, CoreUnavailable } from "../../lib/core";
 
 export interface ActionResult {
@@ -72,7 +73,9 @@ export async function saveAgent(name: string, form: FormData): Promise<ActionRes
       description: String(form.get("description") ?? "").trim() || null,
       mission: String(form.get("mission") ?? "").trim() || null,
       nonGoals: parseList(String(form.get("nonGoals") ?? "")),
-      autonomyDefault: String(form.get("autonomyDefault") ?? "T1"),
+      // Тира здесь НЕТ: его меняет только `setAgentAutonomy` отдельным
+      // маршрутом. Поле в этом patch'е Core молча отбрасывает, и панель
+      // рапортовала «Сохранено» над неизменённой самостоятельностью.
       skills: parseList(String(form.get("skills") ?? "")),
       schedule: parseSchedule(String(form.get("schedule") ?? "")),
       budgetPerDayUsd: budget,
@@ -86,6 +89,26 @@ export async function saveAgent(name: string, form: FormData): Promise<ActionRes
     return fail(err);
   }
 
+  revalidatePath("/agents");
+  revalidatePath(`/agents/${name}`);
+  return { ok: true };
+}
+
+/**
+ * Смена самостоятельности агента (дефект Р-7).
+ *
+ * Отдельным действием и отдельным маршрутом Core: `PATCH /agents/:name` поле
+ * `autonomyDefault` сознательно ОТБРАСЫВАЕТ — иначе держатель общего
+ * SERVICE_TOKEN (в том числе сам worker агентов) поднял бы себе тир обычной
+ * правкой карточки. До этой волны панель слала тир туда и печатала
+ * «Сохранено» над неизменённым значением.
+ */
+export async function setAgentAutonomy(name: string, tier: AutonomyTier): Promise<ActionResult> {
+  try {
+    await core.setAgentAutonomy(name, tier);
+  } catch (err) {
+    return fail(err);
+  }
   revalidatePath("/agents");
   revalidatePath(`/agents/${name}`);
   return { ok: true };

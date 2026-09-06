@@ -918,11 +918,25 @@ export class CoreClient {
    * `console.warn` в контейнере не читает никто (недельная сводка без
    * получателей молчала именно так). Событие переживёт перезапуск, попадёт в
    * ленту и может быть подхвачено правилом.
+   *
+   * `clientKey` — опционален и передаётся ТОЛЬКО когда вызывающий сам следит
+   * за идемпотентностью (пример — heartbeat, Р-5). Молчание при повторе — не
+   * автоматика: `EventsService.record` перечитывает существующую строку по
+   * ключу и сверяет хэш `{source, type, payload, occurredAt}` с новым
+   * вызовом. Совпал payload — тихий no-op. Разошёлся — 409
+   * (`ConflictException`), и это ответственность вызывающего: клиент,
+   * повторяющий один и тот же ключ, обязан слать один и тот же payload
+   * (как heartbeat округляет `at` до того же интервала, что и ключ).
    */
-  recordEvent(type: string, payload: Record<string, unknown> = {}, source = "system"): Promise<{ id?: string }> {
+  recordEvent(
+    type: string,
+    payload: Record<string, unknown> = {},
+    source = "system",
+    clientKey?: string,
+  ): Promise<{ id?: string }> {
     return this.request<{ id?: string }>("/events", {
       method: "POST",
-      body: JSON.stringify({ source, type, payload }),
+      body: JSON.stringify({ source, type, payload, ...(clientKey ? { clientKey } : {}) }),
     });
   }
 

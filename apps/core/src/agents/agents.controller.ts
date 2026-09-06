@@ -4,11 +4,13 @@ import {
   Controller,
   Delete,
   Get,
+  Inject,
   Param,
   Patch,
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from "@nestjs/common";
 import {
@@ -31,8 +33,12 @@ import {
 } from "class-validator";
 import { Type } from "class-transformer";
 import { Cron } from "croner";
+import type { Request } from "express";
+import { DB, type Db } from "../db/db.module";
+import { excludePersonal } from "../common/owner-enforcement";
 import { OwnerMutationGuard } from "../common/owner-mutation.guard";
 import { first } from "../common/query-param";
+import { ReadTokenGuard } from "../common/read-token.guard";
 import { MODEL_EFFORTS, type ModelEffort } from "../tasks/tasks.service";
 import { AGENT_STATUSES, AGENT_TIERS, AgentsService, type Tier } from "./agents.service";
 
@@ -222,11 +228,48 @@ export class SetAutonomyDto {
  */
 @Controller("agents")
 export class AgentsController {
-  constructor(private readonly agents: AgentsService) {}
+  constructor(
+    private readonly agents: AgentsService,
+    @Inject(DB) private readonly db: Db,
+  ) {}
+
+  /**
+   * Исключать ли личные задачи из состояния агентов.
+   *
+   * Тот же механизм, что у `GET /tasks` (R-P5-7b): ужесточение включено И
+   * запрос НЕ доказан owner-токеном. Флаг выключен (дефолт) → false → выдача
+   * прода не меняется.
+   */
+  private excludePersonal(req: Request): Promise<boolean> {
+    return excludePersonal(req, this.db);
+  }
 
   @Get()
   list(@Query("archived") archived?: string) {
     return this.agents.list({ includeArchived: archived === "1" });
+  }
+
+  /**
+   * Состояние каждого агента словами: работает, заблокирован, на паузе, молчит
+   * (R-A2-1). Считает Core, а не панель: правило лизы и системные паузы должны
+   * жить в одном месте, иначе экран покажет работающих агентов при выключенной
+   * системе.
+   *
+   * ОБЪЯВЛЕН ВЫШЕ `@Get(":name")` СОЗНАТЕЛЬНО, как и «skills» ниже: Nest
+   * сопоставляет маршруты по порядку объявления, и «status» уехал бы в
+   * параметр `:name` — панель получала бы «Агент "status" не найден».
+   *
+   * ТОКЕН ОБЯЗАТЕЛЕН (круг починок, C-1): строка состояния несёт `lastRun.reason`
+   * и текст причины затыка — те же данные, ради которых волна R закрыла
+   * `/routines/runs` гардом. Guard стоит НА МАРШРУТЕ, а не на классе: в
+   * `AgentsController` живут `GET /agents`, `GET /agents/skills` и
+   * `GET /agents/:name`, которыми панель, бот и MCP-сервер ходят как раньше, и
+   * классовый guard сломал бы их одним движением.
+   */
+  @Get("status")
+  @UseGuards(ReadTokenGuard)
+  async status(@Req() req: Request) {
+    return this.agents.statuses({ excludePersonal: await this.excludePersonal(req) });
   }
 
   /**
@@ -235,8 +278,16 @@ export class AgentsController {
    * ОБЪЯВЛЕН ВЫШЕ `@Get(":name")` СОЗНАТЕЛЬНО: Nest сопоставляет маршруты по
    * порядку объявления, и ниже «skills» уехал бы в параметр `:name` — панель
    * получала бы «Агент "skills" не найден».
+   *
+   * ТОКЕН ОБЯЗАТЕЛЕН по той же причине, что у `status` и `/routines/runs`:
+   * дека несёт `blockedReason` и `resultNote` последнего прогона навыка
+   * (`agents.service.ts`, `SkillLastRun`) — это тот же пересказ работы агентов
+   * по делам владельца, что и `agent_run.reason`. Маршрут приехал волной S,
+   * когда закрытых читающих дверей ещё не было; закрываем здесь, чтобы срез
+   * не оставлял открытой соседнюю дверь в ту же комнату.
    */
   @Get("skills")
+  @UseGuards(ReadTokenGuard)
   skills(@Query("agent") agent?: unknown) {
     // `first` — общий разбор параметра строки запроса (`common/query-param`):
     // повторённый `?agent=a&agent=b` приходит из express массивом, и без сводки

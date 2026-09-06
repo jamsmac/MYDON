@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { deleteAgent, saveAgent, toggleAgent } from "../app/agents/actions";
+import type { AutonomyTier } from "@mydon/shared";
+import { deleteAgent, saveAgent, setAgentAutonomy, toggleAgent } from "../app/agents/actions";
 import type { AgentCard } from "../lib/core";
 
-const TIERS: { value: string; label: string }[] = [
+const TIERS: { value: AutonomyTier; label: string }[] = [
   { value: "T0", label: "T0 — только спрашивает" },
   { value: "T1", label: "T1 — предлагает, решаешь ты" },
   { value: "T2", label: "T2 — мелкое делает сам" },
@@ -21,11 +22,43 @@ const BUSINESSES = [
   { value: "mydon", label: "MYDON" },
 ];
 
-export function AgentEditor({ agent }: { agent: AgentCard }) {
+/**
+ * Общий порог системы (`AGENT_AUTONOMY_MAX` из `GET /system/config`) глазами
+ * карточки — ТРИ разных случая, а не «значение или null».
+ *
+ * Прежний `null` смешивал «ответ пришёл, ключа в нём нет» и «ответа не было
+ * вовсе», а причину отказа карточка молча выбрасывала — единственный блок из
+ * шести, который отказывался объяснять себя. Отказ обязан назвать причину
+ * своими словами; отсутствие ключа — сказать про ключ. Не знаем — говорим
+ * прямо, а не выдаём одно за другое.
+ *
+ * `tier` — строка, а не `AutonomyTier`: в настройках лежит то, что записали, и
+ * подсказка честно печатает записанное. Сравнивать порядком можно только
+ * после `isAutonomyTier` (карточка агента, отметка «урезан потолком»).
+ */
+export type AutonomyMax =
+  | { kind: "value"; tier: string }
+  | { kind: "missing" }
+  | { kind: "unreadable"; detail: string };
+
+/**
+ * Настройки агента.
+ *
+ * `autonomyMax` — ДЕЙСТВУЮЩИЙ общий порог системы, а не константа: подсказка
+ * про порог была захардкожена значением «T0» и соврала бы в тот же день, когда
+ * владелец порог поднимет (дефект Р-7).
+ */
+export function AgentEditor({ agent, autonomyMax }: { agent: AgentCard; autonomyMax: AutonomyMax }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Тир — управляемое поле: при отказе Core селект возвращается к прежнему
+  // значению, иначе экран показывал бы тир, которого у агента нет.
+  const [tier, setTier] = useState(agent.autonomyDefault);
+  // Свой ответ у своего поля: тир сохраняется отдельно от кнопки «Сохранить»,
+  // и одно сообщение на два действия читалось бы как ответ не на то нажатие.
+  const [tierMsg, setTierMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const scheduleText = agent.schedule.map((s) => `${s.cron} | ${s.skill}`).join("\n");
   const on = agent.status === "active";
@@ -35,6 +68,26 @@ export function AgentEditor({ agent }: { agent: AgentCard }) {
       const res = await saveAgent(agent.name, form);
       setMsg(res.ok ? { kind: "ok", text: "Сохранено" } : { kind: "err", text: res.error ?? "Ошибка" });
       if (res.ok) router.refresh();
+    });
+  }
+
+  /**
+   * Самостоятельность сохраняется СРАЗУ и своим маршрутом: в общем patch'е
+   * карточки Core это поле отбрасывает, и кнопка «Сохранить» рапортовала
+   * «Сохранено» над неизменённым тиром.
+   */
+  function onTier(next: AutonomyTier) {
+    const было = tier;
+    setTier(next);
+    start(async () => {
+      const res = await setAgentAutonomy(agent.name, next);
+      if (res.ok) {
+        setTierMsg({ kind: "ok", text: "Самостоятельность изменена" });
+        router.refresh();
+      } else {
+        setTier(было);
+        setTierMsg({ kind: "err", text: res.error ?? "Ошибка" });
+      }
     });
   }
 
@@ -63,6 +116,47 @@ export function AgentEditor({ agent }: { agent: AgentCard }) {
         </button>
       </div>
 
+      {/* Самостоятельность — ВНЕ общей формы: она меняется своим маршрутом и
+          сохраняется сразу, а не кнопкой «Сохранить». Поле в форме было бы
+          обещанием, которого Core не исполняет (дефект Р-7). */}
+      <div className="form">
+        <label>
+          <span>Самостоятельность</span>
+          <select
+            value={tier}
+            disabled={pending}
+            // Тир берём из САМОГО списка, а не приводим типом: селект не умеет
+            // вернуть значение, которого не рисовал, и каст здесь был бы
+            // обещанием за Core — тир уезжает в owner-маршрут смены автономии.
+            onChange={(event) => {
+              const выбран = TIERS.find((t) => t.value === event.target.value);
+              if (выбран) onTier(выбран.value);
+            }}
+          >
+            {TIERS.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          <small className="hint">
+            {autonomyMax.kind === "unreadable"
+              ? `Общий порог системы прочитать не удалось: ${autonomyMax.detail}. Что действует сейчас — видно в Системе.`
+              : autonomyMax.kind === "missing"
+                ? "Общий порог системы Core не назвал: ключа AGENT_AUTONOMY_MAX в настройках нет. Какой порог действует, отсюда не видно — смотри Систему."
+                : `Общий порог системы сейчас ${autonomyMax.tier}${
+                    autonomyMax.tier === "T0"
+                      ? " — что бы ни стояло здесь, агент только предлагает."
+                      : "."
+                  }`}
+          </small>
+        </label>
+        {/* Ответ — ВНЕ label: иначе он попадал бы в подпись самого селекта. */}
+        {tierMsg && (
+          <span className={tierMsg.kind === "ok" ? "ok-text" : "err-text"}>{tierMsg.text}</span>
+        )}
+      </div>
+
       <form
         className="form"
         onSubmit={(event) => {
@@ -79,20 +173,6 @@ export function AgentEditor({ agent }: { agent: AgentCard }) {
               </option>
             ))}
           </select>
-        </label>
-
-        <label>
-          <span>Самостоятельность</span>
-          <select name="autonomyDefault" defaultValue={agent.autonomyDefault}>
-            {TIERS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-          <small className="hint">
-            Общий порог системы сейчас T0 — что бы ни стояло здесь, агент только предлагает.
-          </small>
         </label>
 
         {/* Статус меняется кнопкой выше; в форме — скрытым полем, чтобы сохранение не сбрасывало его. */}

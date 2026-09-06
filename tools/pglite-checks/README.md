@@ -1,6 +1,6 @@
 # Сценарии на настоящем SQL — два движка, один код
 
-**В CI они уже гоняются** — шаг «Scenarios on real SQL (parts U1-U6)» на сервисе `postgres:17`
+**В CI они уже гоняются** — шаг «Scenarios on real SQL» (все `check-*.mjs` каталога) на сервисе `postgres:17`
 той же джобы: каждому сценарию своя свежая база из шаблона, после прогона она удаляется
 (`CHECKS_DATABASE_URL`, застава на не-локальный хост — `CHECKS_ALLOW_REMOTE=1`). Тяжёлый
 WASM-пакет в lockfile для этого не нужен. Локально то же самое идёт на pglite, без сервера.
@@ -15,9 +15,7 @@ WASM-пакет в lockfile для этого не нужен. Локально 
 docker run -d --name pg17 -e POSTGRES_USER=mydon -e POSTGRES_PASSWORD=mydon -e POSTGRES_DB=mydon -p 55432:5432 postgres:17
 export CHECKS_DATABASE_URL=postgres://mydon:mydon@127.0.0.1:55432/mydon
 node tools/pglite-checks/run-migrations.mjs
-for c in check-0084 check-parts-u1 check-parts-u2 check-parts-u3 check-parts-u4 check-parts-u5 check-parts-u6; do
-  node tools/pglite-checks/$c.mjs
-done
+for c in tools/pglite-checks/check-*.mjs; do node "$c"; done
 ```
 
 ## Без сервера — pglite
@@ -25,7 +23,8 @@ done
 Миграции и сервисы Core гоняются на PostgreSQL 17 в WASM (`@electric-sql/pglite`):
 цепочка миграций репо применяется целиком, сервисы (`PartsService`, `PartCountService`,
 `CoffeeLedgerService`, `StockService`, `VendingService`…) строятся на `drizzle(pglite)`
-и проверяются сценариями спеки vendhub-parts (У1–У6).
+и проверяются сценариями спеки vendhub-parts (У1–У6) и отбором строки «Модели» по своему маршруту
+(`check-llm-latest.mjs`: последний завершённый вызов не берётся у чужого потребителя).
 
 Зависимость не в lockfile намеренно (тяжёлый WASM-пакет): ставится отдельно.
 
@@ -37,9 +36,9 @@ pnpm --filter @mydon/db build && pnpm --filter @mydon/core build
 # миграции целиком (или --upto 83)
 NODE_PATH=~/pgtest/node_modules node tools/pglite-checks/run-migrations.mjs
 
-# бэкфилл 0083 → 0084 и сценарии У1–У6
-for c in check-0084 check-parts-u1 check-parts-u2 check-parts-u3 check-parts-u4 check-parts-u5 check-parts-u6; do
-  NODE_PATH=~/pgtest/node_modules node tools/pglite-checks/$c.mjs
+# все сценарии каталога: бэкфилл 0083 → 0084, узлы У1–У6, строка «Модели» (Ф-2)
+for c in tools/pglite-checks/check-*.mjs; do
+  NODE_PATH=~/pgtest/node_modules node "$c"
 done
 ```
 
