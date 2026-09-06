@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { saveSystemConfig } from "../app/system/actions";
 
 /**
@@ -40,6 +40,15 @@ function Toggle({ item, paused }: { item: (typeof TOGGLES)[number]; paused: bool
   const [on, setOn] = useState(paused);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  /**
+   * Инициализатор `useState` выполняется ОДИН раз — при монтировании (ловушка
+   * App Router из памяти проекта). Без этой синхронизации тумблер застывал бы
+   * на значении первого рендера: правка из «Системы», из другой вкладки или
+   * прямо в `.env` доехала бы до сервера, а на доске владелец видел бы старое
+   * состояние и считал, что пауза снята. Побеждает сервер.
+   */
+  useEffect(() => setOn(paused), [paused]);
 
   function toggle() {
     const next = !on;

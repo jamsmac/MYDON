@@ -64,6 +64,18 @@ describe("тумблеры паузы агентов", () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
+  it("новое состояние с сервера переключает тумблер, а не застывает на первом рендере", () => {
+    // Ловушка App Router: инициализатор `useState` выполняется раз. Правка из
+    // «Системы» или другой вкладки доедет до сервера, и доска обязана показать
+    // её, а не прежнее «работают».
+    const { rerender } = render(<PauseToggles schedules={false} tasks={false} />);
+    expect(screen.getByRole("switch", { name: /Расписания/ })).toHaveAttribute("aria-checked", "false");
+
+    rerender(<PauseToggles schedules tasks={false} />);
+    expect(screen.getByRole("switch", { name: /Расписания/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("на паузе")).toBeVisible();
+  });
+
   it("подпись под тумблером — та же, что в «Системе»", () => {
     render(<PauseToggles schedules tasks={false} />);
     expect(screen.getByText(/запуски по cron выключены/)).toBeVisible();

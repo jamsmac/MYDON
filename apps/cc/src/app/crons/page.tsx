@@ -4,7 +4,7 @@ import { CoreDown } from "../../components/core-down";
 import { PauseToggles } from "../../components/pause-toggles";
 import { UpcomingRuns } from "../../components/upcoming-runs";
 import { core, CoreUnavailable, type CronBoard, type CronBoardJob } from "../../lib/core";
-import { describeLast, flowsHref, groupUpcoming, hhmm, outcomeTone } from "../../lib/crons";
+import { describeLast, flowsHref, groupUpcoming, hhmm, outcomeTone, runWhen } from "../../lib/crons";
 
 export const dynamic = "force-dynamic";
 
@@ -114,8 +114,10 @@ export default async function CronsPage() {
                     </td>
                     <td className="mono">{job.cron === "" ? "—" : job.cron}</td>
                     <td>{MODE_LABEL[job.mode]}</td>
-                    {/* Прочерк, а не пустая клетка: «не сработает» — это ответ. */}
-                    <td className="mono">{job.nextRun ? hhmm(job.nextRun) : "—"}</td>
+                    {/* День обязателен: недельный cron сработает не сегодня, а голое
+                        «08:00» владелец прочитает как ближайшее утро. Прочерк — тоже
+                        ответ («не сработает»), а не пустая клетка. */}
+                    <td className="mono">{job.nextRun ? runWhen(job.nextRun, now) : "—"}</td>
                     <td>
                       <span className={`led run-led ${outcomeTone(job.last)}`}>
                         {describeLast(job.last)}

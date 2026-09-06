@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CronBoard } from "./core";
-import { dayLabel, describeLast, groupUpcoming, hhmm, outcomeTone } from "./crons";
+import { dayLabel, describeLast, groupUpcoming, hhmm, outcomeTone, runWhen } from "./crons";
 
 const board: CronBoard = {
   tz: "Asia/Tashkent", now: "2026-09-06T03:10:00.000Z",
@@ -69,5 +69,14 @@ describe("dayLabel", () => {
     expect(dayLabel("2026-09-06T04:00:00.000Z", now)).toBe("сегодня");
     expect(dayLabel("2026-09-07T03:00:00.000Z", now)).toBe("завтра");
     expect(dayLabel("2026-09-09T03:00:00.000Z", now)).toBe("09.09");
+  });
+});
+
+describe("runWhen", () => {
+  it("день + время: у недельного расписания голое «08:30» читалось бы как сегодня", () => {
+    const now = new Date(board.now);
+    expect(runWhen("2026-09-06T04:00:00.000Z", now)).toBe("сегодня 09:00");
+    expect(runWhen("2026-09-07T03:00:00.000Z", now)).toBe("завтра 08:00");
+    expect(runWhen("2026-09-13T03:30:00.000Z", now)).toBe("13.09 08:30");
   });
 });

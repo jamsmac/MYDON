@@ -100,6 +100,25 @@ describe("Экран «Рутины»", () => {
     );
   });
 
+  it("«Следующий» называет день, а не только время", async () => {
+    // Голое «08:00» у недельного расписания владелец прочитает как ближайшее
+    // утро, а до запуска неделя. Час без дня — обещание не о том дне.
+    const weekly: CronBoard["jobs"][number] = {
+      ...STOCK,
+      id: "vendhub-ops/parts-audit",
+      skill: "parts-audit",
+      cron: "30 8 * * 0",
+      nextRun: "2026-09-13T03:30:00.000Z",
+    };
+    cronBoard.mockImplementation(async () => ({ ...board, jobs: [...board.jobs, weekly] }));
+    render(await CronsPage());
+
+    const soon = screen.getByRole("row", { name: /monitor-stock/ }) as HTMLTableRowElement;
+    expect(soon.cells[3]).toHaveTextContent("завтра 08:00");
+    const later = screen.getByRole("row", { name: /parts-audit/ }) as HTMLTableRowElement;
+    expect(later.cells[3]).toHaveTextContent("13.09 08:30");
+  });
+
   it("снимка нет — экран говорит, что молчат агенты, а не что расписаний нет", async () => {
     cronBoard.mockImplementation(async () => ({
       ...board,

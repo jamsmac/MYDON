@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { dayLabel, describeLast, flowsHref, outcomeTone, type UpcomingRow } from "../lib/crons";
+import { describeLast, flowsHref, outcomeTone, runWhen, type UpcomingRow } from "../lib/crons";
 
 /**
  * Ближайшие срабатывания рутин — одинаковые строки на доске и на главной.
@@ -28,7 +28,7 @@ export function UpcomingRuns({
         <Link href={flowsHref(row.job)} className="trow" key={`${row.at}/${row.job.id}`}>
           <div className="tb">
             <div className="tt">
-              {now ? `${dayLabel(row.at, now)} ${row.time}` : row.time} ·{" "}
+              {now ? runWhen(row.at, now) : row.time} ·{" "}
               {row.job.kind === "monitor" ? row.job.skill : `${row.job.agent}/${row.job.skill}`}
             </div>
             <div className="tm">

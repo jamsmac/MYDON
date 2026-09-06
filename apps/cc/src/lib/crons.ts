@@ -56,6 +56,15 @@ export function dayLabel(iso: string, now: Date): string {
   return new Date(iso).toLocaleDateString("ru-RU", { timeZone: TZ, day: "2-digit", month: "2-digit" });
 }
 
+/**
+ * «Когда» одной строкой: день плюс время.
+ *
+ * Голое «08:00» у недельного или месячного расписания читается как «сегодня» —
+ * а до запуска может быть неделя. Время без дня имеет право стоять только под
+ * заголовком дня («Сегодня»/«Завтра»), везде ещё — эта форма.
+ */
+export const runWhen = (iso: string, now: Date): string => `${dayLabel(iso, now)} ${hhmm(iso)}`;
+
 export type Tone = "ok" | "warn" | "muted" | "hot";
 
 /**
