@@ -98,3 +98,43 @@ describe("Автономия агента: отдельный маршрут, а
     expect(calls[0]?.url).toContain("typePrefix=agent.memory%3A");
   });
 });
+
+/**
+ * Круг починок, C-1: `GET /agents/status` и `GET /apps/health` печатают наружу
+ * `agent_run.reason` — то же поле, ради которого волна R закрыла журнал
+ * прогонов гардом. Оба маршрута закрыты `ReadTokenGuard`, и панель обязана
+ * нести токен: без него она получила бы 401 вместо сетки агентов и здоровья.
+ */
+describe("Состояние агентов и здоровье приложений читаются С ТОКЕНОМ (C-1)", () => {
+  /** Токен читается на импорте модуля — поэтому клиент грузим заново. */
+  async function сТокеном(): Promise<typeof core> {
+    vi.stubEnv("SERVICE_TOKEN", "secret-token");
+    vi.resetModules();
+    return (await import("./core")).core;
+  }
+
+  /** Перехват fetch с заголовками запроса. */
+  function stubHeaders(): Record<string, string>[] {
+    const headers: Record<string, string>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        headers.push((init?.headers as Record<string, string>) ?? {});
+        return { ok: true, json: async () => ({ agents: [], outside: [], internal: [] }) } as unknown as Response;
+      }),
+    );
+    return headers;
+  }
+
+  it("agentsStatus несёт x-service-token", async () => {
+    const заголовки = stubHeaders();
+    await (await сТокеном()).agentsStatus();
+    expect(заголовки[0]?.["x-service-token"]).toBe("secret-token");
+  });
+
+  it("appsHealth несёт x-service-token", async () => {
+    const заголовки = stubHeaders();
+    await (await сТокеном()).appsHealth();
+    expect(заголовки[0]?.["x-service-token"]).toBe("secret-token");
+  });
+});

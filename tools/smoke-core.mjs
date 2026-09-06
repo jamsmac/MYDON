@@ -3457,6 +3457,13 @@ async function проверитьЛица() {
     if (!r.ok) throw new Error(`PUT /system/config ${key}=${value} → ${r.status}`);
   };
 
+  // Маршрут закрыт токеном и на ЧТЕНИЕ (круг починок, C-1): в строке состояния
+  // едет `lastRun.reason`, то же поле, ради которого закрыт `/routines/runs`.
+  const анонимно = await jsonRequest("GET", "/agents/status", undefined, false);
+  if (анонимно.r.status !== 401) {
+    throw new Error(`GET /agents/status без токена → ${анонимно.r.status}, ожидали 401`);
+  }
+
   const состояние = async () => {
     const { r, text, json } = await jsonRequest("GET", "/agents/status");
     if (!r.ok) throw new Error(`GET /agents/status → ${r.status}: ${text.slice(0, 200)}`);
@@ -3626,6 +3633,13 @@ async function проверитьЗдоровьеПриложений() {
   // агентов из соседних сценариев не трогаем.
   await sql`delete from agent_run where agent_name = 'system' and skill in ${sql(МОНИТОРЫ)}`;
   await sql`delete from event where source = 'bot' and type = 'bot.heartbeat'`;
+
+  // Тоже закрыт токеном на чтение (круг починок, C-1): строки мониторов
+  // цитируют `agent_run.reason`, куда колбэк кладёт голый `err.message`.
+  const анонимноЗдоровье = await jsonRequest("GET", "/apps/health", undefined, false);
+  if (анонимноЗдоровье.r.status !== 401) {
+    throw new Error(`GET /apps/health без токена → ${анонимноЗдоровье.r.status}, ожидали 401`);
+  }
 
   const здоровье = async () => {
     const { r, text, json } = await jsonRequest("GET", "/apps/health");

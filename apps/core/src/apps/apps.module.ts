@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ReadTokenGuard } from "../common/read-token.guard";
 import { EventsModule } from "../events/events.module";
 import { LlmLedgerModule } from "../llm-ledger/llm-ledger.module";
 import { RoutinesModule } from "../routines/routines.module";
@@ -14,6 +15,8 @@ import { AppsHealthService } from "./apps-health.service";
   // и `/ourvend/health`, `/routines/board` и `/llm-ledger/monitoring`.
   imports: [RoutinesModule, VendingModule, LlmLedgerModule, EventsModule],
   controllers: [AppsController],
-  providers: [AppsHealthService],
+  // `ReadTokenGuard` регистрируем провайдером, чтобы Nest резолвил его через
+  // DI (как `DocsTokenGuard` в документах), а не создавал вслепую.
+  providers: [AppsHealthService, ReadTokenGuard],
 })
 export class AppsModule {}

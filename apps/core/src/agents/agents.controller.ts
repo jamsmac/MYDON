@@ -38,6 +38,7 @@ import { DB, type Db } from "../db/db.module";
 import { excludePersonal } from "../common/owner-enforcement";
 import { OwnerMutationGuard } from "../common/owner-mutation.guard";
 import { first } from "../common/query-param";
+import { ReadTokenGuard } from "../common/read-token.guard";
 import { MODEL_EFFORTS, type ModelEffort } from "../tasks/tasks.service";
 import { AGENT_STATUSES, AGENT_TIERS, AgentsService, type Tier } from "./agents.service";
 
@@ -257,8 +258,16 @@ export class AgentsController {
    * ОБЪЯВЛЕН ВЫШЕ `@Get(":name")` СОЗНАТЕЛЬНО, как и «skills» ниже: Nest
    * сопоставляет маршруты по порядку объявления, и «status» уехал бы в
    * параметр `:name` — панель получала бы «Агент "status" не найден».
+   *
+   * ТОКЕН ОБЯЗАТЕЛЕН (круг починок, C-1): строка состояния несёт `lastRun.reason`
+   * и текст причины затыка — те же данные, ради которых волна R закрыла
+   * `/routines/runs` гардом. Guard стоит НА МАРШРУТЕ, а не на классе: в
+   * `AgentsController` живут `GET /agents`, `GET /agents/skills` и
+   * `GET /agents/:name`, которыми панель, бот и MCP-сервер ходят как раньше, и
+   * классовый guard сломал бы их одним движением.
    */
   @Get("status")
+  @UseGuards(ReadTokenGuard)
   async status(@Req() req: Request) {
     return this.agents.statuses({ excludePersonal: await this.excludePersonal(req) });
   }
