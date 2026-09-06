@@ -21,6 +21,7 @@ import {
   notesToAck,
   pendingNotes,
 } from "./briefing";
+import { HEARTBEAT_INTERVAL_MS, heartbeatEvent } from "./heartbeat";
 import { deliverWeeklyDigest } from "./weekly-delivery";
 import { buildDigest, digestKey } from "./staff-digest";
 import { CoreClient, type PersonRow } from "./core-client";
@@ -887,6 +888,16 @@ async function main(): Promise<void> {
   setInterval(() => {
     void deliverImmediateNotifications();
   }, notifyEveryMs).unref();
+
+  // Heartbeat (Р-5): единственный сигнал в Core, что Telegram-поллер жив —
+  // offset опроса живёт только в памяти процесса (telegram.ts). Отказ
+  // отправки НЕ должен ронять бота — heartbeat — диагностика, а не работа.
+  setInterval(() => {
+    const event = heartbeatEvent(new Date());
+    void deps.core
+      .recordEvent(event.type, event.payload, event.source, event.clientKey)
+      .catch((err: unknown) => console.warn("Heartbeat не отправлен:", err));
+  }, HEARTBEAT_INTERVAL_MS).unref();
 
   /**
    * Один update из пачки.

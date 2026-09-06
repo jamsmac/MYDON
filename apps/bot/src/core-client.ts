@@ -918,11 +918,20 @@ export class CoreClient {
    * `console.warn` в контейнере не читает никто (недельная сводка без
    * получателей молчала именно так). Событие переживёт перезапуск, попадёт в
    * ленту и может быть подхвачено правилом.
+   *
+   * `clientKey` — опционален и передаётся ТОЛЬКО когда вызывающий сам следит
+   * за идемпотентностью (пример — heartbeat, Р-5): Core отбросит повтор по
+   * уникальному ключу молча, не заводя вторую строку.
    */
-  recordEvent(type: string, payload: Record<string, unknown> = {}, source = "system"): Promise<{ id?: string }> {
+  recordEvent(
+    type: string,
+    payload: Record<string, unknown> = {},
+    source = "system",
+    clientKey?: string,
+  ): Promise<{ id?: string }> {
     return this.request<{ id?: string }>("/events", {
       method: "POST",
-      body: JSON.stringify({ source, type, payload }),
+      body: JSON.stringify({ source, type, payload, ...(clientKey ? { clientKey } : {}) }),
     });
   }
 
