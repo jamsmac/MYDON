@@ -305,12 +305,17 @@ parseHooks(raw: unknown): { preRun: PreRunHook[]; postRun: PostRunHook[]; proble
   `system/ourvend:sync` не обновлялся N ч (порог M)». Ошибка Core → блок («журнал недоступен —
   свежесть не подтверждена»): ложный пропуск дешевле ложного действия на протухших данных.
 - `quiet_hours`: интервал по Ташкенту, допускает переход через полночь; попадание → блок «тихие часы
-  22:00–07:00». Применяется только к `trigger: cron` и `task` из `agent-schedule`; ручной запуск с деки
-  (`manual`) хуки **pre_run не проходит** — владелец нажал сам.
+  22:00–07:00». Как и все pre_run — только для `trigger: cron` (см. область pre_run ниже).
 - `hook_blocked` — новое значение `skipReason` в `RunResult` и в `@mydon/shared` `SkipReason`; `RunResult.hook`.
-  В task-режиме блок коммитится как `no_signal` с note = причина хука (Core не знает нового kind
-  исхода; расширение `commitPayload` — вне среза), а журнал (`agent_run`) хранит настоящий
-  `hook_blocked` + `hook`.
+  **Область pre_run (ruling 06.09):** pre_run-хуки проверяются только у запусков по расписанию —
+  `trigger === "cron"` (legacy-колбэк и durable-задача из `agent-schedule`); `task` (поручено владельцем) и
+  `manual` (дека) идут мимо pre_run: владелец попросил сам. Отсутствующий trigger считается `cron`
+  (консервативно). В task-режиме с уже сохранённым checkpoint (takeover оплаченной работы) pre_run тоже
+  не выполняется — хуки стерегут *старт* прогона, а не возобновление.
+  Блок в task-режиме (то есть только durable occurrence из `agent-schedule`): рантайм сначала сохраняет
+  checkpoint `{ kind: "no_signal" }` (как штатная ветка «повода нет»), затем коммитит `no_signal` с note =
+  причина хука — Core закрывает occurrence честно, без 409 (Core не знает kind `hook_blocked`; расширение
+  `commitPayload` — вне среза), а журнал (`agent_run`) хранит настоящий `hook_blocked` + `hook`.
 - `coach_lite`: `GET /routines/runs?agent=&skill=&limit=6` (включая текущий), правила →
   строка `review` или ничего:
   - 3 последних `skipped:llm_failed|llm_invalid_output` подряд → «LLM-маршрут падает N прогонов подряд —
