@@ -150,6 +150,14 @@ describe("Порядок маршрутов: «skills» не должен уех
       "иначе GET /agents/skills вернёт «Агент \"skills\" не найден»",
     );
   });
+
+  it("status объявлен выше byName (R-A2-1)", () => {
+    const methods = Object.getOwnPropertyNames(AgentsController.prototype);
+    assert.ok(
+      methods.indexOf("status") < methods.indexOf("byName"),
+      "иначе GET /agents/status вернёт «Агент \"status\" не найден», и сетка на главной опустеет",
+    );
+  });
 });
 
 describe("Подпись правки карточки агента (волна A1, adversarial)", () => {
@@ -166,7 +174,14 @@ describe("Подпись правки карточки агента (волна 
         return { name: "a" };
       },
     } as never;
-    return { controller: new AgentsController(agents), calls };
+    // База контроллеру нужна только гейту личного контура (GET /agents/status):
+    // в сценариях подписи она не участвует, и её вызов был бы регрессом.
+    const noDb = {
+      select: () => {
+        throw new Error("db тронута вне сценария состояния агентов");
+      },
+    } as never;
+    return { controller: new AgentsController(agents, noDb), calls };
   }
 
   it("правка через инструмент подписана им, а не владельцем", async () => {

@@ -4,11 +4,13 @@ import {
   Controller,
   Delete,
   Get,
+  Inject,
   Param,
   Patch,
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from "@nestjs/common";
 import {
@@ -31,6 +33,9 @@ import {
 } from "class-validator";
 import { Type } from "class-transformer";
 import { Cron } from "croner";
+import type { Request } from "express";
+import { DB, type Db } from "../db/db.module";
+import { excludePersonal } from "../common/owner-enforcement";
 import { OwnerMutationGuard } from "../common/owner-mutation.guard";
 import { first } from "../common/query-param";
 import { MODEL_EFFORTS, type ModelEffort } from "../tasks/tasks.service";
@@ -222,11 +227,40 @@ export class SetAutonomyDto {
  */
 @Controller("agents")
 export class AgentsController {
-  constructor(private readonly agents: AgentsService) {}
+  constructor(
+    private readonly agents: AgentsService,
+    @Inject(DB) private readonly db: Db,
+  ) {}
+
+  /**
+   * Исключать ли личные задачи из состояния агентов.
+   *
+   * Тот же механизм, что у `GET /tasks` (R-P5-7b): ужесточение включено И
+   * запрос НЕ доказан owner-токеном. Флаг выключен (дефолт) → false → выдача
+   * прода не меняется.
+   */
+  private excludePersonal(req: Request): Promise<boolean> {
+    return excludePersonal(req, this.db);
+  }
 
   @Get()
   list(@Query("archived") archived?: string) {
     return this.agents.list({ includeArchived: archived === "1" });
+  }
+
+  /**
+   * Состояние каждого агента словами: работает, заблокирован, на паузе, молчит
+   * (R-A2-1). Считает Core, а не панель: правило лизы и системные паузы должны
+   * жить в одном месте, иначе экран покажет работающих агентов при выключенной
+   * системе.
+   *
+   * ОБЪЯВЛЕН ВЫШЕ `@Get(":name")` СОЗНАТЕЛЬНО, как и «skills» ниже: Nest
+   * сопоставляет маршруты по порядку объявления, и «status» уехал бы в
+   * параметр `:name` — панель получала бы «Агент "status" не найден».
+   */
+  @Get("status")
+  async status(@Req() req: Request) {
+    return this.agents.statuses({ excludePersonal: await this.excludePersonal(req) });
   }
 
   /**

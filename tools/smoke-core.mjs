@@ -3425,6 +3425,146 @@ async function проверитьСобытияИДеку() {
   if (битаяДата.r.status !== 400) throw new Error(`битая дата в окне → ${битаяДата.r.status}, ожидали 400`);
 }
 
+/**
+ * Состояние агентов словами: `GET /agents/status` (волна A2, R-A2-1).
+ *
+ * Живой Postgres здесь не для галочки. Три конструкции заглушка юнит-тестов не
+ * исполняет: `distinct on (agent_name)` по журналу прогонов (порядок внутри
+ * группы решает, какой прогон считается последним), выборка задач агента с
+ * `or(status = in_progress, blocked_at is not null)` и лестница пауз
+ * «база > env > дефолт» — у `AGENTS_TASKS_PAUSED` дефолт «1», и пустая таблица
+ * настроек означает «задачи выключены», а не «работаем».
+ */
+async function проверитьЛица() {
+  const метка = Date.now();
+  const агент = `smoke-faces-${метка}`;
+  const навык = "faces-probe";
+
+  /** Тумблер системы — owner-действие: нужен ВТОРОЙ токен, как у /system/config. */
+  const записатьТумблер = async (key, value) => {
+    const r = await fetch(`${BASE}/system/config`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "x-service-token": TOKEN,
+        "x-owner-action-token": OWNER_TOKEN,
+      },
+      body: JSON.stringify({ key, value, updatedBy: "smoke" }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!r.ok) throw new Error(`PUT /system/config ${key}=${value} → ${r.status}`);
+  };
+
+  const состояние = async () => {
+    const { r, text, json } = await jsonRequest("GET", "/agents/status");
+    if (!r.ok) throw new Error(`GET /agents/status → ${r.status}: ${text.slice(0, 200)}`);
+    if (json.tz !== "Asia/Tashkent" || typeof json.now !== "string" || !Array.isArray(json.agents)) {
+      throw new Error(`форма ответа: ${text.slice(0, 200)}`);
+    }
+    return json;
+  };
+  const мой = (json) => {
+    const строка = json.agents.find((a) => a.name === агент);
+    if (!строка) throw new Error(`агента ${агент} нет в сетке (${json.agents.length} строк)`);
+    return строка;
+  };
+
+  // Прежнее значение тумблера — то, что ЗАПИСАНО в базе (source=db), а не
+  // действующее: восстанавливать надо запись, иначе смоук навсегда прибил бы к
+  // базе значение, которое до него приходило из env или дефолта.
+  const настройки = await jsonRequest("GET", "/system/config");
+  if (!настройки.r.ok) throw new Error(`GET /system/config → ${настройки.r.status}`);
+  const пауза = настройки.json.find((i) => i.key === "AGENTS_TASKS_PAUSED");
+  if (!пауза) throw new Error("в /system/config нет AGENTS_TASKS_PAUSED — состоянию неоткуда брать паузу");
+  const вернутьКакБыло = пауза.source === "db" ? пауза.value : "";
+
+  const создан = await jsonRequest("POST", "/agents", {
+    name: агент, business: "mydon", status: "active", autonomyDefault: "T0", skills: [навык],
+  });
+  if (!создан.r.ok) throw new Error(`создание агента → ${создан.r.status}: ${создан.text.slice(0, 200)}`);
+
+  try {
+    await записатьТумблер("AGENTS_TASKS_PAUSED", "0");
+    const свежий = await состояние();
+    if (свежий.paused.tasks !== false) throw new Error(`шапка не увидела тумблер: ${JSON.stringify(свежий.paused)}`);
+    const новый = мой(свежий);
+    if (новый.state !== "idle" || !/ещё не запускался/.test(новый.reason)) {
+      throw new Error(`новый агент: ${новый.state} — «${новый.reason}», ждали idle «ещё не запускался»`);
+    }
+    if (новый.lastRun !== undefined) throw new Error("прогонов не было, а lastRun пришёл");
+    if (новый.passportStatus !== "active") throw new Error(`паспортный статус ${новый.passportStatus}`);
+
+    // Два прогона подряд: последним обязан считаться ПОЗДНИЙ. Порядок внутри
+    // `distinct on` — ровно то, что заглушка не проверяет: перепутанный
+    // `order by` показал бы владельцу вчерашний исход как сегодняшний.
+    const прогон = async (suffix, startedAt, тело) => {
+      const { r, text } = await jsonRequest("POST", "/routines/runs", {
+        agentName: агент, skill: навык, trigger: "manual",
+        requestKey: `smoke-faces:${метка}:${suffix}`,
+        startedAt: startedAt.toISOString(), finishedAt: new Date(startedAt.getTime() + 1000).toISOString(),
+        ...тело,
+      });
+      if (!r.ok) throw new Error(`POST /routines/runs (${suffix}) → ${r.status}: ${text.slice(0, 200)}`);
+    };
+    await прогон("failed", new Date(метка - 7_200_000), { outcome: "failed", reason: "смоук: провайдер вернул 500" });
+    const упал = мой(await состояние());
+    if (упал.state !== "blocked" || !/провайдер вернул 500/.test(упал.reason)) {
+      throw new Error(`после упавшего прогона: ${упал.state} — «${упал.reason}», ждали blocked с цитатой`);
+    }
+    if (упал.lastRun?.outcome !== "failed") throw new Error(`lastRun: ${JSON.stringify(упал.lastRun)}`);
+
+    await прогон("skipped", new Date(метка - 3_600_000), {
+      outcome: "skipped", skipReason: "no_signal", reason: "смоук: предлагать нечего",
+    });
+    const промолчал = мой(await состояние());
+    if (промолчал.state !== "idle" || !/повода нет/.test(промолчал.reason)) {
+      throw new Error(`после позднего пропуска: ${промолчал.state} — «${промолчал.reason}»`);
+    }
+    if (промолчал.lastRun?.outcome !== "skipped") {
+      throw new Error(`distinct on взял не последний прогон: ${JSON.stringify(промолчал.lastRun)}`);
+    }
+
+    // Задача с живым claim — единственный источник «работает прямо сейчас»:
+    // в журнале прогонов строка появляется уже постфактум.
+    const задача = await jsonRequest("POST", "/tasks", {
+      title: `Смоук состояния ${метка}`, ownerKind: "agent", ownerRef: агент,
+      agentSkill: навык, createdBy: "smoke", clientKey: `smoke-faces:${метка}:task`,
+    });
+    if (!задача.r.ok) throw new Error(`создание задачи → ${задача.r.status}: ${задача.text.slice(0, 200)}`);
+    const захват = await jsonRequest("POST", `/tasks/${задача.json.id}/agent-run/claim`, { agentName: агент });
+    if (!захват.r.ok || захват.json?.claimed !== true) {
+      throw new Error(`claim → ${захват.r.status}: ${захват.text.slice(0, 200)}`);
+    }
+    const работает = мой(await состояние());
+    if (работает.state !== "working" || работает.skill !== навык || работает.taskId !== задача.json.id) {
+      throw new Error(`с живым claim: ${работает.state} — «${работает.reason}» (навык ${работает.skill})`);
+    }
+    if (!/faces-probe/.test(работает.reason)) throw new Error(`причина не называет навык: «${работает.reason}»`);
+
+    // Р-2: системная пауза перекрывает занятость. Проверяем НА РАБОТАЮЩЕМ
+    // агенте — на молчащем правило зеленело бы случайно.
+    await записатьТумблер("AGENTS_TASKS_PAUSED", "1");
+    const наПаузе = await состояние();
+    if (наПаузе.paused.tasks !== true) throw new Error("тумблер паузы не доехал до шапки");
+    const заглушен = мой(наПаузе);
+    if (заглушен.state !== "paused" || !/настройка системы, а не агента/.test(заглушен.reason)) {
+      throw new Error(`при системной паузе: ${заглушен.state} — «${заглушен.reason}»`);
+    }
+    const работающие = наПаузе.agents.filter((a) => a.state === "working");
+    if (работающие.length > 0) {
+      throw new Error(`при выключенных задачах «работают» ${работающие.map((a) => a.name).join(", ")}`);
+    }
+  } finally {
+    await записатьТумблер("AGENTS_TASKS_PAUSED", вернутьКакБыло).catch(() => {});
+    await jsonRequest("DELETE", `/agents/${агент}`).catch(() => {});
+  }
+
+  // Архивный агент уходит из сетки: показывать его состояние значило бы
+  // обещать работу от того, кого сняли с работы.
+  const после = await состояние();
+  if (после.agents.some((a) => a.name === агент)) throw new Error("архивный агент остался в сетке состояний");
+}
+
 async function ждатьЗдоровье(proc) {
   const дедлайн = Date.now() + СТАРТ_ТАЙМАУТ_МС;
   while (Date.now() < дедлайн) {
@@ -3770,6 +3910,15 @@ try {
   }
 
   try {
+    await проверитьЛица();
+    console.log(
+      "  ok  сценарий: состояние агентов — idle/blocked/working словами, distinct on берёт последний прогон, системная пауза перекрывает занятость",
+    );
+  } catch (e) {
+    провалы.push(`состояние агентов: ${e.message}`);
+  }
+
+  try {
     await проверитьСобытияИДеку();
     console.log(
       "  ok  сценарий: события по источнику и префиксу типа («%» — буква), дека по агенту с общим порогом, журнал по окну",
@@ -3796,4 +3945,4 @@ if (провалы.length > 0) {
   process.exit(1);
 }
 
-console.log(`\nВсё прошло: ${ЧТЕНИЕ.length} чтений, ${ЗАПИСЬ.length} записей, 25 сценариев.`);
+console.log(`\nВсё прошло: ${ЧТЕНИЕ.length} чтений, ${ЗАПИСЬ.length} записей, 26 сценариев.`);
