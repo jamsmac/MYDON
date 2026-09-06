@@ -53,7 +53,7 @@ R-R-1…R-R-9 в §4, приёмка на проде §8), план `docs/superp
 - **Аудит репо** (Р-7, R-R-7): `tools/repo-audit.mjs` (только чтение, `collectFindings`/
   `renderAudit`/`upsertSection`, `--dry-run`) + `.claude/skills/repo-audit/SKILL.md` (недельное
   расписание — на владельце, `/schedule` в Claude Code). Прогнан этой задачей (`--dry-run`,
-  read-only, ничего не изменил): **22 спеки без записанного решения, 16 планов без леджера** — см.
+  read-only, ничего не изменил): **21 спека без записанного решения (22 до записи решения этой волны), 16 планов без леджера** — см.
   «Ожидает» ниже.
 - **Словарь причин** (Р-8): `packages/shared/src/agent-runs.ts` — `RUN_OUTCOMES`, `SKIP_REASONS` (12
   значений, включая `hook_blocked`), `RUN_TRIGGERS`, `RUN_SKIP_REASONS` (label/hint), `describeRun`.
@@ -132,7 +132,7 @@ R-R-1…R-R-9 в §4, приёмка на проде §8), план `docs/superp
   (`docs/FIRST_LOGIN_CHECKLIST.md` п. 7).
 - **Владелец, действие:** поставить `/repo-audit` на еженедельное расписание в Claude Code
   (`/schedule`, понедельник 09:00 Asia/Tashkent) — сам скрипт в репозитории готов и проверен.
-- **Владелец, решение по находкам первого аудита** (06.09, `--dry-run`): 22 спеки без записанного
+- **Владелец, решение по находкам первого аудита** (06.09, `--dry-run`): 21 спека без записанного
   решения и 16 планов без леджера в `.superpowers/sdd/` — список путей в выводе
   `node tools/repo-audit.mjs --dry-run`; для каждой — либо `docs/decisions/<дата>-<slug>.md` с
   причиной, либо явная пометка «план брошен».

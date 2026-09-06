@@ -446,7 +446,9 @@ config.yaml (schedule, hooks) ──seed──▶ agent (Core)          system_c
 
 ## 6. Безопасность и ограничения
 
-- Все новые маршруты — за глобальным `ServiceTokenGuard` (как `/agents`); тумблеры паузы — существующий
+- Все новые маршруты — за сервисным токеном на КАЖДЫЙ метод, включая GET: класс-гард `RoutinesTokenGuard` (копия
+  `DocsTokenGuard`), потому что глобальный `ServiceTokenGuard` пропускает GET/HEAD/OPTIONS без токена (ruling ревью
+  06.09); тумблеры паузы — существующий
   `PUT /system/config` (его гард не меняем).
 - `reason` и `action` из рантайма — свободный текст, панель рендерит как текст (без HTML); длина
   режется в Core (2000 / 500 символов).
