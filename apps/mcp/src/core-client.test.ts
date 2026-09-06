@@ -262,7 +262,7 @@ describe("Клиент Core (R-A1-1)", () => {
     assert.equal(callsOf(f)[1]!.arguments[0], "http://core/agents/skills");
   });
 
-  it("дерево знаний отбирается по корню на стороне клиента", async () => {
+  it("дерево знаний приходит целиком: у Core фильтра по корню нет", async () => {
     const tree = [
       {
         path: "docs/MCP.md",
@@ -279,16 +279,74 @@ describe("Клиент Core (R-A1-1)", () => {
         updatedAt: "2026-09-06T00:00:00.000Z",
       },
     ];
+    const f = fetchStub({ status: 200, body: tree });
+    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: f });
+    // Отбор по корню делает `kb_tree`: ему нужны ВСЕ корни ответа, чтобы
+    // назвать настоящие в отказе на выдуманный.
+    assert.deepEqual(
+      (await c.docsTree()).map((i) => i.root),
+      ["docs", "memory"],
+    );
+    assert.equal(callsOf(f)[0]!.arguments[0], "http://core/docs/tree");
+  });
+
+  it("страница знаний идёт с owner-токеном: личный документ Core отдаёт только владельцу", async () => {
+    // Тест смотрит на ЗАГОЛОВОК, а не на ответ стаба: стаб отдаёт то, что в
+    // него положили, и «личный документ пришёл» доказывало бы только стаб.
+    const f = fetchStub({ status: 200, body: {} });
     const c = createClient({
       baseUrl: "http://core",
       serviceToken: "s",
-      fetchImpl: fetchStub({ status: 200, body: tree }),
+      ownerToken: "o",
+      fetchImpl: f,
     });
-    assert.deepEqual(
-      (await c.docsTree({ root: "docs" })).map((i) => i.path),
-      ["docs/MCP.md"],
-    );
-    assert.equal((await c.docsTree({})).length, 2);
+    await c.docFile("memory/личное.md");
+    assert.match(callsOf(f)[0]!.arguments[0], /^http:\/\/core\/docs\/file\?path=/);
+    assert.equal(headersOf(f)["x-owner-action-token"], "o");
+  });
+
+  it("архив агентов запрашивается явно, иначе Core его не отдаёт", async () => {
+    const f = fetchStub({ status: 200, body: [] });
+    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: f });
+    await c.agents();
+    await c.agents({ archived: true });
+    assert.equal(callsOf(f)[0]!.arguments[0], "http://core/agents");
+    assert.equal(callsOf(f)[1]!.arguments[0], "http://core/agents?archived=1");
+  });
+
+  it("подпись уходит в теле решения и комментария: иначе Core запишет «owner»", async () => {
+    const f = fetchStub({ status: 200, body: {} });
+    const c = createClient({
+      baseUrl: "http://core",
+      serviceToken: "s",
+      ownerToken: "o",
+      fetchImpl: f,
+    });
+    const id = "11111111-1111-4111-8111-111111111111";
+    await c.decideApproval(id, "approved", "mcp");
+    await c.commentTask(id, "готово", "mcp");
+    assert.deepEqual(JSON.parse(String(callsOf(f)[0]!.arguments[1].body)), {
+      decision: "approved",
+      actor: "mcp",
+    });
+    assert.deepEqual(JSON.parse(String(callsOf(f)[1]!.arguments[1].body)), {
+      body: "готово",
+      author: "mcp",
+    });
+  });
+
+  it("без подписи поля в теле нет вовсе — Core сам решает, чьё это действие", async () => {
+    // Пустая подпись не должна уезжать как `actor: ""`: Core прочитал бы её
+    // как «актор с пустым именем» вместо своего умолчания.
+    const f = fetchStub({ status: 200, body: {} });
+    const c = createClient({ baseUrl: "http://core", serviceToken: "s", fetchImpl: f });
+    const id = "11111111-1111-4111-8111-111111111111";
+    await c.decideApproval(id, "rejected");
+    await c.commentTask(id, "текст", "");
+    assert.deepEqual(JSON.parse(String(callsOf(f)[0]!.arguments[1].body)), {
+      decision: "rejected",
+    });
+    assert.deepEqual(JSON.parse(String(callsOf(f)[1]!.arguments[1].body)), { body: "текст" });
   });
 
   it("предел выдачи реестра уходит в Core", async () => {

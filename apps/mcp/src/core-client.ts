@@ -110,10 +110,18 @@ export interface Task {
   createdAt: string;
 }
 
+/**
+ * Комментарий задачи в том виде, в каком его отдаёт Core: строка таблицы
+ * `task_comment` с полем `authorRef` («owner», «person:<id>», «agent:<имя>»).
+ *
+ * Раньше здесь стояло `author`, которого в ответе НЕТ: компилятор молчал, а
+ * `task_comment` печатал «автор undefined». Имя поля тут — не вкусовое: оно
+ * ровно то, что приходит по сети.
+ */
 export interface TaskComment {
   id: string;
   taskId: string;
-  author: string;
+  authorRef: string;
   body: string;
   createdAt: string;
 }
@@ -312,6 +320,15 @@ export interface EntitiesQuery {
   limit?: number;
 }
 
+export interface AgentsQuery {
+  /**
+   * Показывать ли архивированные карточки. Core прячет их по умолчанию и
+   * отдаёт только по `?archived=1`: без параметра «архив» в описании
+   * инструмента был бы обещанием, которого ответ не выполняет.
+   */
+  archived?: boolean;
+}
+
 export interface RunsQuery {
   agent?: string;
   skill?: string;
@@ -416,18 +433,35 @@ interface RequestOptions {
 export interface CoreClient {
   pendingApprovals(): Promise<Approval[]>;
   pendingEntities(): Promise<PendingEntities>;
-  decideApproval(id: string, decision: Exclude<ApprovalDecision, "pending">): Promise<Approval>;
+  /**
+   * `actor` — подпись того, кто решает. Core без неё подставляет «owner»
+   * (`approvals.controller.ts`), и решение модели в `audit_log` становится
+   * неотличимо от нажатия владельца. Необязательный: у CLI за клавиатурой
+   * действительно владелец, и врать про «mcp» там нельзя так же.
+   */
+  decideApproval(
+    id: string,
+    decision: Exclude<ApprovalDecision, "pending">,
+    actor?: string,
+  ): Promise<Approval>;
   tasks(params: TasksQuery): Promise<Task[]>;
   task(id: string): Promise<Task>;
   createTask(input: CreateTaskInput): Promise<Task>;
-  commentTask(id: string, body: string): Promise<TaskComment>;
+  /** `author` — та же подпись, что у `decideApproval`, и по той же причине. */
+  commentTask(id: string, body: string, author?: string): Promise<TaskComment>;
   setTaskStatus(id: string, input: SetTaskStatusInput): Promise<Task>;
   events(params: EventsQuery): Promise<CoreEvent[]>;
   recordEvent(input: RecordEventInput): Promise<CoreEvent>;
   entities(params: EntitiesQuery): Promise<EntityCard[]>;
-  docsTree(params: { root?: string }): Promise<DocsTreeItem[]>;
+  /**
+   * Дерево знаний целиком, как его отдаёт Core: фильтра по корню у `GET
+   * /docs/tree` нет. Отбор делает вызывающая сторона — там же, где из полного
+   * дерева видно, какие корни вообще бывают: «страниц нет» на выдуманном корне
+   * должно называть настоящие, а не молчать.
+   */
+  docsTree(): Promise<DocsTreeItem[]>;
   docFile(path: string): Promise<DocFile>;
-  agents(): Promise<Agent[]>;
+  agents(params?: AgentsQuery): Promise<Agent[]>;
   skillDeck(agent?: string): Promise<SkillDeck>;
   createAgent(input: AgentInput): Promise<Agent>;
   updateAgent(name: string, patch: Omit<AgentInput, "name">): Promise<Agent>;
@@ -523,10 +557,13 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
     // карточки личного контура — молча, «пусто» вместо «не тебе».
     pendingEntities: () => request<PendingEntities>("/entities/pending", { owner: true }),
 
-    decideApproval: (id, decision) =>
+    // Подпись уходит вместе с решением: Core без неё пишет в журнал «owner»
+    // (`dto.actor ?? "owner"`), и решение модели становится неотличимо от
+    // нажатия владельца.
+    decideApproval: (id, decision, actor) =>
       request<Approval>(`/approvals/${encodeURIComponent(id)}/decide`, {
         method: "POST",
-        body: { decision },
+        body: { decision, ...(actor ? { actor } : {}) },
         owner: true,
       }),
 
@@ -553,10 +590,12 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
 
     createTask: (input) => request<Task>("/tasks", { method: "POST", body: input }),
 
-    commentTask: (id, body) =>
+    // Та же подпись, что у решения: без `author` комментарий модели ложится в
+    // карточку задачи как комментарий владельца (`dto.author ?? "owner"`).
+    commentTask: (id, body, author) =>
       request<TaskComment>(`/tasks/${encodeURIComponent(id)}/comments`, {
         method: "POST",
-        body: { body },
+        body: { body, ...(author ? { author } : {}) },
       }),
 
     // Статус меняет `PATCH /tasks/:id` — отдельного `/status` в Core нет.
@@ -591,21 +630,21 @@ export function createClient(cfg: CoreClientConfig): CoreClient {
         owner: personal(params.domain),
       }),
 
-    // У `GET /docs/tree` фильтра по корню нет — дерево целиком отдаётся всегда,
-    // и отбор делается здесь, чтобы `kb_tree({root})` не врал о серверном
-    // фильтре и не тянул в модель все страницы репозитория.
-    docsTree: async (params) => {
-      const tree = await request<DocsTreeItem[]>("/docs/tree");
-      const root = params.root?.trim();
-      return root ? tree.filter((item) => item.root === root) : tree;
-    },
+    // У `GET /docs/tree` фильтра по корню нет — дерево целиком отдаётся всегда.
+    // Отбор по корню делает `kb_tree`: клиент остаётся дверью в Core и ничего
+    // не прячет сам, а инструменту для честного отказа нужны ВСЕ корни ответа.
+    docsTree: () => request<DocsTreeItem[]>("/docs/tree"),
 
     // Личный документ Core отдаёт только владельцу (`personalVisible`), поэтому
     // owner-токен идёт вместе с запросом, когда он задан; решение об отказе
     // остаётся за Core, клиент ничего не прячет сам.
     docFile: (path) => request<DocFile>("/docs/file", { query: { path }, owner: true }),
 
-    agents: () => request<Agent[]>("/agents"),
+    // Архив Core отдаёт только по `?archived=1`; без параметра его в ответе нет.
+    agents: (params) =>
+      request<Agent[]>("/agents", {
+        query: { ...(params?.archived ? { archived: "1" } : {}) },
+      }),
 
     // `agent` — необязательный отбор: без него дека приходит целиком (её и
     // показывает панель `/skills`).

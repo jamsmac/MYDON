@@ -5,6 +5,7 @@ import { runCommand } from "./cli";
 import { CoreError } from "./core-client";
 import type {
   Agent,
+  AgentRun,
   Approval,
   Briefing,
   CoreClient,
@@ -123,6 +124,28 @@ function agentFixture(over: Partial<Agent> = {}): Agent {
   };
 }
 
+function runFixture(over: Partial<AgentRun> = {}): AgentRun {
+  return {
+    id: "run-1",
+    agentName: "vendhub-ops",
+    skill: "refill-check",
+    trigger: "cron",
+    cron: null,
+    scheduledAt: null,
+    taskId: null,
+    approvalId: null,
+    startedAt: "2026-09-01T03:00:00.000Z",
+    finishedAt: "2026-09-01T03:00:05.000Z",
+    outcome: "executed",
+    skipReason: null,
+    hook: null,
+    reason: "остатков хватает",
+    action: null,
+    review: null,
+    ...over,
+  };
+}
+
 function entityFixture(over: Partial<EntityCard> = {}): EntityCard {
   return {
     id: "entity-1",
@@ -179,12 +202,58 @@ describe("runCommand — CLI mydon поверх клиента Core (R-A1-3)", (
     );
     assert.equal(result.text, formatTasks(tasks));
     assert.equal(result.code, 0);
+    // Умолчание уходит В ЗАПРОС: без него Core отдавал свою страницу, а CLI
+    // печатал её как весь ответ.
     assert.deepEqual(seenQuery, {
       status: "todo",
       ownerRef: "jamshid",
       domain: undefined,
-      limit: undefined,
+      limit: 50,
     });
+  });
+
+  it("mydon tasks --limit N шлёт N в Core и печатает предел тем же числом", async () => {
+    // `mydon events --limit 5` печатал «События: 5» как весь ответ: предел в
+    // запрос уходил, а форматтер считал полноту по своему умолчанию 50.
+    const tasks = Array.from({ length: 5 }, (_, i) => taskFixture({ id: `task-${i}` }));
+    let seenLimit: number | undefined;
+    const client = stubClient({
+      tasks: async (q) => {
+        seenLimit = q.limit;
+        return tasks;
+      },
+    });
+    const result = await runCommand(parseArgs(["tasks", "--limit", "5"]), { client });
+    assert.equal(seenLimit, 5);
+    assert.match(result.text, /Показаны первые 5 — в списке задач могут быть ещё\./);
+  });
+
+  it("тот же предел у events, runs и search", async () => {
+    const events = Array.from({ length: 2 }, () => eventFixture());
+    const entities = Array.from({ length: 2 }, () => entityFixture());
+    const runs = Array.from({ length: 2 }, () => runFixture());
+    const seen: Record<string, number | undefined> = {};
+    const client = stubClient({
+      events: async (q) => {
+        seen.events = q.limit;
+        return events;
+      },
+      entities: async (q) => {
+        seen.entities = q.limit;
+        return entities;
+      },
+      runs: async (q) => {
+        seen.runs = q.limit;
+        return { runs };
+      },
+    });
+    const ev = await runCommand(parseArgs(["events", "--limit", "2"]), { client });
+    const se = await runCommand(parseArgs(["search", "склад", "--limit", "2"]), { client });
+    const ru = await runCommand(parseArgs(["runs", "--limit", "2"]), { client });
+    assert.deepEqual(seen, { events: 2, entities: 2, runs: 2 });
+    assert.match(ev.text, /Показаны первые 2 — в ленте событий могут быть ещё\./);
+    assert.match(se.text, /Показаны первые 2 — в реестре могут быть ещё\./);
+    assert.match(ru.text, /Показаны первые 2 — в журнале прогонов могут быть ещё\./);
   });
 
   it("mydon task <id> печатает карточку задачи", async () => {

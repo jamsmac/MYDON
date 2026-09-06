@@ -25,6 +25,7 @@ import {
   MAX_LIST_ITEMS,
   MAX_RESPONSE_CHARS,
   clamp,
+  inlineText,
   formatAgents,
   formatBriefing,
   formatDeck,
@@ -35,6 +36,7 @@ import {
   formatRuns,
   formatTask,
   formatTasks,
+  type CorePage,
 } from "./format";
 
 /**
@@ -72,11 +74,16 @@ const VENTURE_TYPE = "venture_candidate";
 /** Домен, в котором лежат кандидаты, пока у Ventures нет своего домена. */
 const VENTURE_DOMAIN: Domain = "mydon";
 
-/** Источник задач, созданных отсюда: в карточке задачи видно, откуда она. */
-const TASK_SOURCE = "mcp";
-
-/** Подпись автора смены статуса: в журнале честно видно, что правка из MCP. */
-const STATUS_ACTOR = "mcp";
+/**
+ * Подпись MCP во ВСЕХ меняющих вызовах: источник и автор задачи, актор смены
+ * статуса, автор комментария, актор решения по согласованию.
+ *
+ * Константа одна, потому что подпись одна, и она обязательна: без неё Core
+ * подставляет «owner» (`dto.actor ?? "owner"`, `dto.author ?? "owner"`), и в
+ * `audit_log` решение модели становится неотличимо от нажатия владельца, а
+ * комментарий модели ложится в карточку как комментарий владельца.
+ */
+const MCP_ACTOR = "mcp";
 
 // ── Типы описаний ──
 
@@ -182,6 +189,20 @@ function optionalString(args: ToolArgs, key: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+/**
+ * Тумблер. Строку «true»/«1» принимаем наравне с настоящим `true`: схема
+ * входа для модели — подсказка, а не гарантия, и отказывать в понятном
+ * значении из-за типа значило бы спорить о форме вместо дела.
+ */
+function optionalBoolean(args: ToolArgs, key: string): boolean | undefined {
+  const raw = args[key];
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === "boolean") return raw;
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  throw new Error(`Параметр «${key}» — true или false.`);
+}
+
 function optionalEnum<T extends string>(
   args: ToolArgs,
   key: string,
@@ -268,6 +289,16 @@ function hidePersonal<T extends { domain?: Domain | null }>(
   return asked ? rows : rows.filter((row) => row.domain !== "personal");
 }
 
+/**
+ * Что пришло от Core и сколько снял отсев — для честной пометки о полноте
+ * страницы. Считается ДО фильтрации: `hidePersonal` укорачивает список, и
+ * форматтер по нему одинаково видит и «страница кончилась», и «страница была
+ * полной, но часть записей не твоего круга».
+ */
+function pageOf<T>(received: readonly T[], shown: readonly T[]): CorePage {
+  return { received: received.length, hidden: received.length - shown.length };
+}
+
 // ── Описания ──
 
 function schema(
@@ -307,6 +338,7 @@ const READ_ONLY = "Ничего не меняет.";
 export function describeApprovalDecide(posture: OwnerPosture): string {
   return [
     "Проводит решение владельца по запросу согласования — запрос закрывается, агент получает ответ, и строка пропадает из /inbox.",
+    "Решение уходит в журнал Core подписанным как mcp: в audit_log видно, что его провела модель, а не владелец нажал кнопку.",
     beltSentence(posture),
     "Одно решение за вызов; повторное решение по тому же id Core отклонит.",
   ].join(" ");
@@ -385,7 +417,12 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           ...(status ? { status } : {}),
           ...(ownerRef ? { ownerRef } : {}),
         };
-        return formatTasks(hidePersonal(await client.tasks(query), domain), limit);
+        const rows = await client.tasks(query);
+        const shown = hidePersonal(rows, domain);
+        // Полноту страницы считает форматтер по ОТВЕТУ Core, а не по остатку
+        // после отсева: иначе на полной странице с личными задачами пометка
+        // «могут быть ещё» исчезала — ровно там, где она нужнее всего.
+        return formatTasks(shown, limit, pageOf(rows, shown));
       },
     },
     {
@@ -418,7 +455,8 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           ...(domain ? { domain } : {}),
           ...(type ? { type } : {}),
         });
-        return formatEntities(hidePersonal(cards, domain), limit);
+        const shown = hidePersonal(cards, domain);
+        return formatEntities(shown, limit, pageOf(cards, shown));
       },
     },
     {
@@ -509,26 +547,45 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
     },
     {
       name: "kb_tree",
-      description: `Дерево доступных страниц знаний: путь, корень, заголовок, размер. Нужно, чтобы знать, что просить у kb_read. ${READ_ONLY}`,
+      description: `Дерево доступных страниц знаний: путь, корень, заголовок, размер. Нужно, чтобы знать, что просить у kb_read. Без «root» — все корни сразу; так и узнаётся их полный список. ${READ_ONLY}`,
       inputSchema: schema({
         root: {
           type: "string",
-          description: 'Корень из белого списка, например "docs", "memory" или "routers".',
+          description:
+            "Корень белого списка, оставить только его страницы. Набор корней ЗАКРЫТ и берётся из ответа Core: вызови kb_tree без root, чтобы увидеть их все. Промах по корню — отказ со списком настоящих корней, а не пустая выдача.",
         },
       }),
       mutates: false,
       run: async (args) => {
         const root = optionalString(args, "root");
-        const tree = await client.docsTree(root ? { root } : {});
-        return formatTree(tree, root);
+        // Дерево приходит целиком (фильтра по корню у Core нет), поэтому отбор
+        // и знание о настоящих корнях живут в одном месте: «страниц нет» на
+        // выдуманном корне звучало бы как приговор всей базе знаний.
+        const tree = await client.docsTree();
+        const roots = rootsOf(tree);
+        if (root && !roots.includes(root)) {
+          throw new Error(
+            `Корня «${inlineText(root)}» в дереве знаний нет. Есть такие: ${roots.join(", ")}.`,
+          );
+        }
+        return formatTree(root ? tree.filter((item) => item.root === root) : tree, root);
       },
     },
     {
       name: "agents_list",
-      description: `Карточки агентов: направление, статус, уровень автономии, архив. ${READ_ONLY}`,
-      inputSchema: schema({}),
+      description: `Карточки агентов: направление, статус, уровень автономии. Архивированные скрыты — чтобы увидеть и их, укажи archived: true. ${READ_ONLY}`,
+      inputSchema: schema({
+        archived: {
+          type: "boolean",
+          description:
+            "Показать и архивированные карточки (Core отдаёт их только по этому запросу). По умолчанию — только действующие.",
+        },
+      }),
       mutates: false,
-      run: async () => formatAgents(await client.agents()),
+      run: async (args) => {
+        const archived = optionalBoolean(args, "archived");
+        return formatAgents(await client.agents(archived ? { archived } : {}));
+      },
     },
     {
       name: "skills_deck",
@@ -676,7 +733,10 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         const input: CreateTaskInput = {
           title: requireString(args, "title"),
           ownerKind: requireEnum(args, "ownerKind", OWNER_KINDS),
-          source: TASK_SOURCE,
+          source: MCP_ACTOR,
+          // Автор задачи тоже подписан: без `createdBy` Core запишет её на
+          // «system», и в карточке не видно, что задачу завела модель.
+          createdBy: MCP_ACTOR,
           ...(ownerRef ? { ownerRef } : {}),
           ...(description ? { description } : {}),
           ...(domain ? { domain } : {}),
@@ -690,7 +750,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
     {
       name: "task_comment",
       description:
-        "Добавляет комментарий к задаче — владелец увидит его в карточке задачи на /tasks. Комментарий ничего больше не меняет: ни статуса, ни исполнителя, ни срока.",
+        "Добавляет комментарий к задаче — владелец увидит его в карточке задачи на /tasks, подписанным как mcp. Комментарий ничего больше не меняет: ни статуса, ни исполнителя, ни срока.",
       inputSchema: schema(
         {
           id: { type: "string", description: "UUID задачи." },
@@ -703,8 +763,12 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         const comment = await client.commentTask(
           requireString(args, "id"),
           requireString(args, "body"),
+          MCP_ACTOR,
         );
-        return `Комментарий добавлен к задаче ${comment.taskId} (автор ${comment.author}).`;
+        // Автор берётся из ОТВЕТА Core (`authorRef`), а не из нашего намерения:
+        // раньше здесь печаталось поле `author`, которого в ответе нет, и в
+        // строке стояло «автор undefined».
+        return `Комментарий добавлен к задаче ${comment.taskId} (автор ${inlineText(comment.authorRef)}).`;
       },
     },
     {
@@ -733,7 +797,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         const note = optionalString(args, "note");
         const updated = await client.setTaskStatus(id, {
           status,
-          actor: STATUS_ACTOR,
+          actor: MCP_ACTOR,
           ...(note ? { resultNote: note } : {}),
         });
         return clamp(
@@ -775,7 +839,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
     {
       name: "agent_upsert",
       description:
-        "Создаёт или обновляет карточку агента — изменения видны на /agents и действуют со следующего прогона. Уровень автономии меняется отдельным owner-вызовом, потому что общий patch карточки его сознательно отбрасывает. Расписание и бюджеты отсюда не трогаются — они правятся в панели.",
+        "Создаёт или обновляет карточку агента — изменения видны на /agents и действуют со следующего прогона. ВНИМАНИЕ: непустой список skills ЗАМЕНЯЕТ весь набор навыков агента целиком, а не добавляет к нему, — передавай полный список, иначе прежние навыки пропадут (пустой список ничего не стирает). Уровень автономии меняется отдельным owner-вызовом, потому что общий patch карточки его сознательно отбрасывает. Расписание и бюджеты отсюда не трогаются — они правятся в панели.",
       inputSchema: schema(
         {
           name: { type: "string", description: "Имя агента (оно же ключ карточки)." },
@@ -790,7 +854,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           skills: {
             type: "array",
             description:
-              "Список навыков агента. Пустой список ничего не стирает — чистка навыков в панели.",
+              "ПОЛНЫЙ список навыков агента: он заменяет прежний набор целиком (добавляя один навык, перечисли и все прежние — см. agents_list). Пустой список ничего не стирает: чистка навыков — в панели.",
             items: { type: "string" },
           },
           autonomyDefault: {
@@ -809,6 +873,9 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
         const description = optionalString(args, "description");
         const mission = optionalString(args, "mission");
         const skills = optionalStringList(args, "skills");
+        // Пустой список `optionalStringList` превращает в «не менять»; чтобы
+        // сказать об этом в ответе, отличаем его от «поля не было вовсе».
+        const skillsIgnored = skills === undefined && Array.isArray(args.skills);
         const autonomy = optionalEnum(args, "autonomyDefault", AUTONOMY_TIERS);
         const patch: Omit<AgentInput, "name"> = {
           ...(business ? { business } : {}),
@@ -818,6 +885,7 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           ...(skills ? { skills } : {}),
         };
         const existing = (await client.agents()).find((card) => card.name === name);
+        const skillsBefore = existing?.skills.length ?? 0;
         const patched = Object.keys(patch).length > 0;
         let card = existing
           ? patched
@@ -833,7 +901,18 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
           : patched || card.autonomyDefault !== tierBefore
             ? `Обновлена карточка агента ${card.name}.`
             : `Карточка агента ${card.name}: изменений не было.`;
-        return clamp(`${headline}\n${formatAgents([card])}`, MAX_RESPONSE_CHARS);
+        // Судьба набора навыков — отдельной строкой: список ЗАМЕНЯЕТСЯ целиком,
+        // и «было 4 → стало 1» показывает это до того, как потерю заметят по
+        // молчащим прогонам.
+        const skillsLine = skills
+          ? `Навыки: было ${skillsBefore} → стало ${card.skills.length} (список заменён целиком).`
+          : skillsIgnored
+            ? `Навыки не тронуты: пустой список ничего не стирает (осталось ${skillsBefore}).`
+            : "";
+        return clamp(
+          [headline, skillsLine, formatAgents([card])].filter(Boolean).join("\n"),
+          MAX_RESPONSE_CHARS,
+        );
       },
     },
     {
@@ -854,8 +933,10 @@ export function buildTools(client: CoreClient, posture: OwnerPosture): ToolDefin
       run: async (args) => {
         const id = requireString(args, "id");
         const decision = requireEnum(args, "decision", DECISIONS);
-        const approval = await client.decideApproval(id, decision);
-        return `Согласование ${approval.id} (${approval.agent} · ${approval.action}): решение ${decision}. Из /inbox запрос ушёл.`;
+        const approval = await client.decideApproval(id, decision, MCP_ACTOR);
+        // Имя агента и действие — текст из Core; в нашу строку он входит
+        // однострочным, как и везде.
+        return `Согласование ${approval.id} (${inlineText(approval.agent)} · ${inlineText(approval.action)}): решение ${decision}. Из /inbox запрос ушёл.`;
       },
     },
   ];
@@ -887,8 +968,14 @@ function verdictSummary(cards: EntityCard[]): string {
     const verdict = verdictOf(card);
     counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
   }
-  const parts = [...counts.entries()].map(([verdict, count]) => `${verdict} ${count}`);
+  // Вердикт лежит в `attrs` карточки — это чужой текст в нашей строке.
+  const parts = [...counts.entries()].map(([verdict, count]) => `${inlineText(verdict)} ${count}`);
   return `Кандидаты: ${cards.length} (${parts.join(", ")})`;
+}
+
+/** Настоящие корни дерева — из ответа Core, а не из рукописной копии списка. */
+function rootsOf(tree: DocsTreeItem[]): string[] {
+  return [...new Set(tree.map((item) => item.root))].sort();
 }
 
 /**

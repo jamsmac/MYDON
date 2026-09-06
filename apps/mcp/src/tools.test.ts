@@ -159,7 +159,10 @@ const DECK: SkillDeck = { syncedAt: NOW, models: { primary: null, fallbacks: [] 
 const COMMENT: TaskComment = {
   id: "77777777-7777-4777-8777-777777777777",
   taskId: task().id,
-  author: "mcp",
+  // Имя поля — из ответа Core (`task_comment.author_ref`), а не из нашего
+  // намерения: на выдуманном `author` тест бы проходил, а инструмент печатал
+  // «автор undefined».
+  authorRef: "mcp",
   body: "готово",
   createdAt: NOW,
 };
@@ -781,15 +784,107 @@ describe("Поведение инструментов", () => {
     assert.match(out, /Навыков нет/);
   });
 
-  it("approval_decide зовёт решение владельца ровно один раз", async () => {
+  it("approval_decide зовёт решение владельца ровно один раз и подписывается", async () => {
     const { client, calls } = stubClient();
     const out = textOf(
       await callTool(tools(client), "approval_decide", { id: APPROVAL.id, decision: "approved" }),
     );
     const call = calls.find((c) => c.method === "decideApproval");
     assert.ok(call);
-    assert.deepEqual(call.args, [APPROVAL.id, "approved"]);
+    // Третий аргумент — подпись: без неё Core запишет в audit_log «owner», и
+    // решение модели станет неотличимо от нажатия владельца.
+    assert.deepEqual(call.args, [APPROVAL.id, "approved", "mcp"]);
     assert.match(out, /approved|одобрен/i);
+  });
+
+  it("task_comment подписан как mcp и печатает автора из ответа Core", async () => {
+    const { client, calls } = stubClient();
+    const out = textOf(
+      await callTool(tools(client), "task_comment", { id: task().id, body: "готово" }),
+    );
+    assert.deepEqual(calls.find((c) => c.method === "commentTask")?.args, [
+      task().id,
+      "готово",
+      "mcp",
+    ]);
+    assert.match(out, /автор mcp/);
+    assert.doesNotMatch(out, /undefined/);
+  });
+
+  it("подпись mcp стоит у каждого меняющего вызова", async () => {
+    // Одна константа на все подписи: пропущенная подпись — это «owner» в
+    // журнале Core, то есть чужое имя под действием модели.
+    const { client, calls } = stubClient();
+    const list = tools(client);
+    await callTool(list, "task_create", { title: "Заправить Olma", ownerKind: "human" });
+    await callTool(list, "task_status", { id: task().id, status: "done" });
+    const created = argOf(calls, "createTask");
+    assert.equal(created.source, "mcp");
+    assert.equal(created.createdBy, "mcp");
+    const patch = calls.find((c) => c.method === "setTaskStatus")?.args[1] as Record<
+      string,
+      unknown
+    >;
+    assert.equal(patch.actor, "mcp");
+  });
+
+  it("agent_upsert говорит, что стало с набором навыков", async () => {
+    // Непустой список ЗАМЕНЯЕТ набор целиком: модель, добавляя один навык,
+    // сносит остальные — и должна увидеть это в ответе, а не по молчащим
+    // прогонам через неделю.
+    const { client, calls } = stubClient({
+      agents: async () => [agentCard({ skills: ["parts-audit", "refill-check", "kpi", "sla"] })],
+      updateAgent: async () => agentCard({ skills: ["kpi"] }),
+    });
+    const out = textOf(
+      await callTool(tools(client), "agent_upsert", { name: "vendhub-ops", skills: ["kpi"] }),
+    );
+    const patch = calls.find((c) => c.method === "updateAgent")?.args[1];
+    assert.deepEqual(patch, { skills: ["kpi"] });
+    assert.match(out, /Навыки: было 4 → стало 1 \(список заменён целиком\)\./);
+  });
+
+  it("agent_upsert с пустым списком навыков говорит, что набор не тронут", async () => {
+    const { client } = stubClient({
+      agents: async () => [agentCard({ skills: ["parts-audit", "kpi"] })],
+    });
+    const out = textOf(
+      await callTool(tools(client), "agent_upsert", { name: "vendhub-ops", skills: [] }),
+    );
+    assert.match(out, /Навыки не тронуты: пустой список ничего не стирает \(осталось 2\)\./);
+    assert.doesNotMatch(out, /было \d+ → стало/);
+  });
+
+  it("описание agent_upsert прямо говорит про замену набора навыков", () => {
+    const upsert = byName(tools(stubClient().client), "agent_upsert");
+    assert.match(upsert.description, /ЗАМЕНЯЕТ весь набор навыков/);
+    assert.match(upsert.inputSchema.properties.skills?.description ?? "", /заменяет прежний набор/);
+  });
+
+  it("полная страница с личными записями остаётся помеченной", async () => {
+    // Отсев личного укорачивает список ДО форматтера: считай полноту по
+    // остатку — и модель прочитает неполную выдачу как полную.
+    const rows = [
+      ...Array.from({ length: 4 }, (_, i) => task({ id: `t-${i}`, domain: "vendhub" })),
+      task({ id: "личная", title: "Личная", domain: "personal" }),
+    ];
+    const { client } = stubClient({ tasks: async () => rows });
+    const out = textOf(await callTool(tools(client), "tasks_list", { limit: 5 }));
+    assert.doesNotMatch(out, /Личная/);
+    assert.match(out, /Core вернул полную страницу \(5\) — в списке задач могут быть ещё\./);
+    assert.match(out, /Часть записей скрыта \(личный контур\): 1\./);
+  });
+
+  it("то же в поиске по реестру", async () => {
+    const cards = [
+      ...Array.from({ length: 2 }, (_, i) => entity({ id: `e-${i}`, domain: "vendhub" })),
+      entity({ id: "личная", name: "Квартира", domain: "personal" }),
+    ];
+    const { client } = stubClient({ entities: async () => cards });
+    const out = textOf(await callTool(tools(client), "registry_search", { q: "а", limit: 3 }));
+    assert.doesNotMatch(out, /Квартира/);
+    assert.match(out, /Core вернул полную страницу \(3\) — в реестре могут быть ещё\./);
+    assert.match(out, /Часть записей скрыта \(личный контур\): 1\./);
   });
 
   it("briefing_get и agents_list печатают компактный текст, а не JSON", async () => {
@@ -802,14 +897,45 @@ describe("Поведение инструментов", () => {
     assert.doesNotMatch(agents, /[{}]/);
   });
 
-  it("kb_tree фильтрует по корню через клиент", async () => {
+  it("kb_tree берёт дерево целиком и отбирает корень сам", async () => {
     const { client, calls } = stubClient({
       docsTree: async () => [
         { path: "memory/x.md", root: "memory", title: "X", bytes: 10, updatedAt: NOW },
+        { path: "docs/MCP.md", root: "docs", title: "MCP", bytes: 10, updatedAt: NOW },
       ],
     });
     const out = textOf(await callTool(tools(client), "kb_tree", { root: "memory" }));
-    assert.equal(argOf(calls, "docsTree").root, "memory");
+    // У `GET /docs/tree` фильтра по корню нет — клиента зовём без параметров.
+    assert.deepEqual(calls.find((c) => c.method === "docsTree")?.args, []);
     assert.match(out, /memory\/x\.md/);
+    assert.doesNotMatch(out, /docs\/MCP\.md/);
+  });
+
+  it("промах по корню — отказ со списком настоящих корней, а не «страниц нет»", async () => {
+    // Набор корней закрыт (`apps/core/src/docs/docs-graph.ts`), и промах по
+    // нему раньше давал уверенное «страниц нет» — приговор всей базе знаний.
+    const { client } = stubClient({
+      docsTree: async () => [
+        { path: "memory/x.md", root: "memory", title: "X", bytes: 10, updatedAt: NOW },
+        { path: "docs/MCP.md", root: "docs", title: "MCP", bytes: 10, updatedAt: NOW },
+        { path: "routers/dev.md", root: "routers", title: "Dev", bytes: 10, updatedAt: NOW },
+      ],
+    });
+    const res = await callTool(tools(client), "kb_tree", { root: "документы" });
+    assert.equal(res.isError, true);
+    assert.match(textOf(res), /docs, memory, routers/);
+    assert.doesNotMatch(textOf(res), /Страниц знаний .* нет/);
+  });
+
+  it("agents_list показывает архив только по явной просьбе", async () => {
+    const { client, calls } = stubClient({ agents: async () => [agentCard()] });
+    const list = tools(client);
+    await callTool(list, "agents_list", {});
+    await callTool(list, "agents_list", { archived: true });
+    const [first, second] = calls.filter((c) => c.method === "agents");
+    assert.deepEqual(first?.args[0], {});
+    assert.deepEqual(second?.args[0], { archived: true });
+    // Описание не обещает архив по умолчанию — Core его без параметра не отдаёт.
+    assert.match(byName(list, "agents_list").description, /archived/);
   });
 });

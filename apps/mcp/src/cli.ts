@@ -18,6 +18,7 @@ import {
   type TaskStatus,
 } from "./core-client";
 import {
+  MAX_LIST_ITEMS,
   formatAgents,
   formatBriefing,
   formatDoc,
@@ -129,6 +130,17 @@ function strFlag(flags: ParsedArgs["flags"], name: string): string | undefined {
   return raw;
 }
 
+/**
+ * Сколько записей просит читающая команда, когда владелец не сказал иначе.
+ *
+ * Число одно и то же уходит И в Core, И в форматтер. Раньше без `--limit` в
+ * запрос не уходило ничего (Core отдавал свою страницу — до 500 карточек), а
+ * форматтер считал полноту по собственному умолчанию: `mydon events --limit 5`
+ * печатал «События: 5» как весь ответ, не сказав, что за страницей может быть
+ * ещё, а `mydon tasks` выдавал умолчание страницы Core за весь список.
+ */
+const DEFAULT_LIMIT = MAX_LIST_ITEMS;
+
 /** Числовое значение флага; отсутствие — `undefined`, а не число, кривое значение — usage-ошибка. */
 function numFlag(flags: ParsedArgs["flags"], name: string): number | undefined {
   const raw = flags[name];
@@ -137,6 +149,11 @@ function numFlag(flags: ParsedArgs["flags"], name: string): number | undefined {
   const n = Number(raw);
   if (!Number.isFinite(n)) throw new UsageError(`--${name} должен быть числом, получено: ${raw}`);
   return n;
+}
+
+/** Предел читающей команды: значение владельца или общее умолчание. */
+function limitFlag(flags: ParsedArgs["flags"]): number {
+  return numFlag(flags, "limit") ?? DEFAULT_LIMIT;
 }
 
 function requirePositional(parsed: ParsedArgs, index: number, label: string): string {
@@ -157,15 +174,16 @@ async function handleInbox(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
 }
 
 async function handleTasks(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
+  const limit = limitFlag(parsed.flags);
   const query: TasksQuery = {
     status: strFlag(parsed.flags, "status") as TaskStatus | undefined,
     ownerRef: strFlag(parsed.flags, "owner"),
     domain: strFlag(parsed.flags, "domain") as Domain | undefined,
-    limit: numFlag(parsed.flags, "limit"),
+    limit,
   };
   const tasks = await deps.client.tasks(query);
   if (parsed.flags.json) return JSON.stringify(tasks);
-  return formatTasks(tasks);
+  return formatTasks(tasks, limit);
 }
 
 async function handleTask(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
@@ -176,25 +194,27 @@ async function handleTask(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
 }
 
 async function handleEvents(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
+  const limit = limitFlag(parsed.flags);
   const query: EventsQuery = {
     source: strFlag(parsed.flags, "source"),
     type: strFlag(parsed.flags, "type"),
-    limit: numFlag(parsed.flags, "limit"),
+    limit,
   };
   const events = await deps.client.events(query);
   if (parsed.flags.json) return JSON.stringify(events);
-  return formatEvents(events);
+  return formatEvents(events, limit);
 }
 
 async function handleRuns(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
+  const limit = limitFlag(parsed.flags);
   const query: RunsQuery = {
     agent: strFlag(parsed.flags, "agent"),
     skill: strFlag(parsed.flags, "skill"),
-    limit: numFlag(parsed.flags, "limit"),
+    limit,
   };
   const result = await deps.client.runs(query);
   if (parsed.flags.json) return JSON.stringify(result);
-  return formatRuns(result.runs);
+  return formatRuns(result.runs, limit);
 }
 
 async function handleKb(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
@@ -206,15 +226,16 @@ async function handleKb(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
 
 async function handleSearch(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
   const q = requirePositional(parsed, 0, "поисковый запрос");
+  const limit = limitFlag(parsed.flags);
   const query: EntitiesQuery = {
     q,
     domain: strFlag(parsed.flags, "domain") as Domain | undefined,
     type: strFlag(parsed.flags, "type"),
-    limit: numFlag(parsed.flags, "limit"),
+    limit,
   };
   const entities = await deps.client.entities(query);
   if (parsed.flags.json) return JSON.stringify(entities);
-  return formatEntities(entities);
+  return formatEntities(entities, limit);
 }
 
 async function handleBriefing(parsed: ParsedArgs, deps: CliDeps): Promise<string> {
