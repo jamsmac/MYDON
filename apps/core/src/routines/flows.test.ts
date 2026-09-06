@@ -62,12 +62,61 @@ describe("buildPhases (R-R-5)", () => {
     assert.equal(w[1]!.state, "warn");
   });
 
-  it("delivery: dead → fail с last_error; всё delivered → ok", () => {
-    const dead = buildPhases({ ...ctx0, deliveries: [{ destination: "notion-report", status: "dead", lastError: "401", completedAt: null }] });
-    assert.equal(dead[5]!.state, "fail");
-    assert.match(dead[5]!.note ?? "", /401/);
-    const ok = buildPhases({ ...ctx0, deliveries: [{ destination: "notion-report", status: "delivered", lastError: null, completedAt: new Date() }] });
-    assert.equal(ok[5]!.state, "ok");
+  it("delivery: каждый статус outbox_delivery_status получает свою фазу", () => {
+    // Перечисление `outbox_delivery_status` — pending | dispatching | sent |
+    // skipped | unknown | dead. Веток на `failed`/`claimed`/`delivered`, которых
+    // в базе нет, здесь быть не должно: их «ok» по умолчанию красил зелёным
+    // неподтверждённую доставку (adversarial-ревью волны R, B1).
+    const phase = (status: string, lastError: string | null = null) =>
+      buildPhases({ ...ctx0, deliveries: [{ destination: "notion-report", status, lastError, completedAt: null }] })[5]!;
+
+    assert.equal(phase("sent").state, "ok");
+    assert.equal(phase("sent").title, "notion-report ✓");
+    assert.equal(phase("skipped").state, "ok");
+    // Галочка у `skipped` читалась бы как «доставлено» — там её быть не должно.
+    assert.equal(phase("skipped").title, "notion-report пропущено");
+    assert.equal(phase("pending").state, "warn");
+    assert.equal(phase("dispatching").state, "warn");
+
+    const dead = phase("dead", "401");
+    assert.equal(dead.state, "fail");
+    assert.equal(dead.title, "notion-report провалено");
+    assert.match(dead.note ?? "", /401/);
+
+    // Неподтверждённая доставка — жёлтая со словами, что делать, и с ошибкой
+    // очереди, если она есть: раньше и то и другое молча терялось.
+    const unknown = phase("unknown");
+    assert.equal(unknown.state, "warn");
+    assert.equal(unknown.title, "notion-report не подтверждено");
+    assert.equal(unknown.note, "доставка не подтверждена — нужна сверка");
+    assert.equal(phase("unknown", "timeout").note, "доставка не подтверждена — нужна сверка: timeout");
+  });
+
+  it("delivery: провал важнее неподтверждённой, неподтверждённая — открытой; статус вне перечисления виден сырым", () => {
+    const mixed = buildPhases({
+      ...ctx0,
+      deliveries: [
+        { destination: "telegram", status: "sent", lastError: null, completedAt: new Date("2026-09-06T03:00:05.000Z") },
+        { destination: "notion-report", status: "unknown", lastError: null, completedAt: null },
+        { destination: "email", status: "dead", lastError: "401", completedAt: null },
+      ],
+    })[5]!;
+    assert.equal(mixed.state, "fail");
+    assert.equal(mixed.title, "telegram ✓, notion-report не подтверждено, email провалено");
+
+    const открытая = buildPhases({
+      ...ctx0,
+      deliveries: [
+        { destination: "telegram", status: "pending", lastError: null, completedAt: null },
+        { destination: "notion-report", status: "unknown", lastError: null, completedAt: null },
+      ],
+    })[5]!;
+    assert.equal(открытая.state, "warn");
+    assert.equal(открытая.note, "доставка не подтверждена — нужна сверка");
+
+    // Чужое слово в колонке статуса не должно молча стать зелёной галочкой.
+    const чужой = buildPhases({ ...ctx0, deliveries: [{ destination: "telegram", status: "held", lastError: null, completedAt: null }] })[5]!;
+    assert.equal(чужой.title, "telegram held");
   });
 
   it("исполнение: abandoned → fail с причиной отказа; active/ready → warn «ещё идёт»", () => {

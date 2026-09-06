@@ -12,6 +12,12 @@ import type { ScheduleSnapshot } from "./runs.service";
  * минутами, а вопрос «когда дальше» задают в любой момент.
  */
 export interface CronBoardJob {
+  /**
+   * Ключ СТРОКИ доски, а не задания: у навыка с двумя расписаниями строк две
+   * (`агент/навык@cron`), у монитора и у неподключённого навыка — одна
+   * (`агент/навык`). Идентификатор задания для ссылок — пара `agent`+`skill`;
+   * `id` годится только на ключ списка и на связку с `upcoming24h`.
+   */
   id: string;
   kind: "skill" | "monitor";
   agent: string;
@@ -78,7 +84,10 @@ export function computeBoard(input: BoardInput): CronBoard {
   const horizon = new Date(now.getTime() + DAY_MS);
 
   const push = (j: Omit<CronBoardJob, "nextRun" | "last">, includeUpcoming: boolean): void => {
-    const last = lastByKey.get(j.id);
+    // Прошлый прогон ищем по паре агент/навык, а НЕ по `id` строки: журнал
+    // помнит последний прогон навыка, а не расписания, и у навыка с двумя
+    // расписаниями обе строки показывают один и тот же последний исход.
+    const last = lastByKey.get(`${j.agent}/${j.skill}`);
     // Один разбор cron на задание: «когда дальше» — это ПЕРВЫЙ элемент того же
     // списка, из которого набираются ближайшие сутки. Два вызова croner (limit 1
     // и limit 200) считали одно и то же дважды и могли разойтись между собой.
@@ -104,10 +113,23 @@ export function computeBoard(input: BoardInput): CronBoard {
     for (const j of p.jobs) {
       // Пауза расписаний берётся из `system_config`, а не из снимка: тумблер
       // владельца действует сразу, а снимок рантайма мог сняться до правки.
-      push({ id: `${j.agent}/${j.skill}`, kind: "skill", agent: j.agent, skill: j.skill, cron: j.cron, mode: j.mode, enabled: true, paused: input.paused.schedules }, !input.paused.schedules);
+      //
+      // Cron в ключе строки обязателен: рантайм дедуплицирует задания по тройке
+      // агент+навык+cron, и у навыка с двумя расписаниями (например «утром» и
+      // «вечером») строк на доске тоже две. С ключом без cron они получали бы
+      // ОДИН `id` — а по нему панель и связывает «Ближайшие 24 ч» со строкой
+      // таблицы и раздаёт ключи списка React.
+      push({ id: `${j.agent}/${j.skill}@${j.cron}`, kind: "skill", agent: j.agent, skill: j.skill, cron: j.cron, mode: j.mode, enabled: true, paused: input.paused.schedules }, !input.paused.schedules);
     }
+    // Неподключённый навык приходит БЕЗ cron: расписаний у него может быть
+    // сколько угодно, а сказать о нём нечего, кроме причины — поэтому строка
+    // одна на пару агент/навык, и повторы снимка её не размножают.
+    const wiredOff = new Set<string>();
     for (const j of p.notWired) {
-      push({ id: `${j.agent}/${j.skill}`, kind: "skill", agent: j.agent, skill: j.skill, cron: "", mode: "legacy", enabled: false, disabledReason: DISABLED[j.reason] ?? j.reason, paused: input.paused.schedules }, false);
+      const id = `${j.agent}/${j.skill}`;
+      if (wiredOff.has(id)) continue;
+      wiredOff.add(id);
+      push({ id, kind: "skill", agent: j.agent, skill: j.skill, cron: "", mode: "legacy", enabled: false, disabledReason: DISABLED[j.reason] ?? j.reason, paused: input.paused.schedules }, false);
     }
     for (const m of p.monitors) {
       // Мониторы паузе агентов не подчиняются: она про навыки и задачи, а синк

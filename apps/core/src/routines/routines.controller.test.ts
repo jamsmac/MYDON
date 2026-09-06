@@ -246,7 +246,7 @@ describe("FlowsService.playback — Core собирает вокруг прог�
           approvalTable,
           [{ id: APPROVAL, decision: "pending", decidedAt: null, tier: "T3", createdAt: new Date("2026-09-06T03:00:03.000Z") }],
         ],
-        [outboxDelivery, [{ destination: "telegram", status: "delivered", lastError: null, completedAt: new Date("2026-09-06T03:00:05.000Z") }]],
+        [outboxDelivery, [{ destination: "telegram", status: "sent", lastError: null, completedAt: new Date("2026-09-06T03:00:05.000Z") }]],
         [auditLog, [{ at: new Date("2026-09-06T03:00:01.000Z"), action: "task.claimed", actorRef: "vendhub-ops", target: TASK }]],
       ]),
     );

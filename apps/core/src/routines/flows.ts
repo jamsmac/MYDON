@@ -23,6 +23,26 @@ export interface FlowContext {
 
 const hhmm = (d: Date): string => d.toLocaleTimeString("ru-RU", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
 
+/**
+ * Статус доставки словом владельца — по НАСТОЯЩЕМУ перечислению
+ * `outbox_delivery_status` (`packages/db/src/schema.ts`).
+ *
+ * Галочка стоит ровно у `sent` — единственного подтверждённого исхода.
+ * `skipped` («доставлять было нечего или некуда») подписан словом: галочка на
+ * нём читалась бы как «доставлено», а доставки не было вовсе.
+ */
+const DELIVERY_WORD: Record<string, string> = {
+  pending: "в очереди",
+  dispatching: "отправляется",
+  sent: "✓",
+  skipped: "пропущено",
+  unknown: "не подтверждено",
+  dead: "провалено",
+};
+
+/** Подпись фазы для `unknown`: словами, что именно должен сделать владелец. */
+const UNCONFIRMED = "доставка не подтверждена — нужна сверка";
+
 export function buildPhases(c: FlowContext): FlowPhase[] {
   const r = c.run;
   const trigger: FlowPhase =
@@ -81,14 +101,24 @@ export function buildPhases(c: FlowContext): FlowPhase[] {
   let delivery: FlowPhase;
   if (c.deliveries.length === 0) delivery = { name: "delivery", state: "skip", title: "нет доставок" };
   else {
-    const bad = c.deliveries.find((d) => d.status === "failed" || d.status === "dead");
-    const open = c.deliveries.find((d) => d.status === "pending" || d.status === "claimed" || d.status === "dispatching");
-    const list = c.deliveries.map((d) => `${d.destination} ${d.status === "delivered" ? "✓" : d.status}`).join(", ");
-    delivery = bad
-      ? { name: "delivery", state: "fail", title: list, ...(bad.lastError ? { note: bad.lastError } : {}) }
-      : open
-        ? { name: "delivery", state: "warn", title: list }
-        : { name: "delivery", state: "ok", title: list };
+    // Статус вне перечисления показываем сырым словом: чужая или будущая
+    // запись очереди должна быть видна, а не подписана чужим ответом.
+    const list = c.deliveries.map((d) => `${d.destination} ${DELIVERY_WORD[d.status] ?? d.status}`).join(", ");
+    const dead = c.deliveries.find((d) => d.status === "dead");
+    // `unknown` — «отправили, подтверждения не получили»: доставка могла и
+    // случиться. Отсюда `warn`, а не `fail` — красное на исходе, где половина
+    // случаев успех, приучает не смотреть на красное. Молчаливый `ok` (как
+    // было до ревью) прятал и сам статус, и его `lastError`, и владелец не
+    // узнавал, что сверять.
+    const unconfirmed = c.deliveries.find((d) => d.status === "unknown");
+    const open = c.deliveries.find((d) => d.status === "pending" || d.status === "dispatching");
+    delivery = dead
+      ? { name: "delivery", state: "fail", title: list, ...(dead.lastError ? { note: dead.lastError } : {}) }
+      : unconfirmed
+        ? { name: "delivery", state: "warn", title: list, note: unconfirmed.lastError ? `${UNCONFIRMED}: ${unconfirmed.lastError}` : UNCONFIRMED }
+        : open
+          ? { name: "delivery", state: "warn", title: list }
+          : { name: "delivery", state: "ok", title: list };
   }
   return [trigger, skill, proposal, approval, execution, delivery];
 }

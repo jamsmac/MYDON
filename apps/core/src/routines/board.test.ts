@@ -29,7 +29,7 @@ const input: BoardInput = {
 describe("computeBoard (R-R-3)", () => {
   it("следующий запуск по Ташкенту: 0 8 * * * после 08:10 → завтра 08:00 (= 03:00Z)", () => {
     const b = computeBoard(input);
-    const j = b.jobs.find((x) => x.id === "vendhub-ops/monitor-stock")!;
+    const j = b.jobs.find((x) => x.id === "vendhub-ops/monitor-stock@0 8 * * *")!;
     assert.equal(j.nextRun, "2026-09-07T03:00:00.000Z");
     assert.equal(j.mode, "legacy");
     assert.equal(j.last?.skipReason, "no_signal");
@@ -39,9 +39,9 @@ describe("computeBoard (R-R-3)", () => {
   it("паузу берёт из system_config, а не из снимка; мониторы паузе не подчиняются", () => {
     const b = computeBoard(input);
     assert.deepEqual(b.paused, { schedules: false, tasks: true });
-    assert.equal(b.jobs.find((x) => x.id === "vendhub-ops/parts-audit")!.paused, false);
+    assert.equal(b.jobs.find((x) => x.id === "vendhub-ops/parts-audit@30 8 * * 1")!.paused, false);
     const paused = computeBoard({ ...input, paused: { schedules: true, tasks: true } });
-    assert.equal(paused.jobs.find((x) => x.id === "vendhub-ops/parts-audit")!.paused, true);
+    assert.equal(paused.jobs.find((x) => x.id === "vendhub-ops/parts-audit@30 8 * * 1")!.paused, true);
     assert.equal(paused.jobs.find((x) => x.id === "system/ourvend:sync")!.paused, false);
     // на паузе задания не попадают в 24 ч, мониторы — попадают
     assert.ok(paused.upcoming24h.every((u) => u.jobId.startsWith("system/")));
@@ -79,6 +79,59 @@ describe("computeBoard (R-R-3)", () => {
     assert.equal(j.disabledReason, "агент не активен: расписание не запускается");
     assert.equal(j.nextRun, null);
     assert.equal(b.upcoming24h.some((u) => u.jobId === "market-analyst/scan-market"), false);
+  });
+
+  it("два расписания одного навыка — две строки с разными id и общим последним исходом", () => {
+    // Рантайм дедуплицирует задания по тройке агент+навык+cron, а доска с
+    // ключом `агент/навык` склеивала их в один `id`: панель получала
+    // повторяющиеся ключи React и не могла связать строку «Ближайшие 24 ч» с
+    // нужным расписанием (adversarial-ревью волны R, B4).
+    const b = computeBoard({
+      ...input,
+      snapshot: {
+        ...input.snapshot!,
+        payload: {
+          ...snapshot,
+          jobs: [
+            { agent: "vendhub-ops", skill: "monitor-stock", cron: "0 8 * * *", mode: "legacy" as const },
+            { agent: "vendhub-ops", skill: "monitor-stock", cron: "0 20 * * *", mode: "legacy" as const },
+          ],
+        },
+      },
+    });
+    const rows = b.jobs.filter((x) => x.agent === "vendhub-ops" && x.skill === "monitor-stock");
+    assert.equal(rows.length, 2);
+    assert.deepEqual(
+      rows.map((x) => x.id).sort(),
+      ["vendhub-ops/monitor-stock@0 20 * * *", "vendhub-ops/monitor-stock@0 8 * * *"],
+    );
+    assert.equal(new Set(b.jobs.map((x) => x.id)).size, b.jobs.length);
+    // Журнал помнит последний прогон навыка, а не расписания: обе строки
+    // показывают его, и поиск по `id` строки этот исход терял бы.
+    for (const r of rows) assert.equal(r.last?.runId, "r1");
+    // У каждой строки — своё ближайшее срабатывание, и обе попадают в сутки.
+    assert.equal(b.upcoming24h.some((u) => u.jobId === "vendhub-ops/monitor-stock@0 20 * * *"), true);
+    assert.equal(b.upcoming24h.some((u) => u.jobId === "vendhub-ops/monitor-stock@0 8 * * *"), true);
+  });
+
+  it("повтор в notWired не даёт двух одинаковых строк", () => {
+    // У неподключённого навыка cron не приходит вовсе: различить строки
+    // нечем, и повтор в снимке дал бы две одинаковые с одним `id`.
+    const b = computeBoard({
+      ...input,
+      snapshot: {
+        ...input.snapshot!,
+        payload: {
+          ...snapshot,
+          notWired: [
+            { agent: "vendhub-ceo", skill: "weekly-review", reason: "llm_route_off" as const },
+            { agent: "vendhub-ceo", skill: "weekly-review", reason: "llm_route_off" as const },
+          ],
+        },
+      },
+    });
+    assert.equal(b.jobs.filter((x) => x.id === "vendhub-ceo/weekly-review").length, 1);
+    assert.equal(new Set(b.jobs.map((x) => x.id)).size, b.jobs.length);
   });
 
   it("незнакомая причина монитора не теряется: показываем её сырой, а не пустоту", () => {
