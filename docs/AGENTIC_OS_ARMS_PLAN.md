@@ -337,12 +337,27 @@ mydon/
 
 ### 6.4 Волна A — приложения и командный центр
 
-1. **`apps/mcp` — MCP-сервер `mydon-core`**: `tasks.*`, `approvals.list/decide` (только владелец),
-   `registry.search`, `events.recent`, `memory.recall/remember`, `kb.read`, `briefing.get`,
-   `agents.create/update` (для Builder фабрики), `ventures.*` (§7). Least privilege по тиру:
-   всё меняющее мир — через approval. Один сервер для Claude Code владельца (`.mcp.json`) и для
-   `llm-skill`. Это делает MYDON «приложением» собственного harness — суть уровня 3.
-2. **CLI `mydon`** — тонкая обёртка над REST для скриптов и рутин.
+1. **`apps/mcp` — MCP-сервер `mydon-core`** — **СДЕЛАНО 06.09.2026 (срез A1)**: девятнадцать
+   инструментов по stdio (`@modelcontextprotocol/sdk`) — тринадцать читающих (`briefing_get`,
+   `inbox_list`, `tasks_list`, `task_get`, `registry_search`, `events_recent`, `memory_recall`,
+   `kb_read`, `kb_tree`, `agents_list`, `skills_deck`, `runs_recent`, `ventures_list`) и шесть
+   меняющих (`task_create`, `task_comment`, `task_status`, `memory_remember`, `agent_upsert`,
+   `approval_decide`), одна операция за вызов. Личный контур скрыт по умолчанию (фильтр на стороне
+   MCP, не гард Core); состояние пояса владельца (`OWNER_IDENTITY_ENFORCED`) читается при старте и
+   честно описывается в `approval_decide`, а не подразумевается. `.mcp.json` в корне репозитория —
+   один сервер для Claude Code владельца; на сервере не запускается (процесс живёт на машине
+   владельца, ходит в Core через SSH-туннель). `agents.create/update` для Builder фабрики и
+   `ventures.*` (§7) сведены к тому, что уже реализовано (`agent_upsert`, `ventures_list` — чтение;
+   `ventures.create/update` остаются за навыком Venture Factory, вне среза). Спека
+   `docs/superpowers/specs/2026-09-06-wave-a1-mcp-cli-design.md` (R-A1-1, R-A1-2), решения —
+   `docs/decisions/2026-09-06-wave-a1-mcp-cli.md`, рунбук — `docs/MCP.md`. Это делает MYDON
+   «приложением» собственного harness — суть уровня 3.
+2. **CLI `mydon`** — **СДЕЛАНО 06.09.2026 (срез A1)**: тонкая обёртка над тем же клиентом Core, что
+   и MCP-сервер (`apps/mcp/src/core-client.ts`, Р-1). Одиннадцать команд (`inbox`, `tasks`, `task`,
+   `task-create`, `events`, `runs`, `kb`, `search`, `briefing`, `agents`, `decide`); конвенция
+   `--yes` на меняющих командах (`task-create`, `decide`) — без него печатает намерение и не
+   вызывает Core. `--json` — сырой ответ для скриптов. Спека (R-A1-3), решения и рунбук — как в п. 1;
+   раздел «CLI `mydon` и конвенция `--yes`» — `docs/AGENTS_ACTIVATION.md`.
 3. **Панель «Приложения»** (`/apps`): здоровье коннекторов (последний синк, ошибки) — мониторы уже
    пишут данные.
 4. **Кольцо артефактов** (`/artifacts`): всё, что произвели агенты и Claude Code — `document`

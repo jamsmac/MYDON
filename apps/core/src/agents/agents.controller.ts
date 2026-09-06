@@ -32,6 +32,7 @@ import {
 import { Type } from "class-transformer";
 import { Cron } from "croner";
 import { OwnerMutationGuard } from "../common/owner-mutation.guard";
+import { first } from "../common/query-param";
 import { MODEL_EFFORTS, type ModelEffort } from "../tasks/tasks.service";
 import { AGENT_STATUSES, AGENT_TIERS, AgentsService, type Tier } from "./agents.service";
 
@@ -67,6 +68,14 @@ export class WebSourceDto {
 }
 
 export class CreateAgentDto {
+  /**
+   * Кто правит карточку. Без подписи журнал показал бы «owner» на правке,
+   * сделанной инструментом или скриптом, — и владелец не отличил бы свою
+   * правку от чужой. Прецедент тот же, что у задач и согласований (`actor`).
+   */
+  @IsOptional() @IsString() @MaxLength(64)
+  actor?: string;
+
   // Машинное имя: по нему агент связан с журналом и согласованиями.
   @IsString()
   @Matches(/^[a-z][a-z0-9-]{1,63}$/, {
@@ -201,6 +210,10 @@ export class RunSkillDto {
 export class SetAutonomyDto {
   @IsIn([...TIERS], { message: "autonomyDefault: один из T0..T4" })
   autonomyDefault!: (typeof TIERS)[number];
+
+  /** Кто поднял тир: в журнале это самое чувствительное изменение карточки. */
+  @IsOptional() @IsString() @MaxLength(64)
+  actor?: string;
 }
 
 /**
@@ -224,8 +237,13 @@ export class AgentsController {
    * получала бы «Агент "skills" не найден».
    */
   @Get("skills")
-  skills() {
-    return this.agents.skillDeck();
+  skills(@Query("agent") agent?: unknown) {
+    // `first` — общий разбор параметра строки запроса (`common/query-param`):
+    // повторённый `?agent=a&agent=b` приходит из express массивом, и без сводки
+    // к первому значению панель получила бы пустую деку. Раньше здесь стояла
+    // вторая копия того же кода из `routines.controller.ts`.
+    const name = first(agent);
+    return this.agents.skillDeck(name !== undefined ? { agent: name } : {});
   }
 
   /**
@@ -259,7 +277,7 @@ export class AgentsController {
   @Post()
   create(@Body() dto: CreateAgentDto) {
     this.assertCrons(dto.schedule);
-    return this.agents.create(this.toInput(dto));
+    return this.agents.create(this.toInput(dto), dto.actor);
   }
 
   /**
@@ -282,7 +300,7 @@ export class AgentsController {
     // owner-эндпоинт ниже (R-P5-5), иначе держатель общего SERVICE_TOKEN
     // (в т.ч. сам Agents worker) поднял бы себе тир любым patch'ем карточки.
     const { name: _ignored, autonomyDefault: _autonomy, ...rest } = patch;
-    return this.agents.update(name, rest);
+    return this.agents.update(name, rest, dto.actor);
   }
 
   /**
@@ -297,7 +315,7 @@ export class AgentsController {
   @Patch(":name/autonomy")
   @UseGuards(OwnerMutationGuard)
   setAutonomy(@Param("name") name: string, @Body() dto: SetAutonomyDto) {
-    return this.agents.update(name, { autonomyDefault: dto.autonomyDefault });
+    return this.agents.update(name, { autonomyDefault: dto.autonomyDefault }, dto.actor);
   }
 
   /**

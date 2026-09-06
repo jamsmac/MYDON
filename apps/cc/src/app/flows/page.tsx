@@ -1,4 +1,4 @@
-import { RUN_OUTCOMES, RUN_OUTCOME_LABELS } from "@mydon/shared";
+import { RUN_OUTCOMES, RUN_OUTCOME_LABELS, isRunOutcome } from "@mydon/shared";
 import Link from "next/link";
 import { ConsoleTheme } from "../../components/console-theme";
 import { CoreDown } from "../../components/core-down";
@@ -40,7 +40,12 @@ export default async function FlowsPage({
   const sp = await searchParams;
   const agent = pick(sp.agent);
   const skill = pick(sp.skill);
-  const outcome = pick(sp.outcome);
+  // Чужой исход из адреса (закладка, опечатка в URL) в Core НЕ отправляем: с
+  // волны A1 он отвечает 400, и экран вместо журнала показал бы «нет связи».
+  // Показываем весь журнал и говорим, что фильтр не применён.
+  const askedOutcome = pick(sp.outcome);
+  const outcome = isRunOutcome(askedOutcome) ? askedOutcome : undefined;
+  const badOutcome = askedOutcome !== undefined && outcome === undefined;
   const runId = pick(sp.run) ?? null;
   const filters = {
     ...(agent ? { agent } : {}),
@@ -97,6 +102,14 @@ export default async function FlowsPage({
               : "Журнал прогонов пуст"}
         </p>
       </div>
+
+      {badOutcome && (
+        <div className="warn" style={{ marginBottom: 12 }}>
+          <b>Фильтр по исходу не применён</b>
+          В адресе указан исход «{askedOutcome}», которого нет: бывают{" "}
+          {RUN_OUTCOMES.join(", ")}. Показан весь журнал.
+        </div>
+      )}
 
       {/* Форма GET, без JS: фильтр живёт в адресе, значит его можно сохранить
           в закладке и переслать — и он работает даже когда клиент не поднялся. */}

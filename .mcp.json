@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mydon-core": {
+      "command": "node",
+      "args": ["apps/mcp/dist/server.js"],
+      "env": {
+        "CORE_API_URL": "${CORE_API_URL:-http://127.0.0.1:3001}",
+        "SERVICE_TOKEN": "${SERVICE_TOKEN:-}",
+        "OWNER_ACTION_TOKEN": "${OWNER_ACTION_TOKEN:-}"
+      }
+    }
+  }
+}

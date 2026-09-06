@@ -398,6 +398,48 @@ describe("Deck навыков — что видит панель", () => {
     assert.deepEqual(deck.items, []);
     assert.equal(deck.syncedAt, null);
   });
+
+  it("?agent= оставляет строки только этого агента", async () => {
+    const deck = await new AgentsService(
+      deckDb({
+        joined: [
+          catalogRow({ agentName: "globerent-scout", skill: "market-scan" }),
+          catalogRow({ agentName: "vendhub-ops" }),
+        ],
+      }),
+      noTasks,
+    ).skillDeck({ agent: "vendhub-ops" });
+
+    assert.deepEqual(
+      deck.items.map((i) => `${i.agent}/${i.skill}`),
+      ["vendhub-ops/parts-audit"],
+    );
+    assert.equal(deck.syncedAt, "2026-09-05T06:00:00.000Z", "шапка деки остаётся общей");
+  });
+
+  it("неизвестный агент даёт пустой список, а не всю деку", async () => {
+    const deck = await new AgentsService(
+      deckDb({ joined: [catalogRow(), catalogRow({ agentName: "globerent-scout" })] }),
+      noTasks,
+    ).skillDeck({ agent: "нет-такого" });
+    assert.deepEqual(deck.items, [], "промах фильтра не должен выглядеть как «фильтра не было»");
+  });
+
+  it("порог одноимённого навыка считается по ВСЕМ агентам, а не по отобранным", async () => {
+    // Поэтому отбор идёт по собранной деке, а не в SQL: отфильтруй в запросе —
+    // и сосед с T3 исчез бы из подсчёта, а навык показался бы как T1, то есть
+    // «можно без согласования». Тир нельзя понижать фильтром показа.
+    const deck = await new AgentsService(
+      deckDb({
+        joined: [catalogRow({ agentName: "a-agent", tier: "T1" }), catalogRow({ agentName: "b-agent", tier: "T3" })],
+      }),
+      noTasks,
+    ).skillDeck({ agent: "a-agent" });
+
+    assert.equal(deck.items.length, 1);
+    assert.equal(deck.items[0]?.tierFloor, "T3");
+    assert.equal(deck.items[0]?.duplicates, 2);
+  });
 });
 
 /** Заглушка запуска: каталог, карточка агента, задача и журнал. */

@@ -400,8 +400,14 @@ export class AgentsService {
    * LEFT JOIN, а не INNER: агент может быть в файлах и ещё не в базе — такой
    * показывается как `draft` и не запускается, вместо того чтобы молча
    * пропасть из списка.
+   *
+   * `filter.agent` сужает ТОЛЬКО показ: отбор идёт по собранной деке, а не в
+   * запросе. `duplicates` и `tierFloor` считаются по одноимённым навыкам ВСЕХ
+   * агентов — отфильтруй в SQL, и сосед с T3 исчез бы из подсчёта, а навык
+   * показался бы как T1, то есть «можно без согласования». Тир нельзя
+   * понижать фильтром показа.
    */
-  async skillDeck(): Promise<SkillDeck> {
+  async skillDeck(filter: { agent?: string } = {}): Promise<SkillDeck> {
     const rows = await this.db
       .select({
         agentName: agentSkillCatalog.agentName,
@@ -522,7 +528,7 @@ export class AgentsService {
           .map((item) => item.trim())
           .filter((item) => item.length > 0),
       },
-      items,
+      items: filter.agent ? items.filter((item) => item.agent === filter.agent) : items,
     };
   }
 

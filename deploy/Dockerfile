@@ -23,6 +23,7 @@ COPY apps/agents/package.json ./apps/agents/
 COPY apps/bot/package.json ./apps/bot/
 COPY apps/cc/package.json ./apps/cc/
 COPY apps/watchdog/package.json ./apps/watchdog/
+COPY apps/mcp/package.json ./apps/mcp/
 COPY packages/db/package.json ./packages/db/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/connectors/package.json ./packages/connectors/

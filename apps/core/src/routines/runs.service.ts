@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { Cron } from "croner";
 import {
   RUN_TRIGGERS,
@@ -57,7 +57,13 @@ export const SNAPSHOT_KEY = "schedules";
 const REASON_MAX = 2000;
 const ACTION_MAX = 500;
 const REVIEW_MAX = 1000;
-const LIST_MAX = 200;
+/**
+ * Потолок страницы журнала — общий с границей (`routines.controller.ts`,
+ * `pageLimit`): контроллер отбивает превышение 400-й, сервис держит ту же
+ * рамку для вызовов изнутри Core. Две независимые константы разъехались бы, и
+ * тогда «400 при 201» соседствовало бы с молчаливым срезом при 150.
+ */
+export const LIST_MAX = 200;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isoDate(v: unknown, field: string): Date {
@@ -248,11 +254,23 @@ export class RunsService {
     return { id: saved.id, created: saved.inserted };
   }
 
-  async list(filter: { agent?: string; skill?: string; outcome?: RunOutcome; limit?: number } = {}): Promise<AgentRunRow[]> {
+  async list(
+    filter: {
+      agent?: string;
+      skill?: string;
+      outcome?: RunOutcome;
+      /** Окно по НАЧАЛУ прогона: журнал сортируется по нему же. */
+      from?: Date;
+      to?: Date;
+      limit?: number;
+    } = {},
+  ): Promise<AgentRunRow[]> {
     const conds = [
       ...(filter.agent ? [eq(agentRun.agentName, filter.agent)] : []),
       ...(filter.skill ? [eq(agentRun.skill, filter.skill)] : []),
       ...(filter.outcome ? [eq(agentRun.outcome, filter.outcome)] : []),
+      ...(filter.from ? [gte(agentRun.startedAt, filter.from)] : []),
+      ...(filter.to ? [lte(agentRun.startedAt, filter.to)] : []),
     ];
     // `limit` приходит из строки запроса через Number(): «abc» даёт NaN, «10.5» —
     // дробь, «0» — пустой ответ. Всё это уехало бы в `limit $1` и вернуло

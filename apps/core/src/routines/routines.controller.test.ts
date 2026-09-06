@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { PgDialect } from "drizzle-orm/pg-core";
+import { RUN_OUTCOMES } from "@mydon/shared";
 import {
   agentSkillCatalog,
   approval as approvalTable,
@@ -97,10 +98,78 @@ describe("GET /routines/runs — фильтры журнала", () => {
     assert.deepEqual(calls.list[0], { agent: "vendhub-ops", outcome: "skipped", limit: 10 });
   });
 
-  it("чужой outcome отбрасывает, а не превращает в 400 или пустой список", async () => {
+  it("чужой outcome — 400 со списком допустимых, а не весь журнал под видом фильтра", async () => {
+    // До волны A1 неизвестный исход молча выпадал из фильтра, и `?outcome=ok`
+    // возвращал ВЕСЬ журнал: ответ выглядел здоровым и врал.
     const { controller, calls } = stubRuns([]);
-    await controller.list(undefined, undefined, "done", undefined);
-    assert.deepEqual(calls.list[0], {}, "неизвестный исход не должен попасть в фильтр");
+    await assert.rejects(controller.list(undefined, undefined, "done", undefined), (e: unknown) => {
+      assert.ok(e instanceof BadRequestException);
+      const message = String((e.getResponse() as { message?: unknown }).message ?? e.message);
+      for (const known of RUN_OUTCOMES) assert.match(message, new RegExp(known));
+      return true;
+    });
+    assert.equal(calls.list.length, 0, "с чужим исходом в базу не ходим");
+  });
+
+  it("известные исходы проходят все до одного", async () => {
+    for (const outcome of RUN_OUTCOMES) {
+      const { controller, calls } = stubRuns([]);
+      await controller.list(undefined, undefined, outcome, undefined);
+      assert.deepEqual(calls.list[0], { outcome });
+    }
+  });
+
+  it("limit вне рамок — 400, а не тихое схлопывание до потолка", async () => {
+    // Асимметрия волны R: `/events?limit=500` отвечал 400, а здесь тот же
+    // перебор молча срезался до 200 — вызывающий не знал, полон ли ответ.
+    for (const bad of ["5000", "201", "0", "-1", "abc", "10.5"]) {
+      const { controller, calls } = stubRuns([]);
+      await assert.rejects(
+        controller.list(undefined, undefined, undefined, bad),
+        BadRequestException,
+        `limit=${bad} обязан быть 400`,
+      );
+      assert.equal(calls.list.length, 0, `limit=${bad}: в базу не ходим`);
+    }
+  });
+
+  it("limit на границах рамки принимается", async () => {
+    for (const ok of ["1", "200"]) {
+      const { controller, calls } = stubRuns([]);
+      await controller.list(undefined, undefined, undefined, ok);
+      assert.deepEqual(calls.list[0], { limit: Number(ok) });
+    }
+  });
+
+  it("окно from/to доходит датами", async () => {
+    const { controller, calls } = stubRuns([runRow()]);
+    await controller.list(undefined, undefined, undefined, undefined, "2026-09-01T00:00:00.000Z", "2026-09-07T00:00:00.000Z");
+    const filter = calls.list[0] as { from?: Date; to?: Date };
+    assert.ok(filter.from instanceof Date, "from обязан уехать датой, а не строкой");
+    assert.ok(filter.to instanceof Date);
+    assert.equal(filter.from?.toISOString(), "2026-09-01T00:00:00.000Z");
+    assert.equal(filter.to?.toISOString(), "2026-09-07T00:00:00.000Z");
+  });
+
+  it("битая дата в окне — 400, а не пустой журнал и не 500 от драйвера", async () => {
+    // Invalid Date уехал бы в `started_at >= $1` и вернул 500 из драйвера, а
+    // молчаливый пропуск границы соврал бы владельцу пустотой в его окне.
+    const { controller, calls } = stubRuns([]);
+    await assert.rejects(
+      controller.list(undefined, undefined, undefined, undefined, "вчера"),
+      BadRequestException,
+    );
+    await assert.rejects(
+      controller.list(undefined, undefined, undefined, undefined, undefined, "2026-13-45"),
+      BadRequestException,
+    );
+    assert.equal(calls.list.length, 0, "с битой датой в базу не ходим");
+  });
+
+  it("без окна границ в фильтре нет — журнал не сужается сам", async () => {
+    const { controller, calls } = stubRuns([]);
+    await controller.list("vendhub-ops", undefined, undefined, undefined);
+    assert.deepEqual(calls.list[0], { agent: "vendhub-ops" });
   });
 });
 
@@ -345,14 +414,41 @@ describe("Маршруты доски и плейбэка (волна R)", () =>
       },
     };
     const controller = new RoutinesController({} as never, {} as never, new FlowsService(runs as never, {} as never));
-    const res = await controller.flowList(["vendhub-ops", "vendhub-ceo"], "monitor-stock", "done", "10");
+    const res = await controller.flowList(
+      ["vendhub-ops", "vendhub-ceo"],
+      "monitor-stock",
+      "skipped",
+      "10",
+    );
 
-    // Повторённый параметр — первым значением, чужой исход отброшен: правило
-    // фильтра одно на оба маршрута (`runFilter`), и разъехаться они не могут.
-    assert.deepEqual(calls[0], { agent: "vendhub-ops", skill: "monitor-stock", limit: 10 });
+    // Повторённый параметр — первым значением: правило фильтра одно на оба
+    // маршрута (`runFilter`), и разъехаться они не могут.
+    assert.deepEqual(calls[0], {
+      agent: "vendhub-ops",
+      skill: "monitor-stock",
+      outcome: "skipped",
+      limit: 10,
+    });
     assert.equal(res.runs.length, 1);
     assert.equal(res.runs[0]!.startedAt, "2026-09-06T03:00:01.000Z");
     assert.equal(res.runs[0]!.agent, "vendhub-ops");
+  });
+
+  it("GET /routines/flows отбивает чужой исход и перебор limit так же, как журнал", async () => {
+    const runs = {
+      list: async () => {
+        throw new Error("до выборки дойти не должны");
+      },
+    };
+    const controller = new RoutinesController({} as never, {} as never, new FlowsService(runs as never, {} as never));
+    await assert.rejects(
+      controller.flowList(undefined, undefined, "ok", undefined),
+      BadRequestException,
+    );
+    await assert.rejects(
+      controller.flowList(undefined, undefined, undefined, "5000"),
+      BadRequestException,
+    );
   });
 
   it("GET /routines/flows/:id на мусорный id — 404, а не 500 от драйвера", async () => {

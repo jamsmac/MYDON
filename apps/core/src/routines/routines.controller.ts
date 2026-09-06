@@ -1,33 +1,91 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
-import { isRunOutcome } from "@mydon/shared";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
+import { RUN_OUTCOMES, isRunOutcome, type RunOutcome } from "@mydon/shared";
+import { first } from "../common/query-param";
 import { BoardService } from "./board.service";
 import { FlowsService } from "./flows.service";
 import { RoutinesTokenGuard } from "./routines-token.guard";
-import { RunsService, snapshotFromBody, toView, type ReportRunInput } from "./runs.service";
+import {
+  LIST_MAX,
+  RunsService,
+  snapshotFromBody,
+  toView,
+  type ReportRunInput,
+} from "./runs.service";
 
 /**
- * Повторённый параметр (`?agent=a&agent=b`) приходит из express массивом, а не
- * строкой: без этого фильтр уехал бы в `eq(column, ["a","b"])` и вернул 500.
+ * Исход прогона из строки запроса. Чужое значение — 400 со списком допустимых,
+ * а НЕ тихо отброшенный фильтр (волна A1, отложенный пакет).
+ *
+ * Прежде неизвестный исход молча выпадал из фильтра ради устаревших закладок —
+ * и `?outcome=ok` возвращал ВЕСЬ журнал под видом отфильтрованного. Такой
+ * ответ выглядит здоровым и врёт; 400 честнее пустого экрана и тем более
+ * полного. Ровно так же поступает лента событий с `?order=` (`@IsIn`).
+ * Панель `/flows` пустой `outcome` в Core не шлёт: `?outcome=` она считает
+ * отсутствием фильтра ещё у себя (`pick` в `apps/cc/src/app/flows/page.tsx`),
+ * а выбор в форме ограничен `RUN_OUTCOMES`.
  */
-function first(v: unknown): string | undefined {
-  const raw = Array.isArray(v) ? v[0] : v;
-  return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+function runOutcome(v: unknown): RunOutcome | undefined {
+  const raw = first(v);
+  if (raw === undefined) return undefined;
+  if (!isRunOutcome(raw)) throw new BadRequestException(`outcome: ${RUN_OUTCOMES.join(" | ")}`);
+  return raw;
+}
+
+/**
+ * Предел страницы журнала. Вне рамок — 400, а не тихое схлопывание до потолка.
+ *
+ * До волны A1 `/routines/runs?limit=5000` молча отдавал 200 строк, тогда как
+ * `/events?limit=500` отвечал 400: одно и то же превышение на соседних
+ * маршрутах значило разное, и вызывающий не мог знать, полный ли перед ним
+ * ответ. Выровнено по более честному поведению — тому, что сообщает о
+ * непонятом запросе. Потолок общий с `RunsService.list`, чтобы рамка была
+ * одна на границу и на сервис.
+ */
+function pageLimit(v: unknown): number | undefined {
+  const raw = first(v);
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > LIST_MAX) {
+    throw new BadRequestException(`limit: целое от 1 до ${LIST_MAX}`);
+  }
+  return n;
 }
 
 /** Общий фильтр журнала: и сырые прогоны, и плейбэк отбирают одинаково. */
 function runFilter(agent: unknown, skill: unknown, outcome: unknown, limit: unknown) {
   const agentName = first(agent);
   const skillName = first(skill);
-  const outcomeName = first(outcome);
-  const limitRaw = first(limit);
+  const outcomeName = runOutcome(outcome);
+  const limitValue = pageLimit(limit);
   return {
     ...(agentName !== undefined ? { agent: agentName } : {}),
     ...(skillName !== undefined ? { skill: skillName } : {}),
-    // Неизвестный исход молча отбрасываем: панель не должна получать 400
-    // из-за устаревшей ссылки в закладках.
-    ...(isRunOutcome(outcomeName) ? { outcome: outcomeName } : {}),
-    ...(limitRaw !== undefined ? { limit: Number(limitRaw) } : {}),
+    ...(outcomeName !== undefined ? { outcome: outcomeName } : {}),
+    ...(limitValue !== undefined ? { limit: limitValue } : {}),
   };
+}
+
+/**
+ * Граница окна журнала. Битую дату отвергаем словами: `Invalid Date` уехал бы
+ * в `started_at >= $1` и вернул 500 от драйвера, а молчаливый пропуск границы
+ * соврал бы владельцу пустотой в его окне. Разбор — как в `normalizeReport`.
+ */
+function windowDate(v: unknown, field: string): Date | undefined {
+  const raw = first(v);
+  if (raw === undefined) return undefined;
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) throw new BadRequestException(`${field}: нужна дата ISO`);
+  return d;
 }
 
 /**
@@ -51,14 +109,23 @@ export class RoutinesController {
     return this.runs.report(body);
   }
 
+  /** Журнал прогонов; `from`/`to` — окно по началу прогона (волна A1). */
   @Get("runs")
   async list(
     @Query("agent") agent?: unknown,
     @Query("skill") skill?: unknown,
     @Query("outcome") outcome?: unknown,
     @Query("limit") limit?: unknown,
+    @Query("from") from?: unknown,
+    @Query("to") to?: unknown,
   ) {
-    const rows = await this.runs.list(runFilter(agent, skill, outcome, limit));
+    const windowFrom = windowDate(from, "from");
+    const windowTo = windowDate(to, "to");
+    const rows = await this.runs.list({
+      ...runFilter(agent, skill, outcome, limit),
+      ...(windowFrom !== undefined ? { from: windowFrom } : {}),
+      ...(windowTo !== undefined ? { to: windowTo } : {}),
+    });
     return { runs: rows.map(toView) };
   }
 
