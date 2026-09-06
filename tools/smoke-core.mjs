@@ -3749,6 +3749,55 @@ async function проверитьЗдоровьеПриложений() {
   await heartbeat(60_000);
   const живой = строка(await здоровье(), "bot");
   if (живой.state !== "ok") throw new Error(`бот со свежим сигналом: ${живой.state} — «${живой.summary}»`);
+
+  // Очередь доставок — по НАСТОЯЩИМ счётчикам: ожидание выводим тем же SQL,
+  // которым живёт правило, а не догадкой о том, что натворили соседние
+  // сценарии. Строку `skipped` заводит сценарий agent execution выше — он
+  // закрывает доставку ровно так же, как диспетчер без ключа Notion.
+  const [счёт] = await sql`
+    select count(*)::int as "всего",
+           count(*) filter (where status = 'skipped')::int as "пропущено"
+      from outbox_delivery where destination = 'notion-report'`;
+  const доставка = строка(await здоровье(), "notion");
+  if (счёт.всего === 0) {
+    if (доставка.state !== "unknown" || !/доставок ещё не было/.test(доставка.summary)) {
+      throw new Error(`пустая очередь доставок: ${доставка.state} — «${доставка.summary}»`);
+    }
+  } else if (счёт.пропущено === счёт.всего) {
+    // Всё пропущено — это «Notion не настроен», а не «доставлено 0».
+    if (доставка.state !== "unknown" || !/источник не настроен/.test(доставка.summary)) {
+      throw new Error(
+        `все ${счёт.всего} доставок пропущены, а строка: ${доставка.state} — «${доставка.summary}»`,
+      );
+    }
+    if (!new RegExp(`${счёт.пропущено}`).test(доставка.summary)) {
+      throw new Error(`число пропущенных не названо: «${доставка.summary}»`);
+    }
+  }
+
+  // Вставшая очередь: делаем ОДНУ существующую строку старой и `pending` —
+  // ни один статус при этом не «плохой», и до правки возраста строка была
+  // спокойно зелёной. Возвращаем как было в `finally`: следующие сценарии
+  // должны видеть базу той же.
+  const [длядоставки] = await sql`
+    select id, status::text as status, created_at from outbox_delivery
+     where destination = 'notion-report' order by created_at limit 1`;
+  if (длядоставки) {
+    try {
+      await sql`
+        update outbox_delivery set status = 'pending', created_at = now() - interval '3 hours'
+         where id = ${длядоставки.id}::uuid`;
+      const встала = строка(await здоровье(), "notion");
+      if (встала.state !== "bad" || !/не разбирается/.test(встала.summary)) {
+        throw new Error(`очередь без движения три часа: ${встала.state} — «${встала.summary}»`);
+      }
+    } finally {
+      await sql`
+        update outbox_delivery
+           set status = ${длядоставки.status}::outbox_delivery_status, created_at = ${длядоставки.created_at}
+         where id = ${длядоставки.id}::uuid`;
+    }
+  }
 }
 
 async function ждатьЗдоровье(proc) {
@@ -4099,7 +4148,8 @@ try {
     await проверитьЛица();
     console.log(
       "  ok  сценарий: состояние агентов — idle/blocked/working словами, distinct on берёт последний прогон, системная пауза перекрывает занятость; " +
-        "здоровье приложений — три состояния, ноль прогонов не «ок», внутренние мониторы не «снаружи», heartbeat бота",
+        "здоровье приложений — три состояния, ноль прогонов не «ок», внутренние мониторы не «снаружи», heartbeat бота, " +
+        "пропущенные доставки не «в порядке», вставшая очередь красная",
     );
   } catch (e) {
     провалы.push(`лица (состояние агентов и здоровье приложений): ${e.message}`);

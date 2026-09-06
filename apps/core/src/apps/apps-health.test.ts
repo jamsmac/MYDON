@@ -8,6 +8,7 @@ import {
   rowFromOurvendAccounting,
   rowFromOurvendSync,
   rowFromOutbox,
+  OUTBOX_STUCK_MS,
   splitSections,
   unavailableRow,
   type HealthRow,
@@ -110,10 +111,19 @@ describe("Здоровье приложений: три честных сост�
   it("монитор выключен без учётных данных — «не оценить» словами «источник не настроен»", () => {
     const row = rowFromMonitor(
       FACES.fx,
-      монитор({ monitor: { enabled: false, reason: "no_credentials" } }),
+      монитор({
+        monitor: {
+          enabled: false,
+          reason: "no_credentials",
+          // Текст приходит из общего словаря доски рутин (`DISABLED`): один
+          // код причины — один текст на систему.
+          disabledText: "не заданы OURVEND_ACCOUNT/OURVEND_PASSWORD",
+        },
+      }),
     );
     assert.equal(row.state, "unknown", "выключенный монитор — не «в порядке»");
     assert.match(row.summary, /источник не настроен/);
+    assert.match(row.detail ?? "", /OURVEND_ACCOUNT/, "объяснение цитирует словарь, а не пишется заново");
   });
 
   it("монитор выключен явно — «не оценить» с причиной из снимка, даже когда прогоны были успешны", () => {
@@ -285,14 +295,62 @@ describe("Здоровье приложений: очередь доставок
     assert.match(row.summary, /доставок ещё не было/);
   });
 
-  it("очередь разобрана — «в порядке», и число в очереди названо", () => {
+  it("очередь разобрана (ничего не ждёт) — «в порядке» и так и сказано", () => {
+    const row = rowFromOutbox(FACES.notion, { counts: { sent: 12 }, oldestPendingAt: null, now: NOW });
+    assert.equal(row.state, "ok");
+    assert.match(row.summary, /очередь разобрана/);
+    assert.match(row.summary, /12/);
+  });
+
+  it("в очереди есть строки — «в порядке», но число названо", () => {
     const row = rowFromOutbox(FACES.notion, {
       counts: { sent: 12, pending: 2 },
       oldestPendingAt: new Date(NOW.getTime() - 60_000),
       now: NOW,
     });
     assert.equal(row.state, "ok");
-    assert.match(row.summary, /2/, "число в очереди обязано быть видно");
+    assert.match(row.summary, /в очереди 2/, "число в очереди обязано быть видно");
+  });
+
+  it("все доставки пропущены — «не оценить»: «источник не настроен», а не «доставлено 0»", () => {
+    // `skipped` в этом репозитории означает ровно одно: конфигурации Notion
+    // нет (`apps/agents/src/outbox-dispatcher.ts`). Зелёная строка тут
+    // показывала бы «доставлено 0» рядом с «всего 42».
+    const row = rowFromOutbox(FACES.notion, { counts: { skipped: 42 }, oldestPendingAt: null, now: NOW });
+    assert.equal(row.state, "unknown");
+    assert.match(row.summary, /источник не настроен/);
+    assert.match(row.summary, /42/, "число пропущенных обязано стоять рядом с «всего»");
+  });
+
+  it("часть пропущена, часть доставлена — «в порядке», но пропуски названы числом", () => {
+    const row = rowFromOutbox(FACES.notion, {
+      counts: { sent: 10, skipped: 3 },
+      oldestPendingAt: null,
+      now: NOW,
+    });
+    assert.equal(row.state, "ok");
+    assert.match(row.summary, /пропущено 3/);
+    assert.match(row.detail ?? "", /13/, "сумма по статусам обязана сходиться с «всего»");
+  });
+
+  it("очередь не разбирается дольше часа — «сломано», хотя ни одна строка не отказала", () => {
+    // Диспетчер не падает, а молчит: статусы остаются `pending` навсегда.
+    const порог = OUTBOX_STUCK_MS;
+    const свежая = rowFromOutbox(FACES.notion, {
+      counts: { pending: 500, sent: 12 },
+      oldestPendingAt: new Date(NOW.getTime() - порог),
+      now: NOW,
+    });
+    assert.equal(свежая.state, "ok", "ровно на пороге очередь ещё разбирается");
+
+    const вставшая = rowFromOutbox(FACES.notion, {
+      counts: { pending: 500, sent: 12 },
+      oldestPendingAt: new Date(NOW.getTime() - порог - 60_000),
+      now: NOW,
+    });
+    assert.equal(вставшая.state, "bad");
+    assert.match(вставшая.summary, /не разбирается/);
+    assert.match(вставшая.summary, /500/);
   });
 
   it("доставка в тупике (dead) — «сломано», даже когда остальные ушли", () => {
@@ -399,9 +457,13 @@ describe("Здоровье приложений: разделы «снаружи
     assert.deepEqual(internal.map((r) => r.key), ["какой-то:новый"]);
   });
 
-  it("недоступный источник даёт «не оценить» с причиной, а не роняет ответ", () => {
-    const row = unavailableRow(FACES.notion, "connection refused");
+  it("недоступный источник даёт «не оценить», но текст исключения наружу не едет", () => {
+    // Маршрут читается без токена, а сообщения драйвера несут хост и
+    // пользователя базы: наружу — ярлык прочитанного, причина — в журнал.
+    const row = unavailableRow(FACES.notion, "очередь доставок");
     assert.equal(row.state, "unknown");
-    assert.match(row.detail ?? "", /connection refused/);
+    assert.match(row.summary, /не отвечает/);
+    assert.match(row.detail ?? "", /очередь доставок/);
+    assert.match(row.detail ?? "", /журнал Core/);
   });
 });

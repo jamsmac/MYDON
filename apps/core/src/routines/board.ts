@@ -54,14 +54,34 @@ export const STALE_AFTER_SEC = 900;
 export const UPCOMING_LIMIT = 200;
 const DAY_MS = 86_400_000;
 
-/** Машинная причина отключения → фраза владельцу: что именно и где чинить. */
-const DISABLED: Record<string, string> = {
+/**
+ * Машинная причина отключения → фраза владельцу: что именно и где чинить.
+ *
+ * ЭКСПОРТИРУЕТСЯ ради панели «Приложения» (`apps/apps-health.service.ts`):
+ * один код причины обязан нести в системе один текст. Своя формулировка там
+ * означала бы, что доска рутин и здоровье приложений объясняют одно и то же
+ * выключение разными словами — и владелец пошёл бы чинить не туда.
+ */
+export const DISABLED: Record<string, string> = {
   no_implementation: "навык не подключён: нет кода в SKILLS и нет executor: llm",
   llm_route_off: "LLM-маршрут выключен или не metered — llm-навык на cron не допущен",
   inactive_agent: "агент не активен: расписание не запускается",
   off: "выключен в .env (<NAME>_CRON=off); меняется в .env, нужен рестарт агентов",
   no_credentials: "не заданы OURVEND_ACCOUNT/OURVEND_PASSWORD",
 };
+
+/**
+ * Причина отключения монитора словами: `<NAME>` в шаблоне подставляется именем
+ * самого монитора, поэтому фраза называет КОНКРЕТНУЮ переменную окружения.
+ *
+ * Незнакомая причина не ОБНУЛЯЕТ объяснение: сырое слово из снимка хуже фразы,
+ * но несравнимо лучше пустоты, на которую владелец задаст тот же вопрос
+ * «почему выключен?».
+ */
+export function disabledReasonText(reason: string | undefined, monitorName: string): string {
+  const key = reason ?? "off";
+  return DISABLED[key]?.replace("<NAME>", monitorName.toUpperCase().replace(/[^A-Z]/g, "_")) ?? key;
+}
 
 /** Ближайшие срабатывания cron по Ташкенту; битое выражение — пусто, не исключение. */
 export function nextOccurrences(cron: string, from: Date, limit: number): Date[] {
@@ -134,13 +154,9 @@ export function computeBoard(input: BoardInput): CronBoard {
     for (const m of p.monitors) {
       // Мониторы паузе агентов не подчиняются: она про навыки и задачи, а синк
       // источника продолжает идти — иначе доска обещала бы простой, которого нет.
-      // Незнакомая причина не должна ОБНУЛЯТЬ объяснение: сырое слово из снимка
-      // хуже фразы, но несравнимо лучше пустоты, на которую владелец задаст тот
-      // же вопрос «почему выключен?». Фолбэк тот же, что у `notWired`.
-      const key = m.reason ?? "off";
-      const reason = m.enabled
-        ? undefined
-        : DISABLED[key]?.replace("<NAME>", m.name.toUpperCase().replace(/[^A-Z]/g, "_")) ?? key;
+      // Причина отключения — общей функцией с панелью «Приложения»
+      // (`disabledReasonText`), включая фолбэк на сырое слово из снимка.
+      const reason = m.enabled ? undefined : disabledReasonText(m.reason, m.name);
       push({ id: `system/${m.name}`, kind: "monitor", agent: "system", skill: m.name, cron: m.cron, mode: "monitor", enabled: m.enabled, ...(reason ? { disabledReason: reason } : {}), paused: false }, true);
     }
   }

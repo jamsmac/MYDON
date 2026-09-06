@@ -172,3 +172,6 @@ export * from "./agent-runs";
 
 /** Лента прогона: события шины и аудит одной колонкой по времени (волна R). */
 export * from "./run-timeline";
+
+/** Heartbeat Telegram-бота: одно число для бота и Core (волна A2, Р-5). */
+export * from "./bot-heartbeat";

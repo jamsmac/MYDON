@@ -226,7 +226,11 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     const ответ = await сервис({ отказ: { ourvend: "донор недоступен" } }).health(NOW);
     const сбор = найти(ответ.outside, FACES.ourvendSync.key);
     assert.equal(сбор.state, "unknown");
-    assert.match(сбор.detail ?? "", /донор недоступен/);
+    // Наружу едет ЯРЛЫК прочитанного, а не сообщение исключения: маршрут
+    // читается без токена, а текст драйвера несёт хост и пользователя базы.
+    assert.match(сбор.detail ?? "", /отчёт OurVend/);
+    assert.doesNotMatch(сбор.detail ?? "", /донор недоступен/);
+    assert.doesNotMatch(сбор.summary, /донор недоступен/);
     // Соседи посчитаны: витрина, гаснущая целиком из-за одной строки, хуже.
     assert.equal(найти(ответ.outside, FACES.bot.key).state, "ok");
     assert.equal(найти(ответ.internal, FACES.coffee.key).state, "ok");
@@ -236,7 +240,8 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     const ответ = await сервис({ отказ: { снимок: "соединение закрыто" } }).health(NOW);
     const fx = найти(ответ.outside, FACES.fx.key);
     assert.equal(fx.state, "unknown");
-    assert.match(fx.detail ?? "", /соединение закрыто/);
+    assert.match(fx.detail ?? "", /снимок расписаний/);
+    assert.doesNotMatch(fx.detail ?? "", /соединение закрыто/, "текст исключения наружу не едет");
     assert.doesNotMatch(fx.summary, /не отчитывались/, "отказ чтения — не то же, что молчание агентов");
   });
 
@@ -244,7 +249,8 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     const ответ = await сервис({ отказ: { доставки: "таблица заблокирована" } }).health(NOW);
     const notion = найти(ответ.outside, FACES.notion.key);
     assert.equal(notion.state, "unknown");
-    assert.match(notion.detail ?? "", /таблица заблокирована/);
+    assert.match(notion.detail ?? "", /очередь доставок/);
+    assert.doesNotMatch(notion.detail ?? "", /таблица заблокирована/, "текст исключения наружу не едет");
   });
 
   it("счётчики доставок складываются по статусам, тупик красит строку", async () => {
@@ -276,6 +282,18 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     const fx = найти(ответ.outside, FACES.fx.key);
     assert.equal(fx.state, "unknown");
     assert.match(fx.summary, /агенты ещё не отчитывались/);
+  });
+
+  it("выключенный монитор объясняется словарём доски рутин, а не своим текстом", async () => {
+    const ответ = await сервис({
+      monitors: [{ name: FACES.ourvendSync.key, cron: "0 */3 * * *", enabled: false, reason: "no_credentials" }],
+    }).health(NOW);
+    const сбор = найти(ответ.outside, FACES.ourvendSync.key);
+    assert.equal(сбор.state, "unknown");
+    assert.match(сбор.summary, /источник не настроен/);
+    // Тот же текст, что доска рутин показывает в `disabledReason`: один код
+    // причины не должен нести в системе два разных объяснения.
+    assert.match(сбор.detail ?? "", /OURVEND_ACCOUNT/);
   });
 
   it("монитор без лица в реестре не пропадает с экрана и уезжает во «внутренние»", async () => {

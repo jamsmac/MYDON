@@ -1,13 +1,13 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { Cron } from "croner";
 import { eq, sql } from "drizzle-orm";
 import { outboxDelivery } from "@mydon/db";
-import { TZ } from "@mydon/shared";
+import { BOT_HEARTBEAT_INTERVAL_MS, BOT_HEARTBEAT_SOURCE, BOT_HEARTBEAT_TYPE, TZ } from "@mydon/shared";
 import { DB, type Db } from "../db/db.module";
 import { EventsService } from "../events/events.service";
 import { LlmLedgerService } from "../llm-ledger/llm-ledger.service";
 import { HEALTH_RUNS_DEFAULT, OurvendHealthService } from "../ourvend/ourvend-health.service";
 import { rawStaleHours } from "../ourvend/sync-runs";
+import { disabledReasonText, nextOccurrences } from "../routines/board";
 import { RunsService } from "../routines/runs.service";
 import {
   FACES,
@@ -44,20 +44,6 @@ import {
 /** Единственное назначение доставок сегодня; новое потребует своего лица. */
 const NOTION_DESTINATION = "notion-report";
 
-/** Источник и тип heartbeat бота (Р-5) — то же, что пишет `apps/bot/src/heartbeat.ts`. */
-const BOT_HEARTBEAT_SOURCE = "bot";
-const BOT_HEARTBEAT_TYPE = "bot.heartbeat";
-
-/**
- * Как часто бот обещает отчитываться — копия `HEARTBEAT_INTERVAL_MS` из
- * `apps/bot/src/heartbeat.ts`.
- *
- * Core не может импортировать код бота (это отдельное приложение), поэтому
- * число объявлено здесь ОЖИДАНИЕМ Core: «сигнал ждём каждые пять минут».
- * Запас в пять интервалов (Р-5) держит строку спокойной при рестарте и деплое.
- */
-const BOT_HEARTBEAT_INTERVAL_MS = 5 * 60_000;
-
 /**
  * Мониторы, у которых нет своего разбора: строка целиком из снимка и журнала.
  * Ключ лица здесь совпадает с именем монитора в снимке расписаний.
@@ -76,8 +62,13 @@ export interface AppsHealthView {
   internal: HealthRow[];
 }
 
-/** Итог чтения источника: значение либо причина отказа — но не исключение наружу. */
-type Чтение<T> = { ok: true; value: T } | { ok: false; error: string };
+/**
+ * Итог чтения источника: значение либо ЯРЛЫК того, что не прочиталось.
+ *
+ * Именно ярлык, а не текст исключения: сообщение драйвера несёт хост и
+ * пользователя базы, а маршрут читается без токена (постановление ветки).
+ */
+type Чтение<T> = { ok: true; value: T } | { ok: false; источник: string };
 
 interface МониторСнимка extends MonitorSnapshotLite {
   cron: string;
@@ -146,17 +137,17 @@ export class AppsHealthService {
       ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => строкаМонитора(face)),
       доставки.ok
         ? rowFromOutbox(FACES.notion, { ...доставки.value, now })
-        : unavailableRow(FACES.notion, доставки.error),
+        : unavailableRow(FACES.notion, доставки.источник),
       сигнал.ok
         ? rowFromHeartbeat(FACES.bot, {
             lastAt: сигнал.value?.occurredAt ?? null,
             intervalMs: BOT_HEARTBEAT_INTERVAL_MS,
             now,
           })
-        : unavailableRow(FACES.bot, сигнал.error),
+        : unavailableRow(FACES.bot, сигнал.источник),
       ledger.ok
         ? rowFromLlm(FACES.llm, { monitoring: ledgerСловами(ledger.value), now })
-        : unavailableRow(FACES.llm, ledger.error),
+        : unavailableRow(FACES.llm, ledger.источник),
       // Монитор, которого нет в реестре лиц: молча пропасть с экрана он не
       // должен — строку получает, но во «внутренних» (splitSections), потому
       // что про связь с чужой системой у него ничего не известно.
@@ -189,7 +180,7 @@ export class AppsHealthService {
   ): HealthRow {
     const face = FACES.ourvendSync;
     if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
-    if (!ourvend.ok) return unavailableRow(face, ourvend.error);
+    if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
     const h = ourvend.value;
     return rowFromOurvendSync(face, {
       snapshotPublished: снимокЕсть,
@@ -221,7 +212,7 @@ export class AppsHealthService {
   ): HealthRow {
     const face = FACES.ourvendAccounting;
     if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
-    if (!ourvend.ok) return unavailableRow(face, ourvend.error);
+    if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
     const h = ourvend.value;
     return rowFromOurvendAccounting(face, {
       snapshotPublished: снимокЕсть,
@@ -277,8 +268,9 @@ export class AppsHealthService {
 
   /**
    * Чтение источника под своим `catch`: отказ становится значением, а не
-   * исключением на весь ответ. Текст причины режем — в строку панели едет
-   * первая фраза, а не стек драйвера.
+   * исключением на весь ответ. В строку панели едет ЯРЛЫК прочитанного, а
+   * причина — только в журнал Core: маршрут читается анонимно, а сообщения
+   * драйвера несут хост и пользователя базы.
    */
   private async попытка<T>(что: string, fn: () => Promise<T>): Promise<Чтение<T>> {
     try {
@@ -286,7 +278,7 @@ export class AppsHealthService {
     } catch (e) {
       const причина = e instanceof Error ? e.message : String(e);
       this.logger.warn(`${что} не прочитан: ${причина}`);
-      return { ok: false, error: `${что}: ${причина.slice(0, 200)}` };
+      return { ok: false, источник: что };
     }
   }
 }
@@ -298,8 +290,9 @@ const ИЗВЕСТНЫЕ_МОНИТОРЫ = new Set<string>([
   ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => face.key),
 ]);
 
+/** Ярлык не прочитавшегося источника (не текст исключения) либо `null`. */
 function отказ(чтение: Чтение<unknown>): string | null {
-  return чтение.ok ? null : чтение.error;
+  return чтение.ok ? null : чтение.источник;
 }
 
 /** Мониторы снимка по имени. Снимка нет вовсе — пустая карта: строки скажут об этом сами. */
@@ -309,7 +302,14 @@ function снимокМониторов(
   const map = new Map<string, МониторСнимка>();
   if (!расписания.ok || расписания.value === null) return map;
   for (const m of расписания.value.payload.monitors) {
-    map.set(m.name, { enabled: m.enabled, cron: m.cron, ...(m.reason ? { reason: m.reason } : {}) });
+    map.set(m.name, {
+      enabled: m.enabled,
+      cron: m.cron,
+      ...(m.reason ? { reason: m.reason } : {}),
+      // Объяснение выключения — из словаря доски рутин: один код причины,
+      // один текст на систему, и текст называет конкретную переменную .env.
+      ...(m.enabled ? {} : { disabledText: disabledReasonText(m.reason, m.name) }),
+    });
   }
   return map;
 }
@@ -341,15 +341,10 @@ function последниеПрогоны(
  */
 function молчитПосле(снимок: МониторСнимка | null, lastRun: MonitorRunLite | null): Date | null {
   if (снимок === null || !снимок.enabled || lastRun === null) return null;
-  try {
-    const job = new Cron(снимок.cron, { timezone: TZ, paused: true });
-    const первый = job.nextRun(lastRun.at);
-    const второй = первый === null ? null : job.nextRun(первый);
-    job.stop();
-    return второй;
-  } catch {
-    return null;
-  }
+  // Разбор cron — общей функцией доски рутин (`nextOccurrences`): своя копия
+  // с другим часовым поясом или другим поведением на битом выражении дала бы
+  // «монитор молчит» там, где доска рисует ближайший запуск.
+  return nextOccurrences(снимок.cron, lastRun.at, 2)[1] ?? null;
 }
 
 /** Монитор ledger → поля, которые решают судьбу строки моделей. */

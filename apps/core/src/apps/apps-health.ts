@@ -1,4 +1,4 @@
-import { RUN_OUTCOME_LABELS, isRunOutcome } from "@mydon/shared";
+import { BOT_HEARTBEAT_MISS_LIMIT, RUN_OUTCOME_LABELS, isRunOutcome } from "@mydon/shared";
 
 /**
  * Здоровье приложений словами (волна A2, R-A2-2; решения Р-3, Р-4, Р-5, Р-6).
@@ -98,6 +98,15 @@ export const OUTSIDE_KEYS: readonly string[] = [
 export interface MonitorSnapshotLite {
   enabled: boolean;
   reason?: "off" | "no_credentials";
+  /**
+   * Причина отключения СЛОВАМИ — из общего словаря доски рутин
+   * (`DISABLED`/`disabledReasonText` в `routines/board.ts`), который называет
+   * конкретную переменную окружения. Приходит готовой строкой, а не
+   * пересобирается здесь: один код причины не должен нести в системе два
+   * разных текста — иначе доска и панель отправят владельца чинить в разные
+   * места. Пусто — словаря не спросили, и тогда объяснение общее.
+   */
+  disabledText?: string;
 }
 
 /** Последний прогон монитора из `agent_run` (`agent_name = "system"`). */
@@ -180,6 +189,7 @@ export interface OurvendAccountingInput {
 export interface OutboxRowInput {
   /** Счётчики по статусам `outbox_delivery`; отсутствующий статус — ноль. */
   counts: Readonly<Record<string, number>>;
+  /** Момент самой старой НЕразобранной строки (`pending`/`dispatching`). */
   oldestPendingAt: Date | null;
   now: Date;
 }
@@ -209,10 +219,20 @@ export interface LlmRowInput {
   now: Date;
 }
 
-/** Сколько интервалов молчания бот прощает (Р-5): свежее пяти — жив. */
-export const HEARTBEAT_MISS_LIMIT = 5;
-
 const МИНУТА = 60_000;
+const ЧАС = 3_600_000;
+
+/**
+ * С какого возраста самой старой неразобранной доставки очередь считается
+ * вставшей.
+ *
+ * ЧАС, А НЕ ДЕСЯТЬ МИНУТ. Диспетчер Notion живёт внутри прохода агентов
+ * (`pollAgentTasks`, по умолчанию раз в 5 минут) и забирает до 10 строк за
+ * проход: всплеск в сотню доставок честно разбирается около часа, и порог
+ * поменьше красил бы строку на нормальной работе. Час без движения — это уже
+ * дюжина пропущенных проходов, то есть диспетчер не работает.
+ */
+export const OUTBOX_STUCK_MS = ЧАС;
 
 function row(
   face: FaceMeta,
@@ -266,7 +286,7 @@ function молчаливыйИсточник(
       face,
       "unknown",
       "источник не настроен: нет учётных данных",
-      "монитор не заводится, пока в окружении агентов нет учётной записи источника",
+      monitor.disabledText ?? "монитор не заводится, пока в окружении агентов нет учётной записи источника",
     );
   }
   if (monitor.reason === "off") {
@@ -274,16 +294,20 @@ function молчаливыйИсточник(
       face,
       "unknown",
       "монитор выключен в настройках",
-      "расписание снято владельцем или не принято при старте агентов",
+      monitor.disabledText ?? "расписание снято владельцем или не принято при старте агентов",
     );
   }
-  return row(face, "unknown", "монитор выключен", "снимок расписаний не назвал причину");
+  return row(face, "unknown", "монитор выключен", monitor.disabledText ?? "снимок расписаний не назвал причину");
 }
 
-/** Исход прогона словами общего словаря (`@mydon/shared`), а не второй формулировкой. */
+/** Ярлык исхода словами общего словаря (`@mydon/shared`), а не второй формулировкой. */
+function исходЯрлык(outcome: string): string {
+  return isRunOutcome(outcome) ? RUN_OUTCOME_LABELS[outcome] : outcome;
+}
+
+/** Итог прогона одной фразой — для `detail`, где рядом не стоит слово «прогон». */
 function исходСловами(run: MonitorRunLite): string {
-  const label = isRunOutcome(run.outcome) ? RUN_OUTCOME_LABELS[run.outcome] : run.outcome;
-  return `последний прогон — ${label}: ${run.reason}`;
+  return `последний прогон — ${исходЯрлык(run.outcome)}: ${run.reason}`;
 }
 
 /**
@@ -320,7 +344,7 @@ export function rowFromMonitor(face: FaceMeta, input: MonitorRowInput): HealthRo
   // `approval_requested` и `skipped` мониторы не пишут (`journaledMonitor`
   // знает только `executed`/`failed`), поэтому чужой исход — это не «плохо»
   // и не «хорошо», а «мы такого не ждали».
-  return row(face, "unknown", `исход прогона — ${исходСловами(run)}`, undefined, run.at);
+  return row(face, "unknown", `исход последнего прогона — ${исходЯрлык(run.outcome)}: оценить нечем`, run.reason, run.at);
 }
 
 /** Дата из ISO-строки, если она вообще дата: битая отбрасывается, а не роняет ответ. */
@@ -374,7 +398,7 @@ export function rowFromOurvendSync(face: FaceMeta, input: OurvendSyncInput): Hea
     const показ = Math.round(h.staleHoursShown ?? h.staleHoursRaw);
     return row(
       face,
-      `bad`,
+      "bad",
       `сбор стоит ${показ} ч — порог ${h.staleThresholdH} ч`,
       input.lastRun !== null ? исходСловами(input.lastRun) : undefined,
       at,
@@ -482,6 +506,12 @@ export function rowFromOutbox(face: FaceMeta, input: OutboxRowInput): HealthRow 
   // задвоить её на той стороне. Тот же список, по которому будит владельца
   // сторож ledger (индекс `outbox_delivery_alert_terminal_idx`: unknown или dead).
   const неясно = счёт("unknown");
+  const пропущено = счёт("skipped");
+  const очередь = счёт("pending") + счёт("dispatching");
+  const ушло = счёт("sent");
+  const хвостПропусков = пропущено > 0 ? ` · пропущено ${пропущено}` : "";
+  const итого = `всего строк доставки ${всего}`;
+
   if (тупик > 0 || неясно > 0) {
     const части = [
       тупик > 0 ? `в тупике ${тупик}` : null,
@@ -490,18 +520,49 @@ export function rowFromOutbox(face: FaceMeta, input: OutboxRowInput): HealthRow 
     return row(
       face,
       "bad",
-      `доставки не дошли: ${части.join(" · ")}`,
-      `всего строк доставки ${всего}`,
+      `доставки не дошли: ${части.join(" · ")}${хвостПропусков}`,
+      итого,
       input.oldestPendingAt ?? undefined,
     );
   }
-  const очередь = счёт("pending") + счёт("dispatching");
-  const ушло = счёт("sent");
+
+  // ОЧЕРЕДЬ, КОТОРУЮ НИКТО НЕ РАЗБИРАЕТ, — ЭТО НЕ «В ПОРЯДКЕ». Диспетчер не
+  // падает, а молчит: строки остаются `pending` навсегда, ни один статус не
+  // становится плохим, и «в очереди 500» спокойно зеленеет. Та же ловушка, что
+  // у замолчавшего крона монитора, и то же лекарство — возраст, а не статус.
+  const застряло = input.oldestPendingAt;
+  if (застряло !== null && input.now.getTime() - застряло.getTime() > OUTBOX_STUCK_MS) {
+    const часов = Math.round((input.now.getTime() - застряло.getTime()) / ЧАС);
+    return row(
+      face,
+      "bad",
+      `очередь не разбирается: в ней ${очередь}, самой старой ${часов} ч${хвостПропусков}`,
+      `${итого}; доставщик забирает партию раз в проход агентов — час без движения означает, что он не работает`,
+      застряло,
+    );
+  }
+
+  // ВСЁ ПРОПУЩЕНО — ЭТО «НЕ НАСТРОЕНО», А НЕ «ДОСТАВЛЕНО 0». Диспетчер
+  // закрывает доставку статусом `skipped` ровно в одном случае: конфигурации
+  // Notion нет (`apps/agents/src/outbox-dispatcher.ts`, «Notion не настроен»).
+  // Зелёная строка здесь показывала бы «доставлено 0» рядом с «всего 42» —
+  // отчёт, противоречащий сам себе, на единственном внешнем получателе.
+  if (пропущено === всего) {
+    return row(
+      face,
+      "unknown",
+      `источник не настроен: доставки пропускаются, пропущено ${пропущено}`,
+      "диспетчер закрывает доставку как «пропущена», пока в окружении агентов нет ключа и базы Notion",
+      input.oldestPendingAt ?? undefined,
+    );
+  }
+
   return row(
     face,
     "ok",
-    очередь > 0 ? `в очереди ${очередь}, доставлено ${ушло}` : `доставлено ${ушло}, очередь разобрана`,
-    `всего строк доставки ${всего}`,
+    (очередь > 0 ? `в очереди ${очередь}, доставлено ${ушло}` : `доставлено ${ушло}, очередь разобрана`) +
+      хвостПропусков,
+    итого,
     input.oldestPendingAt ?? undefined,
   );
 }
@@ -525,7 +586,7 @@ export function rowFromHeartbeat(face: FaceMeta, input: HeartbeatRowInput): Heal
   }
   const возраст = Math.max(0, input.now.getTime() - input.lastAt.getTime());
   const минут = Math.round(возраст / МИНУТА);
-  if (возраст > input.intervalMs * HEARTBEAT_MISS_LIMIT) {
+  if (возраст > input.intervalMs * BOT_HEARTBEAT_MISS_LIMIT) {
     return row(
       face,
       "bad",
@@ -602,10 +663,20 @@ export function rowFromLlm(face: FaceMeta, input: LlmRowInput): HealthRow {
  * Источник не прочитался: строка честно говорит об этом, а не исчезает.
  *
  * Пропавшая строка читается как «такого источника нет», а `ok` по умолчанию —
- * как «всё хорошо». Оба варианта хуже, чем «оценить нечем, вот причина».
+ * как «всё хорошо». Оба варианта хуже, чем «оценить нечем».
+ *
+ * ТЕКСТ ИСКЛЮЧЕНИЯ СЮДА НЕ ПОПАДАЕТ (постановление ветки). `GET /apps/health`
+ * читается без токена — глобальный guard пропускает GET, — а сообщения
+ * драйвера несут хост и пользователя базы. Наружу едет НАШ ярлык прочитанного
+ * («снимок расписаний»), причина отказа пишется только в журнал Core.
  */
-export function unavailableRow(face: FaceMeta, error: string): HealthRow {
-  return row(face, "unknown", "источник не прочитался — оценить нечем", error);
+export function unavailableRow(face: FaceMeta, источник: string): HealthRow {
+  return row(
+    face,
+    "unknown",
+    "источник не отвечает — оценить нечем",
+    `не прочитано: ${источник}. Причина записана в журнал Core.`,
+  );
 }
 
 /** Разделы по природе связи (Р-3): «снаружи» — только то, что ходит в чужую систему. */
