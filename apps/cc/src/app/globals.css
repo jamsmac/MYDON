@@ -1664,6 +1664,8 @@ article.doc .doc-img { color: var(--tx-3); font-style: italic; }
   content: ""; display: inline-block; width: var(--dot, 7px); height: var(--dot, 7px);
   border-radius: 50%; margin-right: 6px; vertical-align: 0; background: currentColor;
 }
+/* Решение на холсте — квадрат (цвет делит с навыком): легенда повторяет форму. */
+.brain-kind[data-kind="decision"]::before { border-radius: 0; }
 /* `.chip` набран моно (var(--fm)) — а в этих чипах русские слова («агент»,
    «навык»), и кириллица в оболочке ВСЕГДА Golos (§6). Моно оставляем только
    счётчику: `.num` внутри переопределяет шрифт обратно сам. */

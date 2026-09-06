@@ -13,6 +13,12 @@ import type { DocsGraph, GraphEdgeKind, GraphNode, GraphNodeKind } from "./core"
 export interface NodeStyle {
   token: string;
   r: number;
+  /**
+   * Форма метки: `decision` — квадрат. Навык (`--accent-tx`) и решение (`--hot`) —
+   * оба оранжевые (в светлой теме — один и тот же hex), поэтому вид разводит
+   * форма, а не третий оттенок: новых цветов у панели нет.
+   */
+  shape?: "circle" | "square";
 }
 
 /** Линия ребра: токен, толщина и прозрачность. */
@@ -44,7 +50,7 @@ const NODE_STYLE: Readonly<Record<GraphNodeKind, NodeStyle>> = {
   doc: { token: "--tx-2", r: 4 },
   memory: { token: "--tx-2", r: 4 },
   kb: { token: "--tx-2", r: 4 },
-  decision: { token: "--hot", r: 4 },
+  decision: { token: "--hot", r: 4, shape: "square" },
   // Движок — не тревога: `--hot` (просрочки, расхождения) и `--ok` («норма,
   // правило соблюдается») разводят решение и правила движка, иначе половина
   // мелких точек графа читалась бы как «здесь что-то горит».

@@ -127,6 +127,8 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
   const cardTitleRef = useRef<HTMLHeadingElement | null>(null);
   /** Строка списка, с которой открыли карточку: на Esc фокус возвращается ей. */
   const lastRowRef = useRef<HTMLButtonElement | null>(null);
+  /** Поле поиска — куда уходит фокус по Esc, если карточку открыли с холста. */
+  const searchRef = useRef<HTMLInputElement | null>(null);
   /** Карточку открыли КЛАВИАТУРОЙ/со списка — тогда и фокус ведём за ней. */
   const fromRowRef = useRef(false);
 
@@ -164,7 +166,7 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
       setSelectedId(null);
       // Фокус после закрытия обязан вернуться туда, откуда карточку открыли:
       // иначе он падает на <body>, и следующий Tab начинает страницу заново.
-      lastRowRef.current?.focus();
+      (lastRowRef.current ?? searchRef.current)?.focus();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -294,7 +296,12 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
         const style = styleOf(item.node.kind);
         ctx.fillStyle = color(style.token);
         ctx.beginPath();
-        ctx.arc(item.x, item.y, style.r, 0, Math.PI * 2);
+        if (style.shape === "square") {
+          // Решения — квадраты: цветом от навыков они не отличаются (Р-8 ревью).
+          ctx.rect(item.x - style.r, item.y - style.r, style.r * 2, style.r * 2);
+        } else {
+          ctx.arc(item.x, item.y, style.r, 0, Math.PI * 2);
+        }
         ctx.fill();
         if (item.id === selectedRef.current) {
           // Выбранный узел — кольцо, а не другой цвет: цвет здесь уже занят
@@ -507,7 +514,11 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
       if (dragging) {
         // Клик без движения — это выбор узла, а не перетаскивание: карточка
         // должна открываться и с холста, не только из списка.
-        if (!moved) setSelectedId(dragging.id);
+        if (!moved) {
+          // Выбор с холста: строки-источника нет, Esc вернёт фокус на поиск.
+          lastRowRef.current = null;
+          setSelectedId(dragging.id);
+        }
         dragging.fx = null;
         dragging.fy = null;
         dragging = null;
@@ -593,7 +604,7 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
     <div className="brain-layout">
       <div className="brain-main">
         <div className="search brain-search">
-          <input
+          <input ref={searchRef}
             type="search"
             aria-label="Поиск по графу"
             placeholder="Узел, путь или направление"
@@ -686,7 +697,7 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
                 aria-current={n.id === selectedId ? "true" : undefined}
                 // Строка РАСКРЫВАЕТ карточку — скринридер должен это слышать,
                 // а не гадать, что изменилось где-то ниже по странице.
-                aria-expanded={n.id === selectedId}
+                aria-expanded={n.id === selectedId ? true : undefined}
                 aria-controls={n.id === selectedId ? CARD_ID : undefined}
                 onClick={(e) => {
                   fromRowRef.current = true;
