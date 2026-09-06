@@ -697,7 +697,7 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
                 aria-current={n.id === selectedId ? "true" : undefined}
                 // Строка РАСКРЫВАЕТ карточку — скринридер должен это слышать,
                 // а не гадать, что изменилось где-то ниже по странице.
-                aria-expanded={n.id === selectedId ? true : undefined}
+                aria-expanded={n.id === selectedId}
                 aria-controls={n.id === selectedId ? CARD_ID : undefined}
                 onClick={(e) => {
                   fromRowRef.current = true;
