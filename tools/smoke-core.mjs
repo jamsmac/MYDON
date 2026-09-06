@@ -3023,7 +3023,12 @@ async function проверитьНаблюдениеЦен() {
     );
   }
 
-  const события = await читать(`/events?type=${encodeURIComponent(ТИП)}`);
+  // Лента читается С ТОКЕНОМ: с волны A1 на `/events` висит `EventsTokenGuard`,
+  // и общий помощник `читать` (без заголовка) получил бы здесь 401.
+  const лента = await jsonRequest("GET", `/events?type=${encodeURIComponent(ТИП)}`);
+  if (!лента.r.ok)
+    throw new Error(`лента наблюдений → ${лента.r.status}: ${лента.text.slice(0, 200)}`);
+  const события = лента.json;
   const наше = события.find((e) => e.payload?.orderId === накладная.id);
   if (!наше) throw new Error("наблюдение по нашей накладной не найдено");
   if (наше.payload.product !== С_ЦЕНОЙ) throw new Error(`product=${наше.payload.product}`);
@@ -3320,6 +3325,14 @@ async function проверитьСобытияИДеку() {
   await записать(источник, другойТип, времяДругого);
   // Тот же тип у ЧУЖОГО источника: без отбора по источнику он попал бы в ленту.
   await записать(чужойИсточник, памятьТип, времяДругого);
+
+  // Лента закрыта и на чтение (волна A1, Ruling 5): глобальный guard GET
+  // пропускает, `EventsTokenGuard` — нет. Проверяем настоящим анонимным
+  // запросом, иначе юнит на guard остался бы единственным свидетелем.
+  const анонимнаяЛента = await jsonRequest("GET", "/events?limit=1", undefined, false);
+  if (анонимнаяЛента.r.status !== 401) {
+    throw new Error(`GET /events без сервисного токена → ${анонимнаяЛента.r.status}, ожидали 401`);
+  }
 
   const свои = await прочитать(`/events?source=${encodeURIComponent(источник)}`);
   if (свои.length !== 2 || свои.some((e) => e.source !== источник)) {

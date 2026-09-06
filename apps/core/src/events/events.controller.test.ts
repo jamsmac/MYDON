@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { BadRequestException, ValidationPipe } from "@nestjs/common";
 import { EventsService } from "./events.service";
 import { EventsController, FilterEventsDto, ListEventsDto } from "./events.controller";
+import { EventsTokenGuard } from "./events-token.guard";
 
 type Filter = Record<string, unknown>;
 
@@ -221,5 +222,36 @@ describe("Счётчик и «самое свежее» не молчат о п�
 
   it("лента, наоборот, берёт широкое ДТО — иначе её собственные поля отбились бы", () => {
     assert.equal(дтоМаршрута("list"), ListEventsDto);
+  });
+});
+
+describe("Шина событий закрыта токеном и на чтение (волна A1, Ruling 5)", () => {
+  const ctx = (headers: Record<string, string> = {}) =>
+    ({
+      switchToHttp: () => ({ getRequest: () => ({ method: "GET", headers }) }),
+      getHandler: () => (): void => undefined,
+      getClass: () => class {},
+    }) as unknown as Parameters<EventsTokenGuard["canActivate"]>[0];
+
+  it("анонимный GET отклоняется — глобальный guard чтения пропускает, этот нет", () => {
+    process.env.SERVICE_TOKEN = "secret";
+    assert.throws(() => new EventsTokenGuard().canActivate(ctx()), /токен/);
+    assert.throws(() => new EventsTokenGuard().canActivate(ctx({ "x-service-token": "wrong" })), /токен/);
+  });
+
+  it("GET с верным токеном проходит (и заголовком, и Bearer)", () => {
+    process.env.SERVICE_TOKEN = "secret";
+    assert.equal(new EventsTokenGuard().canActivate(ctx({ "x-service-token": "secret" })), true);
+    assert.equal(new EventsTokenGuard().canActivate(ctx({ authorization: "Bearer secret" })), true);
+  });
+
+  it("токен не настроен — лента всё равно закрыта (fail-closed)", () => {
+    delete process.env.SERVICE_TOKEN;
+    assert.throws(() => new EventsTokenGuard().canActivate(ctx()), /токен/);
+  });
+
+  it("guard навешен на КОНТРОЛЛЕР — новый маршрут ленты закроется сам", () => {
+    const guards: unknown = Reflect.getMetadata("__guards__", EventsController);
+    assert.ok(Array.isArray(guards) && guards.includes(EventsTokenGuard), "нет @UseGuards(EventsTokenGuard)");
   });
 });

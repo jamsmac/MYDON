@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, UseGuards } from "@nestjs/common";
 import { Type } from "class-transformer";
 import {
   IsIn,
@@ -12,6 +12,7 @@ import {
   MaxLength,
   Min,
 } from "class-validator";
+import { EventsTokenGuard } from "./events-token.guard";
 import { EventsService } from "./events.service";
 
 export class CreateEventDto {
@@ -122,7 +123,16 @@ function pageLimit(limit?: number): number | undefined {
   return asked > 0 ? Math.min(asked, LIST_MAX) : undefined;
 }
 
+/**
+ * Шина событий Core.
+ *
+ * Guard на классе требует сервисный токен и на ЧТЕНИЕ (волна A1, Ruling 5):
+ * глобальный `ServiceTokenGuard` GET пропускает, а листать ленту насквозь
+ * (`until` + `order=asc`) анонимно нельзя — там память агентов и события
+ * личного контура.
+ */
 @Controller("events")
+@UseGuards(EventsTokenGuard)
 export class EventsController {
   constructor(private readonly events: EventsService) {}
 
