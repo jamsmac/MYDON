@@ -57,7 +57,13 @@ export const SNAPSHOT_KEY = "schedules";
 const REASON_MAX = 2000;
 const ACTION_MAX = 500;
 const REVIEW_MAX = 1000;
-const LIST_MAX = 200;
+/**
+ * Потолок страницы журнала — общий с границей (`routines.controller.ts`,
+ * `pageLimit`): контроллер отбивает превышение 400-й, сервис держит ту же
+ * рамку для вызовов изнутри Core. Две независимые константы разъехались бы, и
+ * тогда «400 при 201» соседствовало бы с молчаливым срезом при 150.
+ */
+export const LIST_MAX = 200;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isoDate(v: unknown, field: string): Date {

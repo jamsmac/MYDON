@@ -32,6 +32,7 @@ import {
 import { Type } from "class-transformer";
 import { Cron } from "croner";
 import { OwnerMutationGuard } from "../common/owner-mutation.guard";
+import { first } from "../common/query-param";
 import { MODEL_EFFORTS, type ModelEffort } from "../tasks/tasks.service";
 import { AGENT_STATUSES, AGENT_TIERS, AgentsService, type Tier } from "./agents.service";
 
@@ -225,11 +226,11 @@ export class AgentsController {
    */
   @Get("skills")
   skills(@Query("agent") agent?: unknown) {
-    // Повторённый параметр (`?agent=a&agent=b`) приходит из express массивом:
-    // без этого сравнение с именем никогда не совпало бы и панель получила бы
-    // пустую деку вместо строк первого агента.
-    const raw = Array.isArray(agent) ? agent[0] : agent;
-    const name = typeof raw === "string" && raw.length > 0 ? raw : undefined;
+    // `first` — общий разбор параметра строки запроса (`common/query-param`):
+    // повторённый `?agent=a&agent=b` приходит из express массивом, и без сводки
+    // к первому значению панель получила бы пустую деку. Раньше здесь стояла
+    // вторая копия того же кода из `routines.controller.ts`.
+    const name = first(agent);
     return this.agents.skillDeck(name !== undefined ? { agent: name } : {});
   }
 
