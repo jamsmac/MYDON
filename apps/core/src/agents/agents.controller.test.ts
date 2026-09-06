@@ -202,16 +202,30 @@ describe("GET /agents/status закрыт токеном и на чтение (�
     );
   });
 
-  it("КОНТРОЛЛЕР целиком НЕ закрыт: список, каталог навыков и карточка читаются как раньше", () => {
-    // Классовый guard закрыл бы `GET /agents`, `GET /agents/skills` и
-    // `GET /agents/:name` — ими ходят панель, бот и MCP-сервер, и починка C-1
-    // не имеет права их сломать.
+  it("guard навешен НА МАРШРУТ skills", () => {
+    // Дека несёт `blockedReason` и `resultNote` последнего прогона навыка —
+    // тот же пересказ работы агентов, что и `agent_run.reason`. Маршрут приехал
+    // волной S, когда закрытых читающих дверей ещё не было, и до этой правки
+    // ассерт ниже пришпиливал его ОТКРЫТЫМ: закрытая дверь рядом с открытой
+    // в ту же комнату — не защита.
+    const guards: unknown = Reflect.getMetadata("__guards__", AgentsController.prototype.skills);
+    assert.ok(
+      Array.isArray(guards) && guards.includes(ReadTokenGuard),
+      "нет @UseGuards(ReadTokenGuard) на GET /agents/skills",
+    );
+  });
+
+  it("КОНТРОЛЛЕР целиком НЕ закрыт: список и карточка читаются как раньше", () => {
+    // Классовый guard закрыл бы `GET /agents` и `GET /agents/:name` — ими ходят
+    // панель, бот и MCP-сервер, и починка C-1 не имеет права их сломать.
+    // `skills` из этого списка ВЫВЕДЕН осознанно (см. тест выше): он отдаёт
+    // причины прогонов, а не карточки.
     const guards: unknown = Reflect.getMetadata("__guards__", AgentsController);
     assert.ok(
       guards === undefined || (Array.isArray(guards) && !guards.includes(ReadTokenGuard)),
       "ReadTokenGuard на классе закроет читающие маршруты панели, бота и MCP",
     );
-    for (const route of ["list", "skills", "byName"] as const) {
+    for (const route of ["list", "byName"] as const) {
       const g: unknown = Reflect.getMetadata("__guards__", AgentsController.prototype[route]);
       assert.ok(
         g === undefined || (Array.isArray(g) && !g.includes(ReadTokenGuard)),

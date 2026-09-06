@@ -132,6 +132,14 @@ describe("Состояние агентов и здоровье приложен
     expect(заголовки[0]?.["x-service-token"]).toBe("secret-token");
   });
 
+  it("skillDeck несёт x-service-token", async () => {
+    // Дека отдаёт `blockedReason`/`resultNote` прогонов, поэтому маршрут закрыт
+    // тем же гардом. Возврат на обычный `get()` даст здесь `undefined`.
+    const заголовки = stubHeaders();
+    await (await сТокеном()).skillDeck();
+    expect(заголовки[0]?.["x-service-token"]).toBe("secret-token");
+  });
+
   it("appsHealth несёт x-service-token", async () => {
     const заголовки = stubHeaders();
     await (await сТокеном()).appsHealth();

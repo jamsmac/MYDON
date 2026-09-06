@@ -2873,9 +2873,14 @@ export const core = {
    * Витрина навыков: что агенты вообще умеют (R-SD-2). С именем агента — дека
    * одного агента для его карточки (фильтрует Core, а не панель: иначе на
    * каждое открытие карточки приезжал бы весь каталог).
+   *
+   * ТОЛЬКО `getWithToken`: на маршруте висит `ReadTokenGuard` — дека несёт
+   * `blockedReason` и `resultNote` последнего прогона, то же поле, ради
+   * которого закрыты `/routines/runs` и `/agents/status`. Обычный `get()`
+   * получил бы 401 вместо деки.
    */
   skillDeck: (agent?: string) =>
-    get<SkillDeck>(`/agents/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ""}`),
+    getWithToken<SkillDeck>(`/agents/skills${agent ? `?agent=${encodeURIComponent(agent)}` : ""}`),
   /**
    * Журнал прогонов одного агента (R-A2-5). ТОЛЬКО `getWithToken`: на
    * `/routines/*` висит классовый `RoutinesTokenGuard`, который GET анонимно
