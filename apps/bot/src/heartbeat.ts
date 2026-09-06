@@ -26,16 +26,27 @@ export interface HeartbeatEvent {
 /**
  * Событие heartbeat на момент `now`.
  *
- * `clientKey` строится от времени, округлённого ВНИЗ до `HEARTBEAT_INTERVAL_MS`:
- * Core (`onConflictDoNothing` по `clientKey` в `events.service.ts`) отбрасывает
- * повтор внутри интервала молча, не плодя вторую строку.
+ * И `clientKey`, и `payload.at` строятся от ОДНОГО округлённого вниз до
+ * `HEARTBEAT_INTERVAL_MS` момента — не только ключ. `EventsService.record`
+ * при повторе `clientKey` не просто отбрасывает вставку: он перечитывает уже
+ * сохранённую строку и сверяет хэш `{source, type, payload, occurredAt}`
+ * (`apps/core/src/events/events.service.ts`). Если бы `payload.at` нёс точное
+ * время вызова, у двух настоящих вызовов внутри одного интервала (два
+ * инстанса бота во время деплоя, будущий ретрай) совпал бы `clientKey`, но
+ * разошёлся бы `payload` — и Core ответил бы 409 (`ConflictException`)
+ * вместо тихого no-op, на который рассчитан план (Р-5). С округлённым
+ * `payload.at` повтор внутри интервала БАЙТ-В-БАЙТ идентичен: Core тихо
+ * отбрасывает вставку по `onConflictDoNothing`, хэши совпадают, конфликта
+ * нет. Разный `payload` под тем же ключом (не наш случай, но именно от него
+ * защищает сверка) — это и есть единственный путь к 409, который ловит
+ * `.catch` в `index.ts` и превращает в `console.warn`.
  */
 export function heartbeatEvent(now: Date): HeartbeatEvent {
   const floored = Math.floor(now.getTime() / HEARTBEAT_INTERVAL_MS) * HEARTBEAT_INTERVAL_MS;
   return {
     source: "bot",
     type: "bot.heartbeat",
-    payload: { at: now.toISOString() },
+    payload: { at: new Date(floored).toISOString() },
     clientKey: `bot.heartbeat:${floored}`,
   };
 }
