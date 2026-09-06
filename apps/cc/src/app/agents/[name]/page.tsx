@@ -78,9 +78,14 @@ function hookRows(value: unknown, phase: HookRow["phase"], known: readonly strin
  * причины. Правка — в паспорте агента, панель их только читает.
  */
 function runHooks(agent: AgentCard): HookRow[] {
+  // Обе формы имени, camelCase и snake_case: `tools/apply-passport-fields.mjs`
+  // — единственный документированный путь доставки хуков в уже существующие
+  // карточки — кладёт в Core СЫРОЙ раздел паспорта (`pre_run`/`post_run`), и
+  // рантайм читает его обеими формами. Панель, знавшая только camelCase, на
+  // документированной проверке выката всегда отвечала «не доехало».
   return [
-    ...hookRows(agent.hooks?.preRun, "до прогона", KNOWN_HOOKS.preRun),
-    ...hookRows(agent.hooks?.postRun, "после прогона", KNOWN_HOOKS.postRun),
+    ...hookRows(agent.hooks?.preRun ?? agent.hooks?.pre_run, "до прогона", KNOWN_HOOKS.preRun),
+    ...hookRows(agent.hooks?.postRun ?? agent.hooks?.post_run, "после прогона", KNOWN_HOOKS.postRun),
   ];
 }
 

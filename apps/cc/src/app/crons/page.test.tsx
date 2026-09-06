@@ -33,8 +33,10 @@ const OURVEND: CronBoard["jobs"][number] = {
   nextRun: "2026-09-06T04:00:00.000Z",
   last: { at: "2026-09-06T01:00:00.000Z", outcome: "executed", skipReason: null, hook: null, reason: "автоматов 26/26", runId: "r1" },
 };
+// У навыка ключ строки несёт cron (`агент/навык@cron`): у монитора и у
+// неподключённого навыка расписание одно, у навыка их может быть несколько.
 const STOCK: CronBoard["jobs"][number] = {
-  id: "vendhub-ops/monitor-stock",
+  id: "vendhub-ops/monitor-stock@0 8 * * *",
   kind: "skill",
   agent: "vendhub-ops",
   skill: "monitor-stock",
@@ -54,7 +56,7 @@ const board: CronBoard = {
   jobs: [OURVEND, STOCK],
   upcoming24h: [
     { at: "2026-09-06T04:00:00.000Z", jobId: "system/ourvend:sync" },
-    { at: "2026-09-07T03:00:00.000Z", jobId: "vendhub-ops/monitor-stock" },
+    { at: "2026-09-07T03:00:00.000Z", jobId: "vendhub-ops/monitor-stock@0 8 * * *" },
   ],
 };
 
@@ -105,7 +107,7 @@ describe("Экран «Рутины»", () => {
     // утро, а до запуска неделя. Час без дня — обещание не о том дне.
     const weekly: CronBoard["jobs"][number] = {
       ...STOCK,
-      id: "vendhub-ops/parts-audit",
+      id: "vendhub-ops/parts-audit@30 8 * * 0",
       skill: "parts-audit",
       cron: "30 8 * * 0",
       nextRun: "2026-09-13T03:30:00.000Z",
@@ -117,6 +119,63 @@ describe("Экран «Рутины»", () => {
     expect(soon.cells[3]).toHaveTextContent("завтра 08:00");
     const later = screen.getByRole("row", { name: /parts-audit/ }) as HTMLTableRowElement;
     expect(later.cells[3]).toHaveTextContent("13.09 08:30");
+  });
+
+  it("«Последний исход» называет время: вчерашний прогон и мартовский — разные ответы", async () => {
+    // Core отдаёт `last.at`, а таблица его не печатала: «выполнено» без даты
+    // читается как «работает», хотя прогон мог быть полгода назад
+    // (adversarial-ревью волны R, B2).
+    const stale: CronBoard["jobs"][number] = {
+      ...STOCK,
+      id: "vendhub-ops/parts-audit@30 8 * * 1",
+      skill: "parts-audit",
+      last: { at: "2026-03-02T03:00:00.000Z", outcome: "executed", skipReason: null, hook: null, reason: "узлов 375", runId: "r9" },
+    };
+    cronBoard.mockImplementation(async () => ({ ...board, jobs: [...board.jobs, stale] }));
+    render(await CronsPage());
+
+    const fresh = screen.getByRole("row", { name: /ourvend:sync/ }) as HTMLTableRowElement;
+    expect(fresh.cells[4]).toHaveTextContent("выполнено — автоматов 26/26");
+    expect(fresh.cells[4]).toHaveTextContent("сегодня 06:00");
+
+    const old = screen.getByRole("row", { name: /parts-audit/ }) as HTMLTableRowElement;
+    expect(old.cells[4]).toHaveTextContent("02.03 08:00");
+
+    // Не запускался — времени нет и выдумывать его нечем.
+    const never = screen.getByRole("row", { name: /monitor-stock/ }) as HTMLTableRowElement;
+    expect(never.cells[4]).toHaveTextContent("ещё не запускался");
+  });
+
+  it("два расписания одного навыка — две строки с разными ключами", async () => {
+    // Доска различает строки по `агент/навык@cron`: с общим ключом React
+    // получал бы дубли, а «Ближайшие 24 ч» не находили бы своё расписание.
+    const morning: CronBoard["jobs"][number] = { ...STOCK, id: "vendhub-ops/monitor-stock@0 8 * * *" };
+    const evening: CronBoard["jobs"][number] = {
+      ...STOCK,
+      id: "vendhub-ops/monitor-stock@0 20 * * *",
+      cron: "0 20 * * *",
+      nextRun: "2026-09-06T15:00:00.000Z",
+    };
+    cronBoard.mockImplementation(async () => ({
+      ...board,
+      jobs: [morning, evening],
+      upcoming24h: [{ at: "2026-09-06T15:00:00.000Z", jobId: "vendhub-ops/monitor-stock@0 20 * * *" }],
+    }));
+    render(await CronsPage());
+
+    const rows = screen.getAllByRole("row", { name: /monitor-stock/ }) as HTMLTableRowElement[];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.cells[1]).toHaveTextContent("0 8 * * *");
+    expect(rows[1]!.cells[1]).toHaveTextContent("0 20 * * *");
+    // Ссылка на плейбэк по-прежнему по паре агент/навык — cron в ней не нужен.
+    expect(within(rows[1]!).getByRole("link")).toHaveAttribute(
+      "href",
+      "/flows?agent=vendhub-ops&skill=monitor-stock",
+    );
+    // Строка «Ближайшие 24 ч» нашла своё расписание по тому же ключу.
+    const soon = within(screen.getByRole("region", { name: "Ближайшие 24 ч" }));
+    expect(soon.getAllByRole("link")).toHaveLength(1);
+    expect(soon.getAllByRole("link")[0]!).toHaveTextContent("20:00");
   });
 
   it("снимка нет — экран говорит, что молчат агенты, а не что расписаний нет", async () => {

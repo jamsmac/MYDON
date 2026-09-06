@@ -118,10 +118,15 @@ export default async function CronsPage() {
                         «08:00» владелец прочитает как ближайшее утро. Прочерк — тоже
                         ответ («не сработает»), а не пустая клетка. */}
                     <td className="mono">{job.nextRun ? runWhen(job.nextRun, now) : "—"}</td>
+                    {/* Исход БЕЗ времени врёт молча: вчерашний прогон и
+                        мартовский выглядят одинаково, и «выполнено» читается
+                        как «работает». День обязателен по той же причине, что
+                        и в колонке «Следующий». */}
                     <td>
                       <span className={`led run-led ${outcomeTone(job.last)}`}>
                         {describeLast(job.last)}
                       </span>
+                      {job.last && <div className="dim">{runWhen(job.last.at, now)}</div>}
                     </td>
                     <td>
                       <Link href={flowsHref(job)} className="go">

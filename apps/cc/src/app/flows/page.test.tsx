@@ -117,8 +117,13 @@ describe("Экран «Прогоны»", () => {
     expect(reason.getByText("коуч: норму по Olma стоит пересчитать")).toBeVisible();
     expect(reason.getByText("vendhub-ops:monitor-stock:2026-09-06")).toBeVisible();
 
+    // Лента честно подписана: событий, привязанных к прогону, в схеме нет —
+    // выбираются события агента за окно, и у параллельных прогонов одного
+    // агента сюда попадают соседние строки (adversarial-ревью волны R, B6).
+    expect(screen.getByText("события агента в окне прогона — могут попасть соседние")).toBeVisible();
+
     // Лента — одна колонка по времени: аудит 03:00:01 стоит перед событием 03:00:02.
-    const line = within(screen.getByRole("list", { name: "Лента прогона" })).getAllByRole("listitem");
+    const line = within(screen.getByRole("list", { name: "Лента агента в окне прогона" })).getAllByRole("listitem");
     expect(line).toHaveLength(2);
     expect(line[0]).toHaveTextContent("аудит");
     expect(line[0]).toHaveTextContent("task.claimed · vendhub-ops");

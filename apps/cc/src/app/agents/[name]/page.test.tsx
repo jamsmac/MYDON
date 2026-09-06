@@ -73,6 +73,29 @@ describe("Карточка агента: хуки прогона", () => {
     expect(screen.queryByText(/блокирует запуск/)).toBeNull();
   });
 
+  it("хуки в форме паспорта (snake_case) карточка тоже показывает", async () => {
+    // `tools/apply-passport-fields.mjs` — единственный документированный путь
+    // доставки хуков в 12 существующих карточек прода — кладёт в Core СЫРОЙ
+    // раздел паспорта (`pre_run`/`post_run`). Рантайм читает обе формы, а
+    // карточка знала только camelCase: документированная проверка выката
+    // («блок „Хуки прогона“ в карточке») всегда врала «не доехало»
+    // (adversarial-ревью волны R, B3).
+    agentCard.mockImplementation(async () =>
+      card({
+        pre_run: [{ kind: "source_fresh", run: "system/ourvend:sync", max_age_hours: 6 }],
+        post_run: [{ kind: "coach_lite" }],
+      }),
+    );
+    render(await screenFor());
+
+    expect(screen.getByText("Хуки прогона")).toBeVisible();
+    expect(screen.getByText("source_fresh")).toBeVisible();
+    expect(screen.getByText("run: system/ourvend:sync · max_age_hours: 6")).toBeVisible();
+    expect(screen.getByText("до прогона")).toBeVisible();
+    expect(screen.getByText("coach_lite")).toBeVisible();
+    expect(screen.queryByText(/блокирует запуск/)).toBeNull();
+  });
+
   it("неизвестный pre_run назван по имени из паспорта и помечен как блокирующий", async () => {
     // Рантайм фейлится закрыто: навык с таким хуком не запускается ВООБЩЕ
     // (Р-4). Без метки владелец ищет причину молчания агента в cron.

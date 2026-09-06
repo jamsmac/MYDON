@@ -1205,6 +1205,12 @@ export interface BrvValue {
   createdAt: string;
 }
 
+/** Одна запись хука прогона: `kind` обязателен, остальное — параметры хука. */
+export interface HookEntry {
+  kind: string;
+  [k: string]: unknown;
+}
+
 /** Настройки агента — то, что владелец видит и меняет в карточке. */
 export interface AgentCard {
   id: string;
@@ -1230,8 +1236,20 @@ export interface AgentCard {
    * у карточки без хуков там лежит `{}` — поэтому обе ветки объявлены
    * НЕОБЯЗАТЕЛЬНЫМИ, хотя паспорт пишет обе. Пообещать здесь массивы значило
    * бы уронить карточку агента на `.map` первого же агента без хуков.
+   *
+   * Имён у каждой ветки ДВА. `tools/apply-passport-fields.mjs` — единственный
+   * документированный путь доставки хуков в уже существующие карточки прода —
+   * кладёт в Core сырой раздел паспорта (`pre_run`/`post_run`), рантайм читает
+   * обе формы, и панель обязана читать обе: иначе документированная проверка
+   * выката всегда отвечает «не доехало».
    */
-  hooks?: { preRun?: { kind: string; [k: string]: unknown }[]; postRun?: { kind: string }[] };
+  hooks?: {
+    preRun?: HookEntry[];
+    /** Та же ветка в форме паспорта: так их кладёт `tools/apply-passport-fields.mjs`. */
+    pre_run?: HookEntry[];
+    postRun?: HookEntry[];
+    post_run?: HookEntry[];
+  };
   archivedAt: string | null;
   updatedAt: string;
 }
