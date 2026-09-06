@@ -13,10 +13,15 @@ vi.mock("../../lib/core", () => ({
       super("Core недоступен");
     }
   },
+  CoreRefused: class CoreRefused extends Error {
+    constructor(readonly status: number) {
+      super("Core отказал");
+    }
+  },
 }));
 
 // Типы берутся у настоящего модуля, реализация — у мока выше.
-import { CoreUnavailable } from "../../lib/core";
+import { CoreRefused, CoreUnavailable } from "../../lib/core";
 import FlowsPage from "./page";
 
 const STOCK: FlowSummary = {
@@ -123,6 +128,29 @@ describe("Экран «Прогоны»", () => {
     expect(line[1]).toHaveTextContent('{"skill":"monitor-stock"}');
   });
 
+  it("выбранный прогон виден и в макете, и в списке: reading + aria-current", async () => {
+    const { container } = render(await FlowsPage({ searchParams: Promise.resolve({ run: "r1" }) }));
+
+    // На телефоне разбор встаёт ПЕРЕД журналом — это делает класс `reading`
+    // (globals.css). Без него переход по `?run=` высаживал бы владельца на
+    // верх списка, а не на плейбэк, за которым он и нажимал.
+    expect(container.querySelector(".flows-layout.reading")).not.toBeNull();
+    const rows = screen.getAllByRole("link");
+    expect(rows[0]).toHaveAttribute("aria-current", "page");
+    expect(rows[0]?.className).toContain("is-active");
+    // Соседняя строка выбранной не считается — иначе «выбрано» ничего не значит.
+    expect(rows[1]).not.toHaveAttribute("aria-current");
+    expect(rows[1]?.className).not.toContain("is-active");
+  });
+
+  it("прогон не выбран — макет обычный, отмеченных строк нет", async () => {
+    const { container } = render(await FlowsPage({ searchParams: Promise.resolve({}) }));
+
+    expect(container.querySelector(".flows-layout")).not.toBeNull();
+    expect(container.querySelector(".flows-layout.reading")).toBeNull();
+    expect(screen.queryByRole("link", { current: "page" })).toBeNull();
+  });
+
   it("фильтры уходят в Core и остаются в ссылках строк и в полях формы", async () => {
     render(
       await FlowsPage({
@@ -165,8 +193,10 @@ describe("Экран «Прогоны»", () => {
   });
 
   it("прогона по ссылке нет — список остаётся, плейбэк говорит «не найден»", async () => {
+    // Core отвечает 404 → клиент бросает `CoreRefused`. Страница узнаёт отказ
+    // по ТИПУ: разбор текста «HTTP 404 на …» ломался бы от правки формата.
     flow.mockImplementation(async () => {
-      throw new CoreUnavailable("HTTP 404 на /routines/flows/r9");
+      throw new CoreRefused(404);
     });
     render(await FlowsPage({ searchParams: Promise.resolve({ run: "r9" }) }));
 

@@ -1,4 +1,4 @@
-import { describeRun, isRunOutcome, isSkipReason } from "@mydon/shared";
+import { TZ, describeRun, isRunOutcome, isSkipReason } from "@mydon/shared";
 import type { CronBoard, CronBoardJob } from "./core";
 
 /**
@@ -10,7 +10,6 @@ import type { CronBoard, CronBoardJob } from "./core";
  * иначе «сегодня» на экране и «сегодня» в снимке разъезжались бы на границе
  * суток и владелец видел бы завтрашние запуски под заголовком «Сегодня».
  */
-const TZ = "Asia/Tashkent";
 const DAY_MS = 86_400_000;
 
 export const hhmm = (iso: string): string =>

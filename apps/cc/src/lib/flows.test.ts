@@ -63,9 +63,15 @@ describe("detailText", () => {
   it("строку показывает как есть, объект — JSON, длинное режет до 200 символов", () => {
     expect(detailText("t1")).toBe("t1");
     expect(detailText({ skill: "monitor-stock" })).toBe('{"skill":"monitor-stock"}');
+    // Ровно 200 — ВКЛЮЧАЯ многоточие: обещание «не длиннее 200» должно
+    // выполняться и на обрезанной строке, иначе предел ничего не ограничивает.
     const long = detailText({ reason: "я".repeat(500) });
-    expect(long).toHaveLength(201);
+    expect(long).toHaveLength(200);
     expect(long?.endsWith("…")).toBe(true);
+    // Граница: 200 символов проходят целиком, 201 — режется.
+    expect(detailText("я".repeat(200))).toHaveLength(200);
+    expect(detailText("я".repeat(201))).toHaveLength(200);
+    expect(detailText("я".repeat(201))?.endsWith("…")).toBe(true);
   });
 
   it("детали нет — нет и строки: пустой <code> в ленте читался бы как пустой ответ", () => {

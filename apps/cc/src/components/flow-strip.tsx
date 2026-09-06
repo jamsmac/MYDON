@@ -21,8 +21,8 @@ export function FlowStrip({ phases }: { phases: FlowPhase[] }) {
     // объявляться как «шесть фаз».
     <ol className="flight" role="list" aria-label="Фазы прогона">
       {phases.map((phase) => (
-        <li key={phase.name} className={`ph ${phase.state}`} data-state={phase.state}>
-          <div className={`pn led run-led ${phaseTone(phase.state)}`}>{PHASE_LABELS[phase.name]}</div>
+        <li key={phase.name} className="ph" data-state={phase.state}>
+          <div className={`led run-led ${phaseTone(phase.state)}`}>{PHASE_LABELS[phase.name]}</div>
           {/* Прочерк вместо пустоты: «времени нет» — это про фазу, которой не
               было, а пустая клетка читается как «данные не доехали». */}
           <div className="pt">{phase.at ? hhmm(phase.at) : "—"}</div>

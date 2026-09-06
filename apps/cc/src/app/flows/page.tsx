@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ConsoleTheme } from "../../components/console-theme";
 import { CoreDown } from "../../components/core-down";
 import { FlowStrip } from "../../components/flow-strip";
-import { core, CoreUnavailable, type FlowPlayback, type FlowSummary } from "../../lib/core";
+import { core, CoreRefused, CoreUnavailable, type FlowPlayback, type FlowSummary } from "../../lib/core";
 import { outcomeTone, runWhen } from "../../lib/crons";
 import { detailText, mergeTimeline, runPhrase, stamp, type TimelineRow } from "../../lib/flows";
 import { plural } from "../../lib/format";
@@ -58,17 +58,19 @@ export default async function FlowsPage({
 
   let playback: FlowPlayback | null = null;
   let failure: string | null = null;
+  // «Прогона нет» и «Core сломался» — разные ответы, и второй нельзя выдавать
+  // за первый. Различает их ТИП отказа (`CoreRefused` на 404), а не текст
+  // сообщения: разбор строки «HTTP 404 на …» ломался бы от любой правки
+  // формата, и устаревшая закладка превращалась бы в экран аварии.
+  let missing = false;
   if (runId !== null) {
     try {
       playback = await core.flow(runId);
     } catch (err) {
-      failure = err instanceof CoreUnavailable ? err.detail : String(err);
+      if (err instanceof CoreRefused) missing = true;
+      else failure = err instanceof CoreUnavailable ? err.detail : String(err);
     }
   }
-  // «Прогона нет» и «Core сломался» — разные ответы, и второй нельзя выдавать
-  // за первый: `getWithToken` сводит любой не-200 к `CoreUnavailable`, поэтому
-  // 404 узнаём по детали (`HTTP 404 на …`), а всё прочее показываем аварией.
-  const missing = failure !== null && failure.startsWith("HTTP 404 ");
 
   // Ссылка строки несёт текущие фильтры: без них возврат из плейбэка
   // высаживал бы владельца в полный журнал вместо своей выборки.
@@ -176,14 +178,19 @@ export default async function FlowsPage({
                 <div className="flow-key">{playback.run.requestKey}</div>
               </section>
 
-              <div className="section-title">Лента прогона</div>
+              {/* Имя списка — ОДНО и видимое: заголовок над лентой. Второй
+                  источник (`aria-label` с той же фразой) читался бы вслух
+                  дважды и расходился бы с заголовком при первой же правке. */}
+              <div className="section-title" id="flow-timeline-title">
+                Лента прогона
+              </div>
               {timeline.length === 0 ? (
                 <div className="empty">
                   <b>Лента пуста</b>
                   Ни шина, ни аудит вокруг этого прогона ничего не записали.
                 </div>
               ) : (
-                <ul className="flow-timeline" aria-label="Лента прогона">
+                <ul className="flow-timeline" aria-labelledby="flow-timeline-title">
                   {timeline.map((row, i) => {
                     const detail = detailText(row.detail);
                     return (

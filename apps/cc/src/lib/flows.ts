@@ -1,4 +1,4 @@
-import { TZ } from "@mydon/shared";
+import { TZ, mergeRunTimeline, type TimelineRow } from "@mydon/shared";
 import type { FlowPhase, FlowPlayback, FlowSummary } from "./core";
 import { describeLast, type Tone } from "./crons";
 
@@ -61,34 +61,18 @@ export const runPhrase = (run: FlowSummary): string =>
     runId: run.id,
   });
 
-export interface TimelineRow {
-  at: string;
-  kind: "event" | "audit";
-  title: string;
-  detail?: unknown;
-}
+export type { TimelineRow };
 
 /**
- * Лента прогона: события шины и аудит одной колонкой по времени.
+ * Лента прогона в типах ответа Core — тонкая обёртка над `mergeRunTimeline`
+ * из `@mydon/shared`.
  *
- * Core отдаёт их раздельно (у строк разная форма), а вопрос владельца — «что
- * происходило по порядку», и две параллельные колонки на него не отвечают:
- * пришлось бы сличать времена глазами. Источник остаётся видимым (`kind`),
- * иначе запись агента и запись человека сливались бы в один поток.
+ * Само правило слияния здесь НЕ живёт: его копии стояли и в панели, и в Core,
+ * а вопрос «что происходило по порядку» у владельца один. Обёртка нужна лишь
+ * затем, чтобы вызывающий говорил формами `FlowPlayback`, а не пересказывал их.
  */
 export function mergeTimeline(events: FlowPlayback["events"], audit: FlowPlayback["audit"]): TimelineRow[] {
-  const rows: TimelineRow[] = [
-    ...events.map((e) => ({ at: e.at, kind: "event" as const, title: e.type, detail: e.payload })),
-    ...audit.map((a) => ({
-      at: a.at,
-      kind: "audit" as const,
-      title: `${a.action}${a.actorRef ? ` · ${a.actorRef}` : ""}`,
-      ...(a.target ? { detail: a.target } : {}),
-    })),
-  ];
-  // ISO-строки Core одного формата и одной зоны, поэтому лексикографическое
-  // сравнение — это сравнение по времени, без разбора дат.
-  return rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  return mergeRunTimeline(events, audit);
 }
 
 /** Сколько символов детали помещается в строку ленты, не превращая её в простыню. */
@@ -107,5 +91,8 @@ export function detailText(detail: unknown): string | null {
   if (detail === undefined || detail === null) return null;
   const raw = typeof detail === "string" ? detail : JSON.stringify(detail);
   if (raw === undefined || raw.length === 0) return null;
-  return raw.length > DETAIL_MAX ? `${raw.slice(0, DETAIL_MAX)}…` : raw;
+  // Многоточие — ЧАСТЬ предела, а не хвост сверх него: иначе «не длиннее 200»
+  // на деле означало бы 201, и строка ленты каждый раз была бы на символ шире
+  // обещанного.
+  return raw.length > DETAIL_MAX ? `${raw.slice(0, DETAIL_MAX - 1)}…` : raw;
 }

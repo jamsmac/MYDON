@@ -2726,7 +2726,13 @@ export const core = {
     const q = new URLSearchParams(params).toString();
     return getWithToken<{ runs: FlowSummary[] }>(`/routines/flows${q ? `?${q}` : ""}`);
   },
-  flow: (id: string) => getWithToken<FlowPlayback>(`/routines/flows/${encodeURIComponent(id)}`),
+  /**
+   * Плейбэк одного прогона. 404 — НЕ авария: это устаревшая ссылка из закладки
+   * или чата, и экран «Core недоступен» на неё был бы враньём. Отдаём отказ
+   * типом (`CoreRefused`), как у `docFile`, — чтобы страница не опознавала его
+   * по тексту сообщения, который меняется одной правкой формата.
+   */
+  flow: (id: string) => getWithToken<FlowPlayback>(`/routines/flows/${encodeURIComponent(id)}`, { refused: [404] }),
 
   agents: () => get<AgentCard[]>("/agents"),
   /** Витрина навыков: что агенты вообще умеют (R-SD-2). */

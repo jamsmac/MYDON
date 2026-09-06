@@ -1797,13 +1797,21 @@ article.doc .doc-img { color: var(--tx-3); font-style: italic; }
   border: 1px solid var(--line); border-radius: var(--r-s);
   font-family: var(--fm); font-size: 12px;
 }
-.ph.ok { border-color: var(--ok); }
-.ph.warn { border-color: var(--accent-tx); }
-.ph.fail { border-color: var(--err); }
+/* Состояние читаем ИЗ АТРИБУТА, а не из класса: `.warn` — глобальная утилита
+   цвета текста, и `.ph.warn` цеплял бы её заодно с рамкой фазы. Атрибут
+   `data-state` на клетке уже есть — его же проверяют тесты полосы. */
+.ph[data-state="ok"] { border-color: var(--ok); }
+.ph[data-state="warn"] { border-color: var(--accent-tx); }
+.ph[data-state="fail"] { border-color: var(--err); }
 /* «Не было» гаснет, но остаётся на месте: это ответ, а не поломка. */
-.ph.skip { opacity: 0.55; }
+.ph[data-state="skip"] { opacity: 0.55; }
 .ph .pt { margin: 5px 0 3px; color: var(--tx-3); font-variant-numeric: tabular-nums; }
 .ph .tt { color: var(--tx); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+/* Ссылка фазы («ждёт решения» → /inbox) обязана отличаться от обычного
+   заголовка: у ссылок панели `text-decoration: none`, и без пунктира клетка
+   выглядела бы одинаково кликабельной и некликабельной. */
+.ph a { text-decoration: underline dotted; text-underline-offset: 2px; }
+.ph a:hover { color: var(--accent); }
 .ph .note { margin-top: 4px; color: var(--tx-2); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
 /* На телефоне шесть колонок превращаются в шесть букв — ломаем на два ряда по три. */
 @media (max-width: 900px) { .flight { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
