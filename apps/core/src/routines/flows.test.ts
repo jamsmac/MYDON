@@ -1,0 +1,78 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { buildPhases, mergeContextless, type FlowContext } from "./flows";
+
+const run = {
+  id: "r1", agentName: "vendhub-ops", skill: "monitor-stock", trigger: "cron", cron: "0 8 * * *",
+  scheduledAt: new Date("2026-09-06T03:00:00.000Z"), requestKey: "k", traceKey: null, taskId: null, approvalId: null,
+  startedAt: new Date("2026-09-06T03:00:01.000Z"), finishedAt: new Date("2026-09-06T03:00:04.000Z"),
+  outcome: "skipped", skipReason: "no_signal", hook: null, reason: "повода нет", action: null, review: null, createdAt: new Date(),
+};
+const ctx0: FlowContext = { run, catalog: { executor: "code", tier: "T1" }, task: null, execution: null, approval: null, deliveries: [] };
+
+const names = (p: ReturnType<typeof buildPhases>) => p.map((x) => `${x.name}:${x.state}`);
+
+describe("buildPhases (R-R-5)", () => {
+  it("legacy skipped:no_signal — trigger ok, proposal skip с подписью словаря, остальное skip", () => {
+    const p = buildPhases(ctx0);
+    assert.deepEqual(names(p), ["trigger:ok", "skill:ok", "proposal:skip", "approval:skip", "execution:skip", "delivery:skip"]);
+    assert.match(p[0]!.title, /0 8 \* \* \*/);
+    assert.equal(p[2]!.note, "повода нет");
+    assert.match(p[1]!.title, /monitor-stock · code · T1/);
+  });
+
+  it("legacy executed без согласования — execution ok «выполнено напрямую», approval skip (T0/T1)", () => {
+    const p = buildPhases({ ...ctx0, run: { ...run, outcome: "executed", skipReason: null, action: "Курс обновлён" } });
+    assert.deepEqual(names(p), ["trigger:ok", "skill:ok", "proposal:ok", "approval:skip", "execution:ok", "delivery:skip"]);
+    assert.equal(p[2]!.title, "Курс обновлён");
+  });
+
+  it("task approval pending — approval warn со ссылкой /inbox, execution по статусу committed", () => {
+    const p = buildPhases({
+      ...ctx0,
+      run: { ...run, trigger: "task", taskId: "11111111-1111-4111-8111-111111111111", outcome: "approval_requested", skipReason: null, action: "Пополнить автомат 12" },
+      task: { id: "11111111-1111-4111-8111-111111111111", status: "todo" },
+      execution: { id: "e1", status: "committed", committedAt: new Date("2026-09-06T03:00:03.000Z"), abandonReason: null },
+      approval: { id: "a1", decision: "pending", decidedAt: null, tier: "T2", createdAt: new Date("2026-09-06T03:00:03.000Z") },
+      deliveries: [{ destination: "notion-report", status: "pending", lastError: null, completedAt: null }],
+    });
+    assert.deepEqual(names(p), ["trigger:ok", "skill:ok", "proposal:ok", "approval:warn", "execution:ok", "delivery:warn"]);
+    assert.equal(p[3]!.href, "/inbox");
+    assert.equal(p[4]!.href, "/tasks/11111111-1111-4111-8111-111111111111");
+  });
+
+  it("hook_blocked — proposal skip «хук quiet_hours: …»; failed — proposal fail", () => {
+    const h = buildPhases({ ...ctx0, run: { ...run, skipReason: "hook_blocked", hook: "quiet_hours", reason: "тихие часы 22:00–07:00" } });
+    assert.equal(h[2]!.state, "skip");
+    assert.match(h[2]!.note ?? "", /хук quiet_hours: тихие часы/);
+    const f = buildPhases({ ...ctx0, run: { ...run, outcome: "failed", skipReason: null, reason: "ECONNREFUSED" } });
+    assert.equal(f[2]!.state, "fail");
+    assert.equal(f[2]!.note, "ECONNREFUSED");
+  });
+
+  it("монитор — skill ok «системный монитор» без каталога; навык вне каталога — warn", () => {
+    const m = buildPhases({ ...ctx0, run: { ...run, agentName: "system", skill: "fx:refresh", outcome: "executed", skipReason: null }, catalog: null });
+    assert.equal(m[1]!.state, "ok");
+    assert.match(m[1]!.title, /системный монитор/);
+    const w = buildPhases({ ...ctx0, catalog: null });
+    assert.equal(w[1]!.state, "warn");
+  });
+
+  it("delivery: dead → fail с last_error; всё delivered → ok", () => {
+    const dead = buildPhases({ ...ctx0, deliveries: [{ destination: "notion-report", status: "dead", lastError: "401", completedAt: null }] });
+    assert.equal(dead[5]!.state, "fail");
+    assert.match(dead[5]!.note ?? "", /401/);
+    const ok = buildPhases({ ...ctx0, deliveries: [{ destination: "notion-report", status: "delivered", lastError: null, completedAt: new Date() }] });
+    assert.equal(ok[5]!.state, "ok");
+  });
+});
+
+describe("mergeContextless — лента событий и аудита по времени", () => {
+  it("сливает и сортирует по at", () => {
+    const rows = mergeContextless(
+      [{ at: "2026-09-06T03:00:02.000Z", type: "agent.run", payload: {} }],
+      [{ at: "2026-09-06T03:00:01.000Z", action: "task.claimed", actorRef: "vendhub-ops", target: "t" }],
+    );
+    assert.deepEqual(rows.map((r) => r.at), ["2026-09-06T03:00:01.000Z", "2026-09-06T03:00:02.000Z"]);
+  });
+});

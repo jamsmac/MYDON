@@ -53,7 +53,8 @@ function stubRuns(rows: AgentRunRow[] = []) {
       return { storedAt: "2026-09-06T03:00:00.000Z" };
     },
   };
-  return { controller: new RoutinesController(runs as never), calls };
+  // Доска и плейбэк в этих проверках не участвуют — контроллер их не трогает.
+  return { controller: new RoutinesController(runs as never, {} as never, {} as never), calls };
 }
 
 describe("GET /routines/runs — фильтры журнала", () => {
