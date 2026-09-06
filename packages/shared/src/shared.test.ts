@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { AUTONOMY_TIERS, DOMAINS, DOMAIN_LABELS, TZ, formatTashkent } from "./index";
+import { AUTONOMY_TIERS, DOMAINS, DOMAIN_LABELS, TZ, formatTashkent, isAutonomyTier } from "./index";
 
 describe("@mydon/shared", () => {
   it("часовой пояс проекта — Asia/Tashkent (правило ТЗ, включая cron)", () => {
@@ -18,6 +18,16 @@ describe("@mydon/shared", () => {
 
   it("уровни автономии агентов — от T0 до T4", () => {
     assert.deepEqual([...AUTONOMY_TIERS], ["T0", "T1", "T2", "T3", "T4"]);
+  });
+
+  it("чужое значение тиром не считается — иначе оно встанет «ниже T0»", () => {
+    // Порог системы приезжает строкой из настроек, и сравнение идёт по месту в
+    // AUTONOMY_TIERS: у незнакомого значения место -1, то есть строже T0.
+    assert.equal(isAutonomyTier("T0"), true);
+    assert.equal(isAutonomyTier("T4"), true);
+    assert.equal(isAutonomyTier("T9"), false);
+    assert.equal(isAutonomyTier(""), false);
+    assert.equal(isAutonomyTier(undefined), false);
   });
 
   it("форматирует время в ташкентском поясе независимо от системного", () => {

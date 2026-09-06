@@ -3,6 +3,7 @@ import "server-only";
 // `export type … from …` имени в модуле не заводит, поэтому они ещё и здесь.
 import type {
   AnalyticsWarning,
+  AutonomyTier,
   DeadStockReport,
   DenominationCounts,
   LlmLedgerMonitoring,
@@ -1220,7 +1221,8 @@ export interface AgentCard {
   description: string | null;
   mission: string | null;
   nonGoals: string[];
-  autonomyDefault: "T0" | "T1" | "T2" | "T3" | "T4";
+  /** Номинальный тир карточки. Действующий может быть ниже: его режет AGENT_AUTONOMY_MAX. */
+  autonomyDefault: AutonomyTier;
   skills: string[];
   schedule: { cron: string; skill: string }[];
   budgetPerDayUsd: string | null;
@@ -1288,7 +1290,7 @@ export interface SkillDeckItem {
   problems: string[];
   agentStatus: "active" | "paused" | "draft" | "deprecated";
   business: string;
-  autonomyDefault: "T0" | "T1" | "T2" | "T3" | "T4";
+  autonomyDefault: AutonomyTier;
   /** Навык закреплён за агентом в карточке — только такой запускается. */
   enabled: boolean;
   crons: string[];
@@ -3070,7 +3072,7 @@ export const core = {
    * тира, а не любая правка карточки. Панель слала тир общим patch'ем и писала
    * «Сохранено» — экран врал о самом чувствительном поле агента.
    */
-  setAgentAutonomy: (name: string, autonomyDefault: string, actor = "owner") =>
+  setAgentAutonomy: (name: string, autonomyDefault: AutonomyTier, actor = "owner") =>
     send<AgentCard>(`/agents/${encodeURIComponent(name)}/autonomy`, "PATCH", {
       autonomyDefault,
       actor,

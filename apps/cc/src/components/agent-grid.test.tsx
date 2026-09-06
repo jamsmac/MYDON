@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { SkipReason } from "@mydon/shared";
 import type { AgentStatusRow } from "../lib/core";
 import { AgentGrid } from "./agent-grid";
 
@@ -151,6 +155,79 @@ describe("Сетка агентов: плитка", () => {
       />,
     );
     expect(screen.getByText("работает").closest(".agtile")).not.toHaveAttribute("data-attention");
+  });
+});
+
+/*
+ * Затемнение паузы живёт в CSS, а jsdom стилей не применяет — поэтому сторожим
+ * сам файл. Иначе правку можно откатить в одну строку, и ни один тест не
+ * заметит, что причина снова гаснет вместе с плиткой.
+ */
+describe("Сетка агентов: затемнение паузы в globals.css", () => {
+  const css = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../app/globals.css"),
+    "utf8",
+  );
+
+  it("пауза гасит части плитки на 0.55 — и НЕ гасит текст причины", () => {
+    // Прецеденты файла — 0.55 (`.crons-table tr.is-paused`, `.ph[data-state="skip"]`,
+    // `.btn:disabled`), своего числа у плитки быть не должно. Гасить саму
+    // плитку нельзя: прозрачность применяется к отрисованной группе целиком, и
+    // причина — то самое объяснение, ради которого она печатается — гаснет
+    // вместе с ней, а дочерним `opacity: 1` это не отменяется.
+    expect(css).toMatch(/\.agtile\[data-state="paused"\][^{]*\{\s*opacity:\s*0\.55/);
+    expect(css).not.toMatch(/\.agtile\[data-state="paused"\]\s*\{/);
+    expect(css).not.toMatch(/\.agtile\[data-state="paused"\][^{]*\.agr[^{]*\{\s*opacity:\s*0\.\d/);
+  });
+});
+
+/*
+ * Р-1: в массиве ПОЛОМКА четыре причины, и каждая обязана быть закрыта своим
+ * прогоном — иначе удаление любой из них не уронит ни одного теста.
+ */
+describe("Сетка агентов: все причины поломки", () => {
+  const молчит = (skipReason: SkipReason, reason: string): AgentStatusRow =>
+    row({
+      name: `agent-${skipReason}`,
+      reason: `последний прогон пропущен — ${reason}`,
+      lastRun: {
+        at: "2026-09-06T03:00:00.000Z",
+        outcome: "skipped",
+        skipReason,
+        reason,
+      },
+    });
+
+  const поломки: [SkipReason, string][] = [
+    ["llm_failed", "модель не ответила"],
+    ["ledger_unavailable", "LLM-ledger недоступен"],
+    ["execution_unknown", "исход неизвестен"],
+    ["hook_blocked", "остановлено хуком"],
+  ];
+
+  it.each(поломки)("«%s» весит больше спокойного молчания", (skipReason, reason) => {
+    render(<AgentGrid rows={[молчит(skipReason, reason)]} paused={безПаузы} />);
+
+    const плитка = screen.getByText(`последний прогон пропущен — ${reason}`).closest(".agtile");
+    expect(плитка).toHaveAttribute("data-attention", "true");
+  });
+
+  const спокойные: [SkipReason, string][] = [
+    ["no_signal", "повода нет"],
+    ["no_change", "без изменений"],
+    ["capped", "потолок действий"],
+  ];
+
+  it.each(спокойные)("«%s» поломкой не считается — делать нечего", (skipReason, reason) => {
+    // Граница списка: если в ПОЛОМКА попадёт лишнее, полоса перестанет
+    // что-либо значить — ею будет отмечен каждый молчащий агент.
+    render(<AgentGrid rows={[молчит(skipReason, reason)]} paused={безПаузы} />);
+
+    const плитка = screen.getByText(`последний прогон пропущен — ${reason}`).closest(".agtile");
+    expect(плитка).not.toHaveAttribute("data-attention");
+    // И слово состояния остаётся обычным молчанием: спокойный пропуск не
+    // получает ни полосы, ни чужого веса.
+    expect(плитка).toHaveAttribute("data-state", "idle");
   });
 });
 

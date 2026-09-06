@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentCard } from "../lib/core";
-import { AgentEditor } from "./agent-editor";
+import { AgentEditor, type AutonomyMax } from "./agent-editor";
 import { NewAgentForm } from "./agent-new";
 
 const mocks = vi.hoisted(() => ({
@@ -26,6 +26,9 @@ vi.mock("../app/agents/actions", () => ({
   setAgentAutonomy: mocks.setAgentAutonomy,
   toggleAgent: mocks.toggleAgent,
 }));
+
+/** Порог прочитан и назван — обычный день. */
+const порог = (tier: string): AutonomyMax => ({ kind: "value", tier });
 
 const agent: AgentCard = {
   id: "agent-1",
@@ -76,7 +79,7 @@ describe("формы агентов", () => {
   it("сохраняет отредактированную конфигурацию при отказе API", async () => {
     mocks.saveAgent.mockResolvedValue({ ok: false, error: "Некорректный cron" });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+    render(<AgentEditor agent={agent} autonomyMax={порог("T0")} />);
 
     const mission = screen.getByLabelText("Зачем нужен (миссия)");
     await user.clear(mission);
@@ -93,7 +96,7 @@ describe("формы агентов", () => {
   it("страницы знаний (kbPages) редактируются и уходят в сохранение по одной на строку", async () => {
     mocks.saveAgent.mockResolvedValue({ ok: true });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+    render(<AgentEditor agent={agent} autonomyMax={порог("T0")} />);
 
     const kb = screen.getByLabelText(/Страницы знаний \(KB\)/);
     expect(kb).toHaveValue("shared/kb/globerent/heli-models.md");
@@ -108,7 +111,7 @@ describe("формы агентов", () => {
   it("показывает ошибку включения агента", async () => {
     mocks.toggleAgent.mockResolvedValue({ ok: false, error: "Расписания на паузе" });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+    render(<AgentEditor agent={agent} autonomyMax={порог("T0")} />);
 
     await user.click(screen.getByRole("button", { name: "Включить" }));
 
@@ -119,7 +122,7 @@ describe("формы агентов", () => {
   it("удаляет агента только после второго подтверждающего действия", async () => {
     mocks.deleteAgent.mockResolvedValue({ ok: true, goTo: "/agents" });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+    render(<AgentEditor agent={agent} autonomyMax={порог("T0")} />);
 
     await user.click(screen.getByRole("button", { name: "Удалить агента" }));
     expect(mocks.deleteAgent).not.toHaveBeenCalled();
@@ -143,7 +146,7 @@ describe("Самостоятельность агента", () => {
   it("селект зовёт действие автономии, а не общее сохранение карточки", async () => {
     mocks.setAgentAutonomy.mockResolvedValue({ ok: true });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+    render(<AgentEditor agent={agent} autonomyMax={порог("T0")} />);
 
     await user.selectOptions(screen.getByLabelText(/Самостоятельность/), "T3");
 
@@ -156,7 +159,7 @@ describe("Самостоятельность агента", () => {
   it("общее сохранение карточки тир вообще не отправляет", async () => {
     mocks.saveAgent.mockResolvedValue({ ok: true });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+    render(<AgentEditor agent={agent} autonomyMax={порог("T0")} />);
 
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
 
@@ -168,7 +171,7 @@ describe("Самостоятельность агента", () => {
   it("отказ Core возвращает селект к прежнему тиру — экран не обещает лишнего", async () => {
     mocks.setAgentAutonomy.mockResolvedValue({ ok: false, error: "нужен OWNER_ACTION_TOKEN" });
     const user = userEvent.setup();
-    render(<AgentEditor agent={agent} autonomyMax="T0" />);
+    render(<AgentEditor agent={agent} autonomyMax={порог("T0")} />);
 
     const select = screen.getByLabelText(/Самостоятельность/);
     await user.selectOptions(select, "T3");
@@ -179,15 +182,32 @@ describe("Самостоятельность агента", () => {
   });
 
   it("подсказка печатает ДЕЙСТВУЮЩИЙ порог системы, а не захардкоженный T0", async () => {
-    render(<AgentEditor agent={agent} autonomyMax="T2" />);
+    render(<AgentEditor agent={agent} autonomyMax={порог("T2")} />);
 
     expect(screen.getByText(/Общий порог системы сейчас T2/)).toBeVisible();
     expect(screen.queryByText(/порог системы сейчас T0/)).toBeNull();
   });
 
-  it("порог не прочитался — подсказка говорит это, а не называет число наугад", async () => {
-    render(<AgentEditor agent={agent} autonomyMax={null} />);
+  it("порог не прочитался — подсказка называет ПРИЧИНУ отказа, как остальные блоки", async () => {
+    // Единственный из шести блоков карточки, который отказ читал молча:
+    // `конфиг.error` выбрасывался, и владелец не знал, почему порога нет.
+    render(
+      <AgentEditor
+        agent={agent}
+        autonomyMax={{ kind: "unreadable", detail: "HTTP 500 на /system/config" }}
+      />,
+    );
 
     expect(screen.getByText(/порог системы прочитать не удалось/i)).toBeVisible();
+    expect(screen.getByText(/HTTP 500 на \/system\/config/)).toBeVisible();
+  });
+
+  it("ключа в настройках нет — подсказка говорит про ключ, а не про отказ чтения", async () => {
+    // «Ответ пришёл, ключа в нём нет» и «ответа не было вовсе» — разные вещи, и
+    // прежний общий `null` выдавал одно за другое.
+    render(<AgentEditor agent={agent} autonomyMax={{ kind: "missing" }} />);
+
+    expect(screen.getByText(/AGENT_AUTONOMY_MAX/)).toBeVisible();
+    expect(screen.queryByText(/прочитать не удалось/i)).toBeNull();
   });
 });

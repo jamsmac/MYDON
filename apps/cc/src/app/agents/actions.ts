@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { AutonomyTier } from "@mydon/shared";
 import { core, CoreUnavailable } from "../../lib/core";
 
 export interface ActionResult {
@@ -102,7 +103,7 @@ export async function saveAgent(name: string, form: FormData): Promise<ActionRes
  * правкой карточки. До этой волны панель слала тир туда и печатала
  * «Сохранено» над неизменённым значением.
  */
-export async function setAgentAutonomy(name: string, tier: string): Promise<ActionResult> {
+export async function setAgentAutonomy(name: string, tier: AutonomyTier): Promise<ActionResult> {
   try {
     await core.setAgentAutonomy(name, tier);
   } catch (err) {

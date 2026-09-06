@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AUTONOMY_TIERS, isAutonomyTier, type AutonomyTier } from "@mydon/shared";
 import {
   core,
   CoreUnavailable,
@@ -11,7 +12,7 @@ import {
   type SystemConfigItem,
 } from "../../../lib/core";
 import { CoreDown } from "../../../components/core-down";
-import { AgentEditor } from "../../../components/agent-editor";
+import { AgentEditor, type AutonomyMax } from "../../../components/agent-editor";
 import { STATE_LED, STATE_WORD } from "../../../components/agent-grid";
 import { Av8 } from "../../../components/av8";
 import { RunSkillButton } from "../../../components/run-skill-button";
@@ -172,13 +173,26 @@ function runHooks(agent: AgentCard): HookRow[] {
   ];
 }
 
+/**
+ * Действие журнала → слова владельца.
+ *
+ * Здесь ровно то, что под фильтром по актору РЕАЛЬНО приезжает для агента:
+ * четыре записи исполнения задач (`tasks.service.ts`) и запрос согласования.
+ *
+ * Убраны подписи, которые не приедут никогда, — они обещали блоку содержимое,
+ * которого в нём нет: `agent.create/update/archive` пишет владелец, правя
+ * карточку (`actorRef` = владелец, имя агента — в `target`), а
+ * `approval.approved/rejected` пишутся как решение ЧЕЛОВЕКА (`actorKind:
+ * "human"`, `target` = id запроса). Пока их подписи лежали здесь, четыре
+ * самых частых действия агента падали в фолбэк и печатались владельцу
+ * машинной строкой вида `task.agent_run.claimed`.
+ */
 const ACTION_LABEL: Record<string, string> = {
-  "agent.create": "заведён",
-  "agent.update": "изменены настройки",
-  "agent.archive": "удалён из работы",
+  "task.agent_run.claimed": "взял задачу в работу",
+  "task.agent_execution.blocked": "застрял: исполнение задачи остановлено",
+  "task.agent_run.action_capped": "упёрся в потолок действий — задача вернулась в очередь",
+  "task.agent_run.released": "отпустил задачу",
   "approval.request": "попросил разрешения",
-  "approval.approved": "получил одобрение",
-  "approval.rejected": "получил отказ",
 };
 
 /** Действие словами. У запуска навыка имя навыка стоит в `target`. */
@@ -194,13 +208,37 @@ function действие(e: AuditEntry): string {
 const памятьНавыка = (e: AgentMemoryEvent): string =>
   e.type.slice("agent.memory:".length) || e.type;
 
-/** Действующий общий порог автономии — из конфига, а не из константы (Р-7). */
-function autonomyMaxOf(items: SystemConfigItem[]): string | null {
-  const row = items.find((i) => i.key === "AGENT_AUTONOMY_MAX");
-  if (!row) return null;
+/**
+ * Действующий общий порог автономии — из конфига, а не из константы (Р-7).
+ *
+ * Три исхода вместо прежнего `null` на всё сразу: отказ чтения обязан назвать
+ * причину, как это делают остальные пять блоков карточки, а «ключа в ответе
+ * нет» — не то же самое, что «ответа не было». Раньше `конфиг.error`
+ * выбрасывался молча, и редактор одинаково молчал в обоих случаях.
+ */
+function autonomyMaxOf(конфиг: Прочитано<SystemConfigItem[]>): AutonomyMax {
+  if (конфиг.value === null) return { kind: "unreadable", detail: конфиг.error };
+  const row = конфиг.value.find((i) => i.key === "AGENT_AUTONOMY_MAX");
+  if (!row) return { kind: "missing" };
   // `effective` — действующее значение с учётом фолбэков ядра; его нет у
   // ключей без фолбэка, и тогда действует записанное.
-  return row.effective ?? row.value;
+  return { kind: "value", tier: row.effective ?? row.value };
+}
+
+/**
+ * Потолок системы, который РЕЖЕТ номинальный тир агента, — или `null`.
+ *
+ * Пилюля в шапке — самый крупный текст экрана, и до этой правки она называла
+ * номинальный тир действующим, хотя порог системы уже прочитан на этой же
+ * странице и способен пинить агента в T0.
+ *
+ * Молчим во всех случаях, где потолок неизвестен: не прочитан, ключа нет или в
+ * настройках лежит не тир. Объявить тир урезанным, не зная потолка, хуже, чем
+ * не сказать ничего. Сравниваем ПОРЯДКОМ по `AUTONOMY_TIERS`, а не строками.
+ */
+function потолокНиже(nominal: AutonomyTier, порог: AutonomyMax): AutonomyTier | null {
+  if (порог.kind !== "value" || !isAutonomyTier(порог.tier)) return null;
+  return AUTONOMY_TIERS.indexOf(порог.tier) < AUTONOMY_TIERS.indexOf(nominal) ? порог.tier : null;
 }
 
 export default async function AgentPage({ params }: { params: Promise<{ name: string }> }) {
@@ -228,6 +266,11 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
 
   const состояние = статус.value;
   const hooks = runHooks(agent);
+  const порог = autonomyMaxOf(конфиг);
+  // Потолок системы, если он режет номинальный тир: тогда шапка называет
+  // ДЕЙСТВУЮЩИЙ тир, а не тот, что записан в карточке.
+  const потолок = потолокНиже(agent.autonomyDefault, порог);
+  const действующийТир = потолок ?? agent.autonomyDefault;
   // Час рендера — только для подписи дня прогона («сегодня 08:00» против
   // «03.09 08:00»): голое время читалось бы как сегодняшнее.
   const now = new Date();
@@ -264,7 +307,14 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
             </div>
           )}
           <div className="tags">
-            <span className="pill">{TIER_LABEL[agent.autonomyDefault] ?? agent.autonomyDefault}</span>
+            <span className="pill">{TIER_LABEL[действующийТир] ?? действующийТир}</span>
+            {/* Отметка СЛОВАМИ и на экране, а не в `title`: подсказка при
+                наведении не читается взглядом и не существует на телефоне. */}
+            {потолок !== null && (
+              <span className="pill warn">
+                {`урезан потолком системы ${потолок} · в карточке ${agent.autonomyDefault}`}
+              </span>
+            )}
             <span className="pill num">
               {agent.skills.length} {plural(agent.skills.length, "навык", "навыка", "навыков")}
             </span>
@@ -419,6 +469,13 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
         <div className="section-title" id="agent-trail">
           Что делал
         </div>
+        {/* Блок называет своё содержимое честно: журнал сужен по актору, и
+            правок карточки здесь нет — их делал владелец, а не агент. Иначе
+            владелец будет искать тут след собственной смены тира. */}
+        <p className="hint">
+          Собственные действия агента и запуски его навыков. Правки карточки — тир, включение,
+          описание — делает владелец, и в этот список они не попадают.
+        </p>
         {журнал.error !== null ? (
           <p className="warn-text">{`Журнал действий не прочитался: ${журнал.error}`}</p>
         ) : журнал.value.length === 0 ? (
@@ -446,11 +503,7 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
           состояние (выбранный тир, подтверждение удаления), а при переходе с
           карточки на карточку React сохранил бы его на прежнем месте дерева, и
           селект показывал бы тир ПРОШЛОГО агента. */}
-      <AgentEditor
-        key={agent.name}
-        agent={agent}
-        autonomyMax={конфиг.value === null ? null : autonomyMaxOf(конфиг.value)}
-      />
+      <AgentEditor key={agent.name} agent={agent} autonomyMax={порог} />
     </>
   );
 }

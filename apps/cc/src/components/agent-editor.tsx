@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import type { AutonomyTier } from "@mydon/shared";
 import { deleteAgent, saveAgent, setAgentAutonomy, toggleAgent } from "../app/agents/actions";
 import type { AgentCard } from "../lib/core";
 
-const TIERS: { value: string; label: string }[] = [
+const TIERS: { value: AutonomyTier; label: string }[] = [
   { value: "T0", label: "T0 — только спрашивает" },
   { value: "T1", label: "T1 — предлагает, решаешь ты" },
   { value: "T2", label: "T2 — мелкое делает сам" },
@@ -22,15 +23,32 @@ const BUSINESSES = [
 ];
 
 /**
+ * Общий порог системы (`AGENT_AUTONOMY_MAX` из `GET /system/config`) глазами
+ * карточки — ТРИ разных случая, а не «значение или null».
+ *
+ * Прежний `null` смешивал «ответ пришёл, ключа в нём нет» и «ответа не было
+ * вовсе», а причину отказа карточка молча выбрасывала — единственный блок из
+ * шести, который отказывался объяснять себя. Отказ обязан назвать причину
+ * своими словами; отсутствие ключа — сказать про ключ. Не знаем — говорим
+ * прямо, а не выдаём одно за другое.
+ *
+ * `tier` — строка, а не `AutonomyTier`: в настройках лежит то, что записали, и
+ * подсказка честно печатает записанное. Сравнивать порядком можно только
+ * после `isAutonomyTier` (карточка агента, отметка «урезан потолком»).
+ */
+export type AutonomyMax =
+  | { kind: "value"; tier: string }
+  | { kind: "missing" }
+  | { kind: "unreadable"; detail: string };
+
+/**
  * Настройки агента.
  *
- * `autonomyMax` — ДЕЙСТВУЮЩИЙ общий порог системы (`AGENT_AUTONOMY_MAX` из
- * `GET /system/config`), а не константа: подсказка про порог была захардкожена
- * значением «T0» и соврала бы в тот же день, когда владелец порог поднимет
- * (дефект Р-7). `null` значит «прочитать не удалось» — и подсказка говорит
- * именно это, а не называет число наугад.
+ * `autonomyMax` — ДЕЙСТВУЮЩИЙ общий порог системы, а не константа: подсказка
+ * про порог была захардкожена значением «T0» и соврала бы в тот же день, когда
+ * владелец порог поднимет (дефект Р-7).
  */
-export function AgentEditor({ agent, autonomyMax }: { agent: AgentCard; autonomyMax: string | null }) {
+export function AgentEditor({ agent, autonomyMax }: { agent: AgentCard; autonomyMax: AutonomyMax }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -58,9 +76,9 @@ export function AgentEditor({ agent, autonomyMax }: { agent: AgentCard; autonomy
    * карточки Core это поле отбрасывает, и кнопка «Сохранить» рапортовала
    * «Сохранено» над неизменённым тиром.
    */
-  function onTier(next: string) {
+  function onTier(next: AutonomyTier) {
     const было = tier;
-    setTier(next as AgentCard["autonomyDefault"]);
+    setTier(next);
     start(async () => {
       const res = await setAgentAutonomy(agent.name, next);
       if (res.ok) {
@@ -107,7 +125,13 @@ export function AgentEditor({ agent, autonomyMax }: { agent: AgentCard; autonomy
           <select
             value={tier}
             disabled={pending}
-            onChange={(event) => onTier(event.target.value)}
+            // Тир берём из САМОГО списка, а не приводим типом: селект не умеет
+            // вернуть значение, которого не рисовал, и каст здесь был бы
+            // обещанием за Core — тир уезжает в owner-маршрут смены автономии.
+            onChange={(event) => {
+              const выбран = TIERS.find((t) => t.value === event.target.value);
+              if (выбран) onTier(выбран.value);
+            }}
           >
             {TIERS.map((t) => (
               <option key={t.value} value={t.value}>
@@ -116,11 +140,15 @@ export function AgentEditor({ agent, autonomyMax }: { agent: AgentCard; autonomy
             ))}
           </select>
           <small className="hint">
-            {autonomyMax === null
-              ? "Общий порог системы прочитать не удалось — что действует сейчас, видно в Системе."
-              : `Общий порог системы сейчас ${autonomyMax}${
-                  autonomyMax === "T0" ? " — что бы ни стояло здесь, агент только предлагает." : "."
-                }`}
+            {autonomyMax.kind === "unreadable"
+              ? `Общий порог системы прочитать не удалось: ${autonomyMax.detail}. Что действует сейчас — видно в Системе.`
+              : autonomyMax.kind === "missing"
+                ? "Общий порог системы Core не назвал: ключа AGENT_AUTONOMY_MAX в настройках нет. Какой порог действует, отсюда не видно — смотри Систему."
+                : `Общий порог системы сейчас ${autonomyMax.tier}${
+                    autonomyMax.tier === "T0"
+                      ? " — что бы ни стояло здесь, агент только предлагает."
+                      : "."
+                  }`}
           </small>
         </label>
         {/* Ответ — ВНЕ label: иначе он попадал бы в подпись самого селекта. */}

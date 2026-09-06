@@ -96,12 +96,13 @@ describe("Панель «Приложения»: «не оценить» не п
   it("не носит класс состояния «в порядке» — ни на лампе, ни на строке", async () => {
     render(await AppsPage());
     const лампа = screen.getByText("не оценить");
-    const ок = screen.getByText("не оценить")
-      .closest(".approw");
+    // Имя переменной называет то, что в ней лежит: это строка «не оценить»,
+    // а не «в порядке». Прежнее имя `ок` утверждало обратное содержимому.
+    const строкаНеОценить = screen.getByText("не оценить").closest(".approw");
     expect(лампа).toHaveClass("unknown");
     // `.idle` — зелёная лампа «всё в норме»: ноль прогонов ей не равен.
     expect(лампа).not.toHaveClass("idle");
-    expect(ок).toHaveAttribute("data-state", "unknown");
+    expect(строкаНеОценить).toHaveAttribute("data-state", "unknown");
   });
 
   it("«в порядке» остаётся своим классом — различие проверяется с обеих сторон", async () => {
@@ -110,6 +111,18 @@ describe("Панель «Приложения»: «не оценить» не п
     expect(лампы[0]).toHaveClass("idle");
     expect(лампы[0]).not.toHaveClass("unknown");
     expect(лампы[0].closest(".approw")).toHaveAttribute("data-state", "ok");
+  });
+
+  it("сломанный источник назван СЛОВОМ и несёт своё состояние строкой", async () => {
+    // Витрина заводит источник в состоянии `bad` с первого дня, но проверялись
+    // только `ok` и `unknown`: «сломано» могло тихо съехать в чужой класс —
+    // и поломка выглядела бы либо спокойствием, либо неизвестностью.
+    render(await AppsPage());
+    const лампа = screen.getByText("сломано");
+    expect(лампа).toHaveClass("blocked");
+    expect(лампа).not.toHaveClass("idle");
+    expect(лампа).not.toHaveClass("unknown");
+    expect(лампа.closest(".approw")).toHaveAttribute("data-state", "bad");
   });
 
   it("строка ведёт на экран, где источник чинят", async () => {
