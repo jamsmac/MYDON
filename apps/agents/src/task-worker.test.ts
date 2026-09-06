@@ -4,7 +4,13 @@ import type { AgentsCoreClient, AgentTaskInvocation } from "./core-client";
 import { clearLlmSkills, registerLlmSkills } from "./llm-skill";
 import type { AgentDefinition } from "./registry";
 import type { SkillMeta } from "./skill-loader";
-import { requiredChatStep, resolveTaskSkill, runAgentTasks } from "./task-worker";
+import {
+  cronFromDescription,
+  requiredChatStep,
+  resolveTaskSkill,
+  runAgentTasks,
+  triggerFromTaskSource,
+} from "./task-worker";
 
 const agent: AgentDefinition = {
   name: "coach-agent",
@@ -128,5 +134,29 @@ describe("resolveTaskSkill — явный навык побеждает угад
     assert.deepEqual(resolveTaskSkill(other, { taskInput: { title: "Полей цветы" } }), {
       skill: null,
     });
+  });
+});
+
+describe("Журнал прогона задачи (волна R)", () => {
+  it("плановый тик — cron, дека — manual, поручение владельца — task", () => {
+    assert.equal(triggerFromTaskSource("agent-schedule"), "cron");
+    assert.equal(triggerFromTaskSource("skills-deck"), "manual");
+    assert.equal(triggerFromTaskSource("owner"), "task");
+    assert.equal(triggerFromTaskSource(null), "task");
+    assert.equal(triggerFromTaskSource(undefined), "task");
+  });
+
+  it("расписание берётся из описания, которое пишет Core плановой задаче", () => {
+    // Ровно тот текст, что кладёт `agentScheduleIdentity` в Core.
+    assert.equal(
+      cronFromDescription("Системный запуск навыка monitor-stock.\nCron: 0 8 * * *"),
+      "0 8 * * *",
+    );
+  });
+
+  it("описания нет или строки Cron в нём нет — undefined, а не пустая строка", () => {
+    assert.equal(cronFromDescription(undefined), undefined);
+    assert.equal(cronFromDescription("Проверь остатки на Olma"), undefined);
+    assert.equal(cronFromDescription("Cron: "), undefined);
   });
 });

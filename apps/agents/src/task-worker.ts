@@ -1,7 +1,8 @@
-import { LlmLedgerUnavailableError, type AutonomyTier } from "@mydon/shared";
+import { LlmLedgerUnavailableError, type AutonomyTier, type RunTrigger } from "@mydon/shared";
 import type { AgentsCoreClient, AgentTaskClaim, AgentTaskInvocation } from "./core-client";
 import { isLlmSkill, llmSkillFeature, llmSkillTriggers } from "./llm-skill";
 import type { AgentDefinition } from "./registry";
+import { journalFromRunResult, reportRun, type RunFrame, type RunLike } from "./run-journal";
 import { runSkill } from "./runner";
 import { hasSkill } from "./skills";
 import { TaskLlmSession } from "./task-llm-session";
@@ -35,6 +36,38 @@ export interface RunAgentTasksOptions {
 
 /** Заведомо меньше 15-минутного stale lease Core. */
 export const AGENT_RUN_HEARTBEAT_MS = 60_000;
+
+/** Источник задачи, которую Core завёл из планового тика крона. */
+const AGENT_SCHEDULE_SOURCE = "agent-schedule";
+/** Источник задачи, которую владелец запустил руками из деки навыков. */
+const SKILLS_DECK_SOURCE = "skills-deck";
+
+/**
+ * Кто запустил задачу — в терминах журнала прогонов (ruling волны R).
+ *
+ * Задача из `agent-schedule` — это ПЛАНОВОЕ срабатывание, просто исполненное
+ * durable-путём вместо in-process: в доске она обязана стоять рядом со своим
+ * расписанием, а не в общей куче поручений. Запуск из деки — воля владельца
+ * здесь и сейчас (`manual`), всё остальное — обычная порученная задача.
+ */
+export function triggerFromTaskSource(source?: string | null): RunTrigger {
+  if (source === AGENT_SCHEDULE_SOURCE) return "cron";
+  if (source === SKILLS_DECK_SOURCE) return "manual";
+  return "task";
+}
+
+/**
+ * Расписание планового запуска из описания задачи.
+ *
+ * Core пишет его строкой «Cron: <выражение>» (см. `agentScheduleIdentity`), и
+ * это единственный способ узнать расписание на стороне worker: в списке задач
+ * его нет. Без него запись журнала повисла бы без задания.
+ */
+export function cronFromDescription(description?: string): string | undefined {
+  const match = /^Cron: (.+)$/m.exec(description ?? "");
+  const cron = match?.[1]?.trim();
+  return cron ? cron : undefined;
+}
 
 /** В плане ровно один metered chat-шаг с этим ключом и непустой цепочкой моделей. */
 function hasChatStep(plan: TaskLlmWorkflowPlan, stepKey: string): boolean {
@@ -181,6 +214,33 @@ export async function runAgentTasks(
     const runId = claim.runId;
     const executionAttemptId = claim.executionAttemptId;
     let leaseLost = false;
+    // ── Журнал прогона (волна R) ─────────────────────────────────────────────
+    // Кадр собираем ДО try: сорвавшийся прогон обязан попасть в журнал тем же
+    // ключом, что и удавшийся, иначе доска показала бы две разные строки.
+    const trigger = triggerFromTaskSource(t.source);
+    const cron = cronFromDescription(claim.taskInput.description);
+    // Плановое время тика. Мусорная дата дала бы RangeError на toISOString —
+    // наблюдение уронило бы задачу, ради которой оно и ведётся.
+    const due = t.due ? new Date(t.due) : null;
+    const scheduledAt = due !== null && Number.isFinite(due.getTime()) ? due : undefined;
+    // executionAttemptId рождает Core один раз и переживает stale takeover.
+    // Новый lease не даёт второй metered dispatch; новую денежную
+    // попытку создаёт только явный redo/переназначение владельца.
+    const requestKey = `task:${t.id}:execution:${executionAttemptId}`;
+    const startedAt = new Date();
+    // Навык известен только после resolve; до него журнал честно пишет «?»,
+    // а не чужое имя.
+    let journalSkill: string | undefined;
+    const frame = (extra: Partial<RunFrame> = {}): RunFrame => ({
+      trigger,
+      ...(cron !== undefined ? { cron } : {}),
+      ...(scheduledAt !== undefined ? { scheduledAt } : {}),
+      requestKey,
+      taskId: t.id,
+      startedAt,
+      finishedAt: new Date(),
+      ...extra,
+    });
     let heartbeatRequest: Promise<boolean> | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -231,6 +291,7 @@ export async function runAgentTasks(
       const resolved =
         durableSkill !== undefined ? { skill: durableSkill } : resolveTaskSkill(agent, claim);
       const skill = resolved.skill;
+      journalSkill = skill ?? undefined;
       if (skill === null) {
         // Честный отказ пишем в durable block самой задачи.
         // Отдельный comment здесь неидемпотентен: потеря ответа
@@ -347,11 +408,9 @@ export async function runAgentTasks(
 
       const traceKey = `task:${t.id}:${agent.name}:${skill}`;
       const run = await runSkill(agent, skill, core, threshold, skillFloors?.get(skill), {
-        // executionAttemptId рождает Core один раз и переживает stale takeover.
-        // Новый lease не даёт второй metered dispatch; новую денежную
-        // попытку создаёт только явный redo/переназначение владельца.
-        requestKey: `task:${t.id}:execution:${executionAttemptId}`,
+        requestKey,
         traceKey,
+        trigger,
         assertLease,
         taskInput: claim.taskInput,
         task: {
@@ -406,6 +465,13 @@ export async function runAgentTasks(
             : {}),
         });
 
+        // Журнал — ПОСЛЕ commit: до него исход не окончателен (Core мог упереться
+        // в потолок или заблокировать выполнение). Согласование создаёт Core, и
+        // его id знает только ответ commit — из `run` он в task-режиме не придёт.
+        const outcomeRun: RunLike =
+          committed.approvalId !== undefined ? { ...run, approvalId: committed.approvalId } : run;
+        await reportRun(core, journalFromRunResult(outcomeRun, frame({ traceKey })));
+
         if (committed.status === "capped") {
           // Core already atomically released the run and scheduled the retry;
           // a second release here could race a fresh generation.
@@ -458,9 +524,11 @@ export async function runAgentTasks(
         releaseReason,
         run.reason.slice(0, 1000),
       );
+      await reportRun(core, journalFromRunResult(run, frame({ traceKey })));
       results.push({ taskId: t.id, outcome: "skipped", note: run.reason });
     } catch (error) {
       if (leaseLost) {
+        // Прогон был не наш — чужую работу в журнал не пишем.
         results.push({
           taskId: t.id,
           outcome: "skipped",
@@ -468,6 +536,16 @@ export async function runAgentTasks(
         });
         continue;
       }
+      await reportRun(
+        core,
+        journalFromRunResult(
+          error instanceof Error ? error : new Error(String(error)),
+          frame({
+            agentName: agent.name,
+            ...(journalSkill !== undefined ? { skill: journalSkill } : {}),
+          }),
+        ),
+      );
       throw error;
     } finally {
       if (heartbeatTimer !== null) clearInterval(heartbeatTimer);

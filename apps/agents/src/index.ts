@@ -10,6 +10,7 @@ import { embeddingPosture } from "./embedding";
 import { runGloberentMonitor } from "./globerent-monitor";
 import { drainLlmSettlementOutboxFromEnv } from "./llm-ledger";
 import { llmPosture, modelGatewayFromEnv } from "./model-gateway";
+import { journaledMonitor } from "./monitors";
 import { drainNotionOutbox } from "./outbox-dispatcher";
 import { autonomyThreshold } from "./policy";
 import {
@@ -22,8 +23,10 @@ import { runOurvendAccounting } from "./ourvend-accounting";
 import { ourvendConfigFromEnv, runOurvendSync } from "./ourvend-sync";
 import { isLlmSkill, registerLlmSkills } from "./llm-skill";
 import { isKbPagePath, loadAgents, type AgentDefinition } from "./registry";
+import { journalFromRunResult, reportRun } from "./run-journal";
 import { runSkill } from "./runner";
 import { desiredJobs, jobKey, llmCronAdmitted, scheduledInvocationMode } from "./schedule";
+import { buildScheduleSnapshot, type MonitorState } from "./schedule-snapshot";
 import { ScheduledOccurrenceRetryQueue } from "./scheduled-occurrence-queue";
 import { catalogFromMetas } from "./skill-catalog";
 import { loadSkillMeta, skillTierFloors } from "./skill-loader";
@@ -316,6 +319,10 @@ async function main(): Promise<void> {
   // новые — заводим. Раньше набор считался ОДИН раз, и правки владельца в
   // карточке (пауза агента, новое расписание) не действовали до перезапуска.
   const cronJobs = new Map<string, Cron>();
+  // Состояния шести мониторов рантайма. Заполняются ниже, при их заведении, и
+  // едут в снимок: панель обязана отличать «монитор выключен владельцем» от
+  // «монитор молчит, потому что нет учётки».
+  const monitorStates: MonitorState[] = [];
   const pendingScheduledOccurrences = new ScheduledOccurrenceRetryQueue();
   let lastNotWired = "";
   // Wired after pollers are created. A cron fire before then is still durable
@@ -374,6 +381,22 @@ async function main(): Promise<void> {
             if (schedulesPaused()) return;
             const current = agents.find((a) => a.name === j.agent && a.status === "active");
             if (!current) return; // агента отключили — расписание догаснет на след. перечитке
+            // Ключи и время старта — ДО try: журнал сбоя обязан назвать тот же
+            // прогон, что журнал успеха. Иначе плановый тик и его провал стали
+            // бы в доске двумя разными строками (Р-1).
+            const traceKey = `cron:${j.agent}:${j.skill}:${j.cron}`;
+            // Одновременный дубль одного планового тика получает тот же
+            // ключ; ledger replay не даст второму процессу вызвать API.
+            const requestKey = `${traceKey}:${occurrence.toISOString()}`;
+            const startedAt = new Date();
+            const frame = {
+              trigger: "cron" as const,
+              cron: j.cron,
+              scheduledAt: occurrence,
+              requestKey,
+              traceKey,
+              startedAt,
+            };
             try {
               const mode = scheduledInvocationMode(
                 j.skill,
@@ -381,11 +404,12 @@ async function main(): Promise<void> {
                 isLlmSkill,
               );
               if (mode === "durable-task") {
+                // Журнал здесь НЕ пишем: прогона ещё не было, его выполнит и
+                // запишет worker, когда возьмёт материализованную задачу.
                 pendingScheduledOccurrences.enqueue(j, occurrence);
                 triggerScheduledOccurrenceFlush();
                 return;
               }
-              const traceKey = `cron:${j.agent}:${j.skill}:${j.cron}`;
               const result = await runSkill(
                 current,
                 j.skill,
@@ -393,15 +417,27 @@ async function main(): Promise<void> {
                 threshold,
                 skillFloors.get(j.skill),
                 {
-                  // Одновременный дубль одного планового тика получает тот же
-                  // ключ; ledger replay не даст второму процессу вызвать API.
-                  requestKey: `${traceKey}:${occurrence.toISOString()}`,
+                  requestKey,
                   traceKey,
+                  trigger: "cron",
                 },
               );
               console.log(`[${result.agent}/${result.skill}] ${result.outcome} — ${result.reason}`);
+              await reportRun(
+                core,
+                journalFromRunResult(result, { ...frame, finishedAt: new Date() }),
+              );
             } catch (err) {
               console.error(`[${j.agent}/${j.skill}] сбой:`, err);
+              await reportRun(
+                core,
+                journalFromRunResult(err instanceof Error ? err : new Error(String(err)), {
+                  ...frame,
+                  agentName: j.agent,
+                  skill: j.skill,
+                  finishedAt: new Date(),
+                }),
+              );
             }
           })();
         });
@@ -428,6 +464,61 @@ async function main(): Promise<void> {
     if (nw !== lastNotWired) {
       lastNotWired = nw;
       if (nw.length > 0) console.log(`Навыки без реализации (не планируются): ${nw}.`);
+    }
+
+    queueScheduleSnapshot();
+  }
+
+  /**
+   * Запись снимка в фоне, строго по очереди.
+   *
+   * Два независимых вызова (перечитка расписаний и заведение мониторов) ушли бы
+   * по разным соединениям, и более ранний снимок мог бы лечь в базу ПОСЛЕ более
+   * позднего — панель навсегда осталась бы без мониторов. `pushScheduleSnapshot`
+   * не отвергается (всё тело под try), поэтому цепочка не рвётся.
+   */
+  let snapshotWrites: Promise<void> = Promise.resolve();
+  function queueScheduleSnapshot(): void {
+    snapshotWrites = snapshotWrites.then(pushScheduleSnapshot);
+  }
+
+  /**
+   * Снимок расписаний в Core (Р-2): что рантайм реально планирует прямо сейчас.
+   *
+   * Набор заданий берём из `desiredJobs` ЗАНОВО, а не из живых `cronJobs`:
+   * на паузе живых заданий нет, но владелец обязан видеть, ЧТО именно стоит
+   * на паузе, — пустая доска выглядела бы как «расписаний не осталось».
+   *
+   * Весь расчёт под try: `scheduledInvocationMode` бросает на metered-навыке без
+   * allowlist, а бросок из фоновой записи был бы unhandled rejection —
+   * наблюдение уронило бы рантайм, который наблюдает.
+   */
+  async function pushScheduleSnapshot(): Promise<void> {
+    try {
+      const { jobs, notWired } = desiredJobs(
+        agents,
+        (s) => hasCodeSkill(s) || (isLlmSkill(s) && llmCronAdmitted(modelGatewayFromEnv())),
+      );
+      const snapshot = buildScheduleSnapshot({
+        now: new Date(),
+        jobs,
+        notWired,
+        isLlmSkill,
+        modeOf: (skill) =>
+          scheduledInvocationMode(
+            skill,
+            () => buildTaskLlmWorkflowPlan(skill).steps.length > 0,
+            isLlmSkill,
+          ),
+        monitors: monitorStates,
+        paused: { schedules: schedulesPaused(), tasks: tasksPaused() },
+      });
+      await core.putScheduleSnapshot(snapshot);
+    } catch (err) {
+      console.warn(
+        "[snapshot] расписания не записаны в Core:",
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
@@ -602,45 +693,62 @@ async function main(): Promise<void> {
   const vendingCron = process.env.OURVEND_SYNC_CRON ?? "0 */3 * * *";
   if (vendingConfig && vendingCron.toLowerCase() !== "off") {
     try {
-      new Cron(vendingCron, { timezone: TZ, name: "ourvend:sync" }, () => {
-        void (async () => {
-          try {
-            const r = await runOurvendSync(core, vendingConfig);
-            // Итог детектора заливок — в ту же строку: без него из журнала
-            // крона не видно, отработал ли он вообще, и «заливок не было» не
-            // отличить от «детектор молчал».
-            const детектор =
-              r.detect === undefined
-                ? ""
-                : r.detect === "failed"
-                  ? ", детектор: сбой"
-                  : `, заливок ${r.detect.events} (подтверждено ${r.detect.matched})`;
-            const итог =
-              `[ourvend:sync] ${r.status} — автоматов ${r.machinesOk}/${r.machinesTotal}, слотов ${r.slots}, продаж ${r.productSales}${детектор}, ${r.durationMs} мс` +
-              (r.error ? ` — ${r.error}` : "");
-            // Журнал прогона НЕ закрылся (finish упал даже после повтора):
-            // запись сбора висит «running», сторож застоя её не увидит. НЕ
-            // рапортуем чистый успех — отдельная error-строка, чтобы застревание
-            // было видно в логе крона, а не только во внутреннем error-логе finish.
-            if (r.journalError) {
-              console.error(`${итог} — ЖУРНАЛ НЕ ЗАКРЫТ («running»): ${r.journalError}`);
-            } else {
-              console.log(итог);
-            }
-          } catch (err) {
-            console.error("[ourvend:sync] сбой:", err);
-          }
-        })();
+      const sync = journaledMonitor("ourvend:sync", vendingCron, core, async () => {
+        const r = await runOurvendSync(core, vendingConfig);
+        // Итог детектора заливок — в ту же строку: без него из журнала
+        // крона не видно, отработал ли он вообще, и «заливок не было» не
+        // отличить от «детектор молчал».
+        const детектор =
+          r.detect === undefined
+            ? ""
+            : r.detect === "failed"
+              ? ", детектор: сбой"
+              : `, заливок ${r.detect.events} (подтверждено ${r.detect.matched})`;
+        const итог =
+          `[ourvend:sync] ${r.status} — автоматов ${r.machinesOk}/${r.machinesTotal}, слотов ${r.slots}, продаж ${r.productSales}${детектор}, ${r.durationMs} мс` +
+          (r.error ? ` — ${r.error}` : "");
+        // Журнал прогона НЕ закрылся (finish упал даже после повтора):
+        // запись сбора висит «running», сторож застоя её не увидит. НЕ
+        // рапортуем чистый успех — отдельная error-строка, чтобы застревание
+        // было видно в логе крона, а не только во внутреннем error-логе finish.
+        // Ту же строку отдаём причиной прогона: исход остаётся `executed` —
+        // сбор состоялся, не закрылся только его собственный журнал.
+        if (r.journalError) {
+          const застряло = `${итог} — ЖУРНАЛ НЕ ЗАКРЫТ («running»): ${r.journalError}`;
+          console.error(застряло);
+          return застряло;
+        }
+        return итог;
       });
+      new Cron(vendingCron, { timezone: TZ, name: "ourvend:sync" }, (self) => {
+        void sync(self.currentRun() ?? new Date());
+      });
+      monitorStates.push({ name: "ourvend:sync", cron: vendingCron, enabled: true });
       console.log(`Сбор вендинга (ourvend:sync) включён: "${vendingCron}" (${TZ}).`);
     } catch (err) {
+      // Расписание не принято — монитор не крутится. Для панели это то же
+      // «не работает», что и явное выключение; сама строка cron видна рядом.
+      monitorStates.push({
+        name: "ourvend:sync",
+        cron: vendingCron,
+        enabled: false,
+        reason: "off",
+      });
       console.warn(
         `Расписание сбора вендинга "${vendingCron}" не принято: ` +
           (err instanceof Error ? err.message : String(err)),
       );
     }
-  } else if (!vendingConfig) {
-    console.log("Сбор вендинга выключен: не заданы OURVEND_ACCOUNT/OURVEND_PASSWORD.");
+  } else {
+    monitorStates.push({
+      name: "ourvend:sync",
+      cron: vendingCron,
+      enabled: false,
+      reason: vendingConfig ? "off" : "no_credentials",
+    });
+    if (!vendingConfig) {
+      console.log("Сбор вендинга выключен: не заданы OURVEND_ACCOUNT/OURVEND_PASSWORD.");
+    }
   }
 
   // Учётный снапшот OurVend (ourvend:accounting, П2 поглощения mydon-stock):
@@ -650,29 +758,40 @@ async function main(): Promise<void> {
   const accountingCron = process.env.OURVEND_ACCOUNTING_CRON || "5 8 * * *";
   if (vendingConfig && accountingCron.toLowerCase() !== "off") {
     try {
-      new Cron(accountingCron, { timezone: TZ, name: "ourvend:accounting" }, () => {
-        void (async () => {
-          try {
-            const r = await runOurvendAccounting(core, vendingConfig);
-            console.log(
-              `[ourvend:accounting] ${r.status} — автоматов ${r.machinesOk}/${r.machinesTotal}, ` +
-                `дней продаж ${r.saleDays} (строк ${r.saleRows}), остатков ${r.stockRows}, ${r.durationMs} мс` +
-                (r.error ? ` — ${r.error}` : ""),
-            );
-          } catch (err) {
-            console.error("[ourvend:accounting] сбой:", err);
-          }
-        })();
+      const accounting = journaledMonitor("ourvend:accounting", accountingCron, core, async () => {
+        const r = await runOurvendAccounting(core, vendingConfig);
+        return (
+          `[ourvend:accounting] ${r.status} — автоматов ${r.machinesOk}/${r.machinesTotal}, ` +
+          `дней продаж ${r.saleDays} (строк ${r.saleRows}), остатков ${r.stockRows}, ${r.durationMs} мс` +
+          (r.error ? ` — ${r.error}` : "")
+        );
       });
+      new Cron(accountingCron, { timezone: TZ, name: "ourvend:accounting" }, (self) => {
+        void accounting(self.currentRun() ?? new Date());
+      });
+      monitorStates.push({ name: "ourvend:accounting", cron: accountingCron, enabled: true });
       console.log(
         `Учётный снапшот OurVend (ourvend:accounting) включён: "${accountingCron}" (${TZ}).`,
       );
     } catch (err) {
+      monitorStates.push({
+        name: "ourvend:accounting",
+        cron: accountingCron,
+        enabled: false,
+        reason: "off",
+      });
       console.warn(
         `Расписание учётного снапшота "${accountingCron}" не принято: ` +
           (err instanceof Error ? err.message : String(err)),
       );
     }
+  } else {
+    monitorStates.push({
+      name: "ourvend:accounting",
+      cron: accountingCron,
+      enabled: false,
+      reason: vendingConfig ? "off" : "no_credentials",
+    });
   }
 
   // Мониторинг кофе-бункеров (monitor-coffee-bunkers, T0): не требует внешней
@@ -681,28 +800,39 @@ async function main(): Promise<void> {
   const coffeeMonitorCron = process.env.COFFEE_MONITOR_CRON ?? "0 7 * * *";
   if (coffeeMonitorCron.toLowerCase() !== "off") {
     try {
-      new Cron(coffeeMonitorCron, { timezone: TZ, name: "coffee:monitor" }, () => {
-        void (async () => {
-          try {
-            const r = await runCoffeeMonitor(core);
-            console.log(
-              `[coffee:monitor] недолив ${r.underfillEvents}, расхождение ${r.anomalyEvents}` +
-                (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : ""),
-            );
-          } catch (err) {
-            console.error("[coffee:monitor] сбой:", err);
-          }
-        })();
+      const coffee = journaledMonitor("coffee:monitor", coffeeMonitorCron, core, async () => {
+        const r = await runCoffeeMonitor(core);
+        return (
+          `[coffee:monitor] недолив ${r.underfillEvents}, расхождение ${r.anomalyEvents}` +
+          (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : "")
+        );
       });
+      new Cron(coffeeMonitorCron, { timezone: TZ, name: "coffee:monitor" }, (self) => {
+        void coffee(self.currentRun() ?? new Date());
+      });
+      monitorStates.push({ name: "coffee:monitor", cron: coffeeMonitorCron, enabled: true });
       console.log(
         `Мониторинг кофе-бункеров (coffee:monitor) включён: "${coffeeMonitorCron}" (${TZ}).`,
       );
     } catch (err) {
+      monitorStates.push({
+        name: "coffee:monitor",
+        cron: coffeeMonitorCron,
+        enabled: false,
+        reason: "off",
+      });
       console.warn(
         `Расписание мониторинга кофе-бункеров "${coffeeMonitorCron}" не принято: ` +
           (err instanceof Error ? err.message : String(err)),
       );
     }
+  } else {
+    monitorStates.push({
+      name: "coffee:monitor",
+      cron: coffeeMonitorCron,
+      enabled: false,
+      reason: "off",
+    });
   }
 
   // Монитор инвариантов конвейера GLOBERENT (T0, наследник pipeline-monitor
@@ -714,51 +844,73 @@ async function main(): Promise<void> {
   const maintCron = process.env.MAINTENANCE_MONITOR_CRON ?? "0 6 * * *";
   if (maintCron.toLowerCase() !== "off") {
     try {
-      new Cron(maintCron, { timezone: TZ, name: "maintenance:monitor" }, () => {
-        void (async () => {
-          try {
-            const r = await runMaintenanceMonitor(core);
-            console.log(
-              `[maintenance:monitor] задач ${r.tasks}, просрочек ${r.overdue}, невзятых ${r.unclaimed}` +
-                (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : ""),
-            );
-          } catch (err) {
-            console.error("[maintenance:monitor] сбой:", err);
-          }
-        })();
+      const maintenance = journaledMonitor("maintenance:monitor", maintCron, core, async () => {
+        const r = await runMaintenanceMonitor(core);
+        return (
+          `[maintenance:monitor] задач ${r.tasks}, просрочек ${r.overdue}, невзятых ${r.unclaimed}` +
+          (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : "")
+        );
       });
+      new Cron(maintCron, { timezone: TZ, name: "maintenance:monitor" }, (self) => {
+        void maintenance(self.currentRun() ?? new Date());
+      });
+      monitorStates.push({ name: "maintenance:monitor", cron: maintCron, enabled: true });
       console.log(`Монитор графиков обслуживания: ${maintCron} (${TZ}).`);
     } catch (err) {
+      monitorStates.push({
+        name: "maintenance:monitor",
+        cron: maintCron,
+        enabled: false,
+        reason: "off",
+      });
       console.error(`Расписание монитора графиков не принято (${maintCron}):`, err);
     }
+  } else {
+    monitorStates.push({
+      name: "maintenance:monitor",
+      cron: maintCron,
+      enabled: false,
+      reason: "off",
+    });
   }
 
   // выключает явно.
   const grMonitorCron = process.env.GLOBERENT_MONITOR_CRON ?? "10 7 * * *";
   if (grMonitorCron.toLowerCase() !== "off") {
     try {
-      new Cron(grMonitorCron, { timezone: TZ, name: "globerent:monitor" }, () => {
-        void (async () => {
-          try {
-            const r = await runGloberentMonitor(core);
-            console.log(
-              `[globerent:monitor] без ГТД ${r.unitsNoGtd}, оплачен-не-закрыт ${r.contractsPaidUnclosed}` +
-                (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : ""),
-            );
-          } catch (err) {
-            console.error("[globerent:monitor] сбой:", err);
-          }
-        })();
+      const globerent = journaledMonitor("globerent:monitor", grMonitorCron, core, async () => {
+        const r = await runGloberentMonitor(core);
+        return (
+          `[globerent:monitor] без ГТД ${r.unitsNoGtd}, оплачен-не-закрыт ${r.contractsPaidUnclosed}` +
+          (r.errors.length ? ` — ошибки: ${r.errors.join("; ")}` : "")
+        );
       });
+      new Cron(grMonitorCron, { timezone: TZ, name: "globerent:monitor" }, (self) => {
+        void globerent(self.currentRun() ?? new Date());
+      });
+      monitorStates.push({ name: "globerent:monitor", cron: grMonitorCron, enabled: true });
       console.log(
         `Монитор конвейера GLOBERENT (globerent:monitor) включён: "${grMonitorCron}" (${TZ}).`,
       );
     } catch (err) {
+      monitorStates.push({
+        name: "globerent:monitor",
+        cron: grMonitorCron,
+        enabled: false,
+        reason: "off",
+      });
       console.warn(
         `Расписание монитора GLOBERENT "${grMonitorCron}" не принято: ` +
           (err instanceof Error ? err.message : String(err)),
       );
     }
+  } else {
+    monitorStates.push({
+      name: "globerent:monitor",
+      cron: grMonitorCron,
+      enabled: false,
+      reason: "off",
+    });
   }
 
   // Автокурс ЦБ РУз (fx:refresh): раз в день дёргаем Core, тот сам ходит в
@@ -768,28 +920,38 @@ async function main(): Promise<void> {
   const fxRefreshCron = process.env.FX_REFRESH_CRON ?? "5 9 * * *";
   if (fxRefreshCron.toLowerCase() !== "off") {
     try {
-      new Cron(fxRefreshCron, { timezone: TZ, name: "fx:refresh" }, () => {
-        void (async () => {
-          try {
-            const r = await core.refreshFx();
-            const skipped = r.skipped.map((s) => `${s.currency} — ${s.reason}`).join(", ");
-            console.log(
-              `[fx:refresh] обновлено: ${r.updated.join(", ") || "ничего"}` +
-                (skipped ? `; пропущено: ${skipped}` : ""),
-            );
-          } catch (err) {
-            console.error("[fx:refresh] сбой:", err);
-          }
-        })();
+      const fx = journaledMonitor("fx:refresh", fxRefreshCron, core, async () => {
+        const r = await core.refreshFx();
+        const skipped = r.skipped.map((s) => `${s.currency} — ${s.reason}`).join(", ");
+        return (
+          `[fx:refresh] обновлено: ${r.updated.join(", ") || "ничего"}` +
+          (skipped ? `; пропущено: ${skipped}` : "")
+        );
       });
+      new Cron(fxRefreshCron, { timezone: TZ, name: "fx:refresh" }, (self) => {
+        void fx(self.currentRun() ?? new Date());
+      });
+      monitorStates.push({ name: "fx:refresh", cron: fxRefreshCron, enabled: true });
       console.log(`Автокурс ЦБ РУз (fx:refresh) включён: "${fxRefreshCron}" (${TZ}).`);
     } catch (err) {
+      monitorStates.push({
+        name: "fx:refresh",
+        cron: fxRefreshCron,
+        enabled: false,
+        reason: "off",
+      });
       console.warn(
         `Расписание автокурса "${fxRefreshCron}" не принято: ` +
           (err instanceof Error ? err.message : String(err)),
       );
     }
+  } else {
+    monitorStates.push({ name: "fx:refresh", cron: fxRefreshCron, enabled: false, reason: "off" });
   }
+
+  // Мониторы заведены — снимок пересобираем ещё раз: первый (из reconcile выше)
+  // ушёл с пустым списком мониторов, и панель показывала бы «мониторов нет».
+  queueScheduleSnapshot();
 
   const taskEveryMs = agentTaskIntervalMs(process.env.AGENT_TASK_INTERVAL_MS);
   const pollAgentTasksSingleFlight = singleFlight(pollAgentTasks);

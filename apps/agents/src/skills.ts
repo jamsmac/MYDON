@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { GitHubConnector } from "@mydon/connectors";
-import { LlmLedgerUnavailableError, type Domain } from "@mydon/shared";
+import { LlmLedgerUnavailableError, type Domain, type RunTrigger } from "@mydon/shared";
 import { runCoachReview } from "./coach-review";
 import type { AgentTaskCheckpoint, AgentTaskInputSnapshot, AgentsCoreClient } from "./core-client";
 import { embeddingGatewayFromEnv } from "./embedding";
@@ -85,6 +85,11 @@ export interface SkillRunContext {
   requestKey: string;
   /** Стабильная корреляция задачи/крона. */
   traceKey?: string;
+  /**
+   * Кто запустил: cron (легаси-колбэк или задача из agent-schedule), task
+   * (назначенная), manual (дека). Читают хуки (quiet_hours) и журнал.
+   */
+  trigger?: RunTrigger;
   /** Fail-closed CAS перед каждым provider dispatch durable task-run. */
   assertLease?: () => Promise<void>;
   /**

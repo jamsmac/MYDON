@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { AutonomyTier } from "@mydon/shared";
+import type { AutonomyTier, SkipReason } from "@mydon/shared";
 import {
   LlmBudgetDeniedError,
   LlmLedgerUnavailableError,
@@ -38,21 +38,18 @@ export interface RunResult {
   outcome: "approval_requested" | "executed" | "skipped";
   approvalId?: string;
   reason: string;
-  /** Почему пропущено — вызывающий отличает «нет повода» от «потолок исчерпан». */
-  skipReason?:
-    | "inactive"
-    | "not_implemented"
-    | "no_signal"
-    | "capped"
-    | "no_change"
-    | "budget_denied"
-    | "execution_unknown"
-    | "workflow_changed"
-    | "ledger_unavailable"
-    /** llm-навык: провайдер не дал ответа (не путать с «повода нет»). */
-    | "llm_failed"
-    /** llm-навык: ответ модели не по контракту — предложение не создаётся (R-LS-5). */
-    | "llm_invalid_output";
+  /**
+   * Почему пропущено — вызывающий отличает «нет повода» от «потолок исчерпан».
+   *
+   * Словарь один на три приложения (`@mydon/shared`, волна R): рантайм пишет
+   * значение в журнал, Core его валидирует, панель показывает подпись владельцу.
+   * Локальный union разошёлся бы с ними молча.
+   */
+  skipReason?: SkipReason;
+  /** Имя pre_run-хука, остановившего прогон (только при skipReason hook_blocked). */
+  hook?: string;
+  /** Короткая заметка разбора (coach_lite) — попадает в журнал прогона. */
+  review?: string;
   /** Предложение навыка (текст и факты) — чтобы отчёт по задаче не звал навык
    *  повторно (иначе первый прогон и отчёт могут разойтись). */
   action?: string;
