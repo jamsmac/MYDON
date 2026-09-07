@@ -143,8 +143,17 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
 
   return (
     <section className="panel console">
-      <div className="eyebrow">
-        {BUSINESS_LABEL[item.business] ?? item.business} · <Av8 name={item.agent} /> {item.agent}{" "}
+      {/* ЛАМПА СТОИТ РЯДОМ С `.eyebrow`, А НЕ ВНУТРИ (десятый круг починок
+          среза Д1, Ф-3). `.eyebrow` — метка раздела: 700, uppercase, трекинг
+          0.13em, — и всё это НАСЛЕДУЕТСЯ словом лампы внутри неё: «не заведён»
+          и «в архиве» печатались полужирными капителями, то есть весом
+          поломки на оси, где поломки нет (§4.1: вес 400). Сторож веса этого
+          не видел, потому что искал вес только у четырёх носителей состояния,
+          а `.eyebrow` среди них нет. Строка та же, лампа — соседний элемент. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <div className="eyebrow">
+          {BUSINESS_LABEL[item.business] ?? item.business} · <Av8 name={item.agent} /> {item.agent}
+        </div>
         <span className={CARD_LED[item.agentStatus]}>{CARD_WORD[item.agentStatus]}</span>
       </div>
       <h3 className="h2">{item.skill}</h3>

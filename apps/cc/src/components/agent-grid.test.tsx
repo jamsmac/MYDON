@@ -5,7 +5,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { SkipReason } from "@mydon/shared";
 import type { AgentStatusRow } from "../lib/core";
-import { весаЛамп, правилаCss, стилиПанели } from "../test/css";
+import { весаЛамп, правилаCss, правилаВеса, стилиПанели } from "../test/css";
 import { AgentGrid } from "./agent-grid";
 
 const row = (over: Partial<AgentStatusRow> & { name: string }): AgentStatusRow => ({
@@ -588,10 +588,12 @@ describe("Сетка агентов: «затык» отличается ВЕС�
       веса.length,
       "правило веса пропало — «затык» отличается только цветом --err",
     ).toBeGreaterThan(0);
-    for (const { селектор, вес } of веса) {
+    for (const { селектор, вес, запись } of веса) {
+      // `null` — запись, которую сторож прочесть не может (`var(--x)`): такой
+      // вес нельзя ни одобрить, ни отвергнуть, и это красный флаг, а не пропуск.
       expect(
         вес,
-        `«${селектор}»: IBM Plex Mono подключён в 400/500/600 (app/layout.tsx), ` +
+        `«${селектор}» (${запись}): IBM Plex Mono подключён в 400/500/600 (app/layout.tsx), ` +
           "700 браузер синтезирует размазыванием — на 11px это хуже ровного 400",
       ).toBe(600);
     }
@@ -599,17 +601,21 @@ describe("Сетка агентов: «затык» отличается ВЕС�
 
   it("вес достаётся ИМЕННО затыку — проверено на дереве всех четырёх состояний", () => {
     render(<AgentGrid rows={четыреСостояния} paused={безПаузы} now={NOW} />);
-    const селекторы = весаЛамп(стилиПанели).map((r) => r.селектор);
+    const селекторыЛамп = весаЛамп(стилиПанели).map((r) => r.селектор);
     expect(
-      селекторы.filter((sel) => screen.getByText("затык").matches(sel)),
+      селекторыЛамп.filter((sel) => screen.getByText("затык").matches(sel)),
       "ни одно правило веса не попадает в слово «затык» — селектор разошёлся с разметкой",
     ).not.toHaveLength(0);
+    // НЕГАТИВ — ПО ВСЕМ ПРАВИЛАМ ВЕСА ФАЙЛА И ЧЕРЕЗ `closest` (десятый круг
+    // починок, Ф-3): вес наследуется от ЛЮБОГО предка, и `.agtile { font-weight:
+    // 700 }` утяжелял бы все четыре слова, оставаясь невидимым для списка
+    // носителей и для `matches`. Мутация проходила зелёной.
     for (const слово of ["работает", "молчит", "на паузе"]) {
-      for (const sel of селекторы) {
+      for (const { селектор, запись } of правилаВеса(стилиПанели)) {
         expect(
-          screen.getByText(слово).matches(sel),
-          `правило «${sel}» утяжеляет и «${слово}» — вес перестаёт значить «сломано»`,
-        ).toBe(false);
+          screen.getByText(слово).closest(селектор),
+          `правило «${селектор}» (${запись}) утяжеляет и «${слово}» — вес перестаёт значить «сломано»`,
+        ).toBeNull();
       }
     }
   });
