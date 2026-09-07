@@ -8,6 +8,7 @@ import {
   type RawSourceState,
   type RawSnapshotMeta,
 } from "../lib/core";
+import { ago } from "../lib/format";
 import { CoreDown } from "./core-down";
 import { RawMapping } from "./raw-mapping";
 import { RawTable } from "./raw-table";
@@ -42,13 +43,6 @@ function day(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}`;
-}
-/** Сколько дней назад — словами, потому что «14 дней назад» понятнее даты. */
-function ago(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days <= 0) return "сегодня";
-  if (days === 1) return "вчера";
-  return `${days} дн. назад`;
 }
 
 function href(base: string, sp: Record<string, string>, next: Record<string, string | null>): string {
@@ -399,7 +393,11 @@ async function ReportPane({
         <div className="wt">
           <div className="wl">Снято</div>
           <div className="wv" style={{ fontSize: 17 }}>{whenFull(snapshot.fetchedAt)}</div>
-          <div className="wf">{ago(snapshot.fetchedAt)}</div>
+          {/* `now` — момент рендера: в ответе `rawRows` времени Core нет, а
+              выше в той же плитке стоит абсолютное «Снято», по которому
+              давность и сверяется. Форма теперь общая (`lib/format.ts`):
+              подпись читается «5 часов назад» вместо прежнего «сегодня». */}
+          <div className="wf">{ago(snapshot.fetchedAt, new Date())}</div>
         </div>
         <div className="wt">
           <div className="wl">Строк в снимке</div>

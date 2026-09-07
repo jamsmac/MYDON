@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import type { AutonomyTier } from "@mydon/shared";
 import { deleteAgent, saveAgent, setAgentAutonomy, toggleAgent } from "../app/agents/actions";
 import type { AgentCard } from "../lib/core";
+import { CARD_PILL, CARD_WORD } from "../lib/state";
 
 const TIERS: { value: AutonomyTier; label: string }[] = [
   { value: "T0", label: "T0 — только спрашивает" },
@@ -110,7 +111,10 @@ export function AgentEditor({ agent, autonomyMax }: { agent: AgentCard; autonomy
   return (
     <div className="card">
       <div className="card-top">
-        <span className={`pill ${on ? "ok" : ""}`}>{on ? "работает" : "выключен"}</span>
+        {/* Пилюля читает СТАТУС, а не булев `on`: у `draft` и `deprecated`
+            свои слова, а «выключен» на них врал. `on` остаётся для кнопки —
+            она предлагает ровно два действия. */}
+        <span className={CARD_PILL[agent.status]}>{CARD_WORD[agent.status]}</span>
         <button type="button" className="btn" onClick={onToggle} disabled={pending}>
           {on ? "Выключить" : "Включить"}
         </button>

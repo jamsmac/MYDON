@@ -9,6 +9,7 @@ import {
   type HealthState,
 } from "../../lib/core";
 import { when } from "../../lib/format";
+import { HEALTH_LED, HEALTH_WORD } from "../../lib/state";
 
 export const dynamic = "force-dynamic";
 
@@ -29,28 +30,6 @@ export const dynamic = "force-dynamic";
  * Тёмная тема: это системный экран агентского слоя (§4 правил дизайна), как
  * `/crons`, `/flows` и `/skills`, а не бизнес-экран.
  */
-
-/** Состояние → слово. Цвет здесь никогда не единственный носитель смысла. */
-const STATE_WORD: Record<HealthState, string> = {
-  ok: "в порядке",
-  bad: "сломано",
-  unknown: "не оценить",
-};
-
-/**
- * Состояние → класс лампы.
- *
- * `unknown` получает СВОЙ класс, а не базовую лампу: у базовой залитый серый
- * квадрат — тот же, что у «пропущено: повода нет», и владелец не отличил бы
- * «повода не было» от «мы вообще не знаем». `.led.unknown` рисует пустой
- * квадрат со штриховкой: заливка значит «ответ есть», контур — «ответа нет».
- * Зелёного (`.led.idle`) у него нет ни в одной теме.
- */
-const STATE_LED: Record<HealthState, string> = {
-  ok: "led idle",
-  bad: "led blocked",
-  unknown: "led unknown",
-};
 
 export default async function AppsPage() {
   let health: AppsHealth;
@@ -129,7 +108,7 @@ function HealthSection({
 function HealthRowView({ row }: { row: AppsHealthRow }) {
   const тело = (
     <>
-      <span className={STATE_LED[row.state]}>{STATE_WORD[row.state]}</span>
+      <span className={HEALTH_LED[row.state]}>{HEALTH_WORD[row.state]}</span>
       <div className="ab">
         <div className="an">{row.title}</div>
         <div className="as">{row.summary}</div>

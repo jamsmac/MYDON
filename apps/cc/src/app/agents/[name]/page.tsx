@@ -14,7 +14,7 @@ import {
 } from "../../../lib/core";
 import { CoreDown } from "../../../components/core-down";
 import { AgentEditor, type AutonomyMax } from "../../../components/agent-editor";
-import { SchedulesPausedNotice, STATE_LED, STATE_WORD } from "../../../components/agent-grid";
+import { SchedulesPausedNotice } from "../../../components/agent-grid";
 import { Av8 } from "../../../components/av8";
 import { RunSkillButton } from "../../../components/run-skill-button";
 import { outcomeTone, runWhen } from "../../../lib/crons";
@@ -22,6 +22,7 @@ import { runPhrase } from "../../../lib/flows";
 import { plural, when } from "../../../lib/format";
 import { BUSINESS_LABEL, TIER_LABEL } from "../../../lib/labels";
 import { runnable } from "../../../lib/skills";
+import { AGENT_STATE_LED, AGENT_STATE_WORD } from "../../../lib/state";
 
 export const dynamic = "force-dynamic";
 
@@ -303,10 +304,11 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
           </h1>
           {состояние !== null ? (
             <>
-              {/* Слова и лампа — из словаря сетки агентов: одно состояние
-                  обязано называться одинаково на главной и в карточке. */}
+              {/* Слова и лампа — из общего словаря состояний (`lib/state`):
+                  одно состояние обязано называться одинаково на главной и в
+                  карточке. */}
               <div className="agled">
-                <span className={STATE_LED[состояние.state]}>{STATE_WORD[состояние.state]}</span>
+                <span className={AGENT_STATE_LED[состояние.state]}>{AGENT_STATE_WORD[состояние.state]}</span>
               </div>
               <div className="agr">{состояние.reason}</div>
             </>

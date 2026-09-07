@@ -5,6 +5,7 @@ import { NewAgentForm } from "../../components/agent-new";
 // Подписи направления и тира переехали в lib/labels: их читают и клиентские
 // компоненты (витрина навыков), а эта страница тянет server-only через core.
 import { BUSINESS_LABEL, TIER_LABEL } from "../../lib/labels";
+import { CARD_PILL, CARD_WORD } from "../../lib/state";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +62,7 @@ function AgentRow({ a }: { a: AgentCard }) {
           {TIER_LABEL[a.autonomyDefault] ?? a.autonomyDefault}
         </small>
       </div>
-      <span className={`pill ${a.status === "active" ? "ok" : ""}`}>
-        {a.status === "active" ? "работает" : "выключен"}
-      </span>
+      <span className={CARD_PILL[a.status]}>{CARD_WORD[a.status]}</span>
     </Link>
   );
 }

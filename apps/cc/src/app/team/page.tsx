@@ -9,6 +9,7 @@ import {
 import { CoreDown } from "../../components/core-down";
 import { NewPersonForm } from "../../components/person-new";
 import { rolesLabel } from "@mydon/shared";
+import { CARD_CHIP, CARD_WORD } from "../../lib/state";
 
 export const dynamic = "force-dynamic";
 
@@ -132,9 +133,7 @@ export default async function Team() {
                   <div className="stats"><span>висит <b>{w.open}</b></span></div>
                 )}
               </div>
-              <span className={`chip ${a.status === "active" ? "g" : ""}`}>
-                {a.status === "active" ? "работает" : "выключен"}
-              </span>
+              <span className={CARD_CHIP[a.status]}>{CARD_WORD[a.status]}</span>
             </Link>
           );
         })}

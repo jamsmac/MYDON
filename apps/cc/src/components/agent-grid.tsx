@@ -2,6 +2,7 @@ import Link from "next/link";
 import { isSkipReason, type SkipReason } from "@mydon/shared";
 import type { AgentState, AgentStatusRow } from "../lib/core";
 import { runWhen } from "../lib/crons";
+import { AGENT_STATE_LED, AGENT_STATE_WORD } from "../lib/state";
 import { Av8 } from "./av8";
 
 /**
@@ -12,43 +13,6 @@ import { Av8 } from "./av8";
  * (`GET /agents/status`) — панель их только показывает: третья копия правила
  * лизы разошлась бы с worker'ом и с Core на первой же правке.
  */
-
-/**
- * Состояние → слово. Цвет никогда не единственный носитель смысла.
- *
- * ЭКСПОРТИРУЕТСЯ ради карточки агента (R-A2-5): сетка и карточка обязаны
- * называть одно состояние одним словом. Второй словарь разошёлся бы с первым
- * на первой же правке, и один агент «работал» бы на главной и «молчал» в
- * собственной карточке.
- */
-export const STATE_WORD: Record<AgentState, string> = {
-  working: "работает",
-  blocked: "затык",
-  paused: "на паузе",
-  idle: "молчит",
-};
-
-/**
- * Состояние → класс лампы.
- *
- * ЗЕЛЁНОЙ ЛАМПЫ ЗДЕСЬ НЕТ НИ У ОДНОГО СОСТОЯНИЯ. `.led.idle` (`--ok`) значит
- * «повода нет, всё в норме» — это утверждение о здоровье, а сетка отвечает на
- * другой вопрос: «занят ли агент». Выключенный и молчащий агент здоровыми не
- * являются: про них просто ничего не известно, кроме того, что они ничего не
- * делают. Дефект витрины навыков (`skills-deck.tsx`, где `paused → idle`) в
- * сетке из двенадцати плиток стоил бы дороже всего: взгляд ловит цвет, и ряд
- * зелёных ламп прочитался бы как «всё хорошо» над выключенной системой.
- */
-export const STATE_LED: Record<AgentState, string> = {
-  working: "led working",
-  blocked: "led blocked",
-  // Пауза и молчание — базовая лампа (`--tx-2`): состояние известно, поэтому
-  // квадрат залит, но «нормой» оно не является. У паузы дополнительно гаснут
-  // имя, лицо и лампа (`.agtile[data-state="paused"]`) — она не проснётся
-  // сама; причина не гаснет, ради неё плитка и печатает текст.
-  paused: "led",
-  idle: "led",
-};
 
 /**
  * Пропуски прогона, за которыми стоит ПОЛОМКА, а не «повода не было».
@@ -251,8 +215,8 @@ function AgentTile({ row, now }: { row: AgentStatusRow; now: Date }) {
         <div className="agled">
           {/* Тон «поломки» — тот же, что у предупреждения в журнале прогонов
               (`.run-led.warn`): не авария, но и не спокойствие. */}
-          <span className={поломка ? "led run-led warn" : STATE_LED[row.state]}>
-            {STATE_WORD[row.state]}
+          <span className={поломка ? "led run-led warn" : AGENT_STATE_LED[row.state]}>
+            {AGENT_STATE_WORD[row.state]}
           </span>
         </div>
         <div className="agr">
