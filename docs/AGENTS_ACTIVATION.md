@@ -443,7 +443,7 @@ hooks:
       run: system/ourvend:sync
       max_age_hours: 6
     - kind: quiet_hours
-      from: "22:00"
+      from: "23:00"
       to: "07:00"
   post_run:
     - kind: coach_lite
