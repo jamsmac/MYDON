@@ -381,6 +381,19 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.equal(fx.lastCheckedAt, null);
   });
 
+  it("свежая установка: доставки положены, ни одна не закрылась — «не оценить», а не «в порядке»", async () => {
+    // Достижимый вход, а не угол: `max(completed_at)` по всей группе `pending`
+    // приходит из СУБД как NULL, потому что доставщик ещё ни одной не закрыл.
+    // Зелёная строка здесь обещала бы владельцу работающую доставку в Notion.
+    const ответ = await сервис({
+      доставки: [{ status: "pending", n: 3, oldest: new Date(NOW.getTime() - 5 * 60_000), newest: null }],
+    }).health(NOW);
+    const notion = найти(ответ.outside, FACES.notion.key);
+    assert.equal(notion.state, "unknown");
+    assert.match(notion.summary, /ни одна доставка ещё не закрылась/);
+    assert.equal(notion.lastCheckedAt, null);
+  });
+
   it("очередь доставок: момент проверки — последняя ЗАКРЫТАЯ доставка, а не возраст очереди", async () => {
     const закрыта = new Date(NOW.getTime() - 20 * 60_000);
     const ответ = await сервис({
