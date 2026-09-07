@@ -3655,6 +3655,39 @@ async function проверитьЗдоровьеПриложений() {
     if (json.outside.length === 0 || json.internal.length === 0) {
       throw new Error(`пустая группа: снаружи ${json.outside.length}, внутренних ${json.internal.length}`);
     }
+    /*
+     * ДВА ОБЯЗАТЕЛЬНЫХ ПОЛЯ ПРОВОДА — ПРОТИВ ЖИВОГО POSTGRES (девятый круг
+     * починок, 4.2). `lastCheckedAt` и `checksKnown` завёл срез Д1, и ни один
+     * прогон против настоящей базы их не знал: смоук проверял состояние и
+     * формулировки, а поля времени проверки — нет. А именно они собираются из
+     * ТРЁХ разных чтений (снимок расписаний, журнал прогонов, отчёт источника),
+     * то есть ровно там, где заглушка выдумала бы согласие.
+     *
+     * ПРОВЕРЯЕТСЯ ФОРМА И ДВЕ НЕВОЗМОЖНЫЕ ПАРЫ, а не значения: значения зависят
+     * от того, что натворили соседние сценарии, и их сверяют ниже по ключам,
+     * где вход задан этим же блоком.
+     */
+    for (const s of [...json.outside, ...json.internal]) {
+      if (!("lastCheckedAt" in s)) {
+        throw new Error(`${s.key}: поля lastCheckedAt нет вовсе — «поля нет» и «момента нет» разные вещи`);
+      }
+      if (s.lastCheckedAt !== null && !Number.isFinite(Date.parse(String(s.lastCheckedAt)))) {
+        throw new Error(`${s.key}: в lastCheckedAt уехало «${s.lastCheckedAt}» — это не момент`);
+      }
+      if (typeof s.checksKnown !== "boolean") {
+        throw new Error(`${s.key}: checksKnown = «${s.checksKnown}», а обещан boolean`);
+      }
+      // Момент — это и есть знание: «о проверках не знаем» при известном
+      // моменте невозможно по построению, и провод обязан это подтверждать.
+      if (!s.checksKnown && s.lastCheckedAt !== null) {
+        throw new Error(`${s.key}: checksKnown=false при момент «${s.lastCheckedAt}»`);
+      }
+      // Р-Д1-3 на живых данных: зелёная строка без времени проверки — это
+      // «в порядке» о том, чего никто не проверял.
+      if (s.state === "ok" && s.lastCheckedAt === null) {
+        throw new Error(`${s.key}: «${s.summary}» зелёная без времени проверки`);
+      }
+    }
     return json;
   };
   const строка = (json, key) => {
@@ -3703,6 +3736,15 @@ async function проверитьЗдоровьеПриложений() {
     if (!/не запускался|журнал прогонов пуст/.test(r.summary)) {
       throw new Error(`${key}: ждали «прогонов нет», получили «${r.summary}»`);
     }
+    // ЖУРНАЛ ПРОЧИТАН И ПУСТ — ЭТО УТВЕРЖДЕНИЕ, и только по нему экран пишет
+    // «не запускался». Прогоны этих мониторов удалены выше, значит ноль
+    // свидетельств здесь настоящий, а не выдуманный фолбэком.
+    if (r.lastCheckedAt !== null || r.checksKnown !== true) {
+      throw new Error(
+        `${key}: журнал прогонов пуст, а провод отдал lastCheckedAt=${JSON.stringify(r.lastCheckedAt)} ` +
+          `checksKnown=${r.checksKnown} — ждали null + true`,
+      );
+    }
   }
   // Монитора нет в опубликованном снимке — это НЕ «агенты не отчитывались».
   const globerent = строка(до, "globerent:monitor");
@@ -3722,6 +3764,13 @@ async function проверитьЗдоровьеПриложений() {
   if (тишина.state !== "unknown" || !/не отчитывался/.test(тишина.summary)) {
     throw new Error(`бот без heartbeat: ${тишина.state} — «${тишина.summary}»`);
   }
+  // События бота удалены выше: журнал прочитан, сигналов в нём нет.
+  if (тишина.lastCheckedAt !== null || тишина.checksKnown !== true) {
+    throw new Error(
+      `бот без heartbeat: lastCheckedAt=${JSON.stringify(тишина.lastCheckedAt)} ` +
+        `checksKnown=${тишина.checksKnown} — ждали null + true`,
+    );
+  }
 
   // Успешный прогон в срок красит строку зелёным и цитирует итог монитора.
   await прогонМонитора("fx:refresh", { at: момент(60_000), outcome: "executed", reason: "[fx:refresh] обновлено: USD" });
@@ -3735,6 +3784,16 @@ async function проверитьЗдоровьеПриложений() {
   const курс = строка(после, "fx:refresh");
   if (курс.state !== "ok" || !/обновлено: USD/.test(курс.detail ?? "")) {
     throw new Error(`fx:refresh после успешного прогона: ${курс.state} — «${курс.summary}» / «${курс.detail}»`);
+  }
+  // МОМЕНТ ПРОВЕРКИ — ЭТО ТИК МОНИТОРА, И ОН ПРИЕХАЛ ЧЕРЕЗ БАЗУ. Сверяем с тем,
+  // что послали: расхождение здесь означало бы, что панель показывает время не
+  // того события (у сбора OurVend, например, `at` — последний УСПЕХ, а не тик).
+  const ждали = Date.parse(момент(60_000));
+  const пришло = Date.parse(String(курс.lastCheckedAt));
+  if (!Number.isFinite(пришло) || Math.abs(пришло - ждали) > 2000) {
+    throw new Error(
+      `fx:refresh: момент проверки «${курс.lastCheckedAt}» не совпал с прогоном «${момент(60_000)}»`,
+    );
   }
   const кофе = строка(после, "coffee:monitor");
   if (кофе.state !== "bad" || !/источник не прочитан/.test(кофе.detail ?? "")) {
@@ -3763,6 +3822,14 @@ async function проверитьЗдоровьеПриложений() {
   await heartbeat(60_000);
   const живой = строка(await здоровье(), "bot");
   if (живой.state !== "ok") throw new Error(`бот со свежим сигналом: ${живой.state} — «${живой.summary}»`);
+  // У бота проверка и событие — ОДНО И ТО ЖЕ: сигнал «я жив» и есть проверка
+  // поллера. Записано намеренно, иначе следующий автор пойдёт искать боту
+  // второй источник времени.
+  if (живой.lastCheckedAt !== живой.at) {
+    throw new Error(
+      `бот: момент проверки «${живой.lastCheckedAt}» разошёлся с моментом сигнала «${живой.at}»`,
+    );
+  }
 
   // Очередь доставок — по НАСТОЯЩИМ счётчикам: ожидание выводим тем же SQL,
   // которым живёт правило, а не догадкой о том, что натворили соседние

@@ -1,4 +1,5 @@
-import type { AgentCard, AgentState, HealthState } from "./core";
+import { isSkipReason, type SkipReason } from "@mydon/shared";
+import type { AgentCard, AgentState, AgentStatusRow, HealthState } from "./core";
 
 /**
  * ОДИН СЛОВАРЬ СОСТОЯНИЙ НА ВСЮ ПАНЕЛЬ (срез Д1, Р-Д1-6).
@@ -90,6 +91,56 @@ export const AGENT_STATE_LED: Record<AgentState, string> = {
  * типу; отдельная константа оставляет и слово, и лампу в одном доме.
  */
 export const AGENT_BREAKDOWN_LED = "led run-led warn";
+
+/**
+ * Пропуски прогона, за которыми стоит ПОЛОМКА, а не «повода не было».
+ *
+ * Переехало из `components/agent-grid.tsx` (девятый круг починок): условие
+ * лампы обязано жить там же, где сама лампа, — иначе поверхности расходятся
+ * ровно так, как разошлись сетка и карточка агента. В списке ровно те причины,
+ * при которых работа НЕ СДЕЛАНА из-за поломки или запрета (подсказки словаря
+ * `RUN_SKIP_REASONS` зовут чинить ключ, ledger, хук или повторять вручную), —
+ * в отличие от `no_signal`, `no_change` и `capped`, где делать нечего.
+ */
+const ПОЛОМКА: readonly SkipReason[] = [
+  "llm_failed",
+  "ledger_unavailable",
+  "execution_unknown",
+  "hook_blocked",
+];
+
+/**
+ * Молчит ИЗ-ЗА ПОЛОМКИ — признак пятой лампы (Ф-5).
+ *
+ * ОДНА ФУНКЦИЯ НА ВСЕ ПОВЕРХНОСТИ, И ЭТО НЕ ЭКОНОМИЯ СТРОК. Пока признак жил в
+ * плитке, сломанный молчун светился тревогой в сетке на главной и спокойным
+ * серым в СВОЕЙ ЖЕ карточке — то есть панель называла одно состояние двумя
+ * видами, ровно против обещания файла «пара слово + лампа меняется одним
+ * движением».
+ *
+ * ТОЛЬКО У МОЛЧАНИЯ: у «работает» и «затыка» свой вес и своя причина, и полоса
+ * без объяснения в тексте была бы шумом.
+ */
+export function молчитИзЗаПоломки(row: AgentStatusRow): boolean {
+  if (row.state !== "idle") return false;
+  const run = row.lastRun;
+  if (run === undefined || run === null) return false;
+  if (run.outcome === "failed") return true;
+  if (run.outcome !== "skipped") return false;
+  return isSkipReason(run.skipReason) && ПОЛОМКА.includes(run.skipReason);
+}
+
+/**
+ * ЗАНЯТОСТЬ АГЕНТА → класс лампы, С УЧЁТОМ ПЯТОГО ЗНАЧЕНИЯ.
+ *
+ * Дверь для всех поверхностей, которые рисуют занятость: `AGENT_STATE_LED`
+ * знает четыре состояния провода, а на экране их пять — «молчит из-за
+ * поломки» отличается лампой. Прямое обращение к `AGENT_STATE_LED[state]`
+ * законно только там, где строки статуса нет вовсе.
+ */
+export function ledЗанятости(row: AgentStatusRow): string {
+  return молчитИзЗаПоломки(row) ? AGENT_BREAKDOWN_LED : AGENT_STATE_LED[row.state];
+}
 
 /**
  * ЗДОРОВЬЕ ИСТОЧНИКА → слово. Переехало из `app/apps/page.tsx`.

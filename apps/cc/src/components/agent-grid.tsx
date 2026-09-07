@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { isSkipReason, type SkipReason } from "@mydon/shared";
 import type { AgentState, AgentStatusRow } from "../lib/core";
 import { runWhen } from "../lib/crons";
-import { AGENT_BREAKDOWN_LED, AGENT_STATE_LED, AGENT_STATE_WORD } from "../lib/state";
+import { AGENT_STATE_WORD, ledЗанятости, молчитИзЗаПоломки } from "../lib/state";
 import { Av8 } from "./av8";
 
 /**
@@ -14,34 +13,16 @@ import { Av8 } from "./av8";
  * лизы разошлась бы с worker'ом и с Core на первой же правке.
  */
 
-/**
- * Пропуски прогона, за которыми стоит ПОЛОМКА, а не «повода не было».
+/*
+ * ПРИЗНАК ПОЛОМКИ И ЛАМПА ЖИВУТ В `lib/state.ts` (девятый круг починок).
  *
  * Ревью среза: «молчит — модель не ответила» и «молчит — предлагать нечего»
  * приходят одним состоянием `idle`, и причина из Core их различает словами.
  * Но одинаковый вес на экране приучает пролистывать оба: сломанный маршрут к
- * модели неделю выглядит спокойным молчанием. В списке ровно те причины, при
- * которых работа НЕ СДЕЛАНА из-за поломки или запрета (подсказки словаря
- * `RUN_SKIP_REASONS` зовут чинить ключ, ledger, хук или повторять вручную), —
- * в отличие от `no_signal`, `no_change` и `capped`, где делать нечего.
+ * модели неделю выглядит спокойным молчанием. Пока список причин стоял здесь,
+ * шапка карточки агента о пятой лампе не знала — один агент светился тревогой
+ * на главной и спокойным серым в собственной карточке.
  */
-const ПОЛОМКА: readonly SkipReason[] = [
-  "llm_failed",
-  "ledger_unavailable",
-  "execution_unknown",
-  "hook_blocked",
-];
-
-function молчитИзЗаПоломки(row: AgentStatusRow): boolean {
-  // Только у молчания: у «работает» и «затыка» свой вес и своя причина, и
-  // полоса без объяснения в тексте плитки была бы шумом.
-  if (row.state !== "idle") return false;
-  const run = row.lastRun;
-  if (run === undefined || run === null) return false;
-  if (run.outcome === "failed") return true;
-  if (run.outcome !== "skipped") return false;
-  return isSkipReason(run.skipReason) && ПОЛОМКА.includes(run.skipReason);
-}
 
 /** Сводка заголовка: только ненулевое — «затыков 0» не вопрос владельца. */
 function сводка(rows: readonly AgentStatusRow[]): string {
@@ -214,13 +195,11 @@ function AgentTile({ row, now }: { row: AgentStatusRow; now: Date }) {
         <div className="agn">{row.name}</div>
         <div className="agled">
           {/* Тон «поломки» — тот же, что у предупреждения в журнале прогонов
-              (`.run-led.warn`): не авария, но и не спокойствие. Класс живёт в
-              общем доме (`lib/state.ts`, `AGENT_BREAKDOWN_LED`), а не литералом
-              здесь: пара «слово + лампа» обязана меняться одним движением, и у
-              литерала сторож классов её не видел (Ф-5). */}
-          <span className={поломка ? AGENT_BREAKDOWN_LED : AGENT_STATE_LED[row.state]}>
-            {AGENT_STATE_WORD[row.state]}
-          </span>
+              (`.run-led.warn`): не авария, но и не спокойствие. И класс, и
+              условие живут в общем доме (`lib/state.ts`, `ledЗанятости`), а не
+              литералом здесь: пара «слово + лампа» обязана меняться одним
+              движением, и у литерала сторож классов её не видел (Ф-5). */}
+          <span className={ledЗанятости(row)}>{AGENT_STATE_WORD[row.state]}</span>
         </div>
         <div className="agr">
           {row.reason}
