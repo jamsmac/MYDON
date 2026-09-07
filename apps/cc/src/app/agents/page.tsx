@@ -37,7 +37,12 @@ export default async function Agents() {
         ))}
       </div>
 
-      {idle.length > 0 && <div className="section-title">Выключены</div>}
+      {/* «Не в работе», а не «Выключены»: под этим заголовком лежат пилюли
+          «выключен», «не заведён» и «в архиве» — три разных состояния, и
+          называть секцию одним из них значит противоречить строкам под ней.
+          Шапка и «В работе» описывают `active`, а `CARD_WORD.active` и есть
+          «работает», — там противоречия нет и правки не нужно. */}
+      {idle.length > 0 && <div className="section-title">Не в работе</div>}
       <div className="rows">
         {idle.map((a) => (
           <AgentRow key={a.id} a={a} />
