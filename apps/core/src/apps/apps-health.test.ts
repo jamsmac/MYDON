@@ -963,9 +963,11 @@ describe("Здоровье приложений: момент последней
       доставки({ counts: { sent: 1, pending: 1 }, oldestPendingAt: часНазад(1), lastSentAt: часНазад(2) }),
       доставки({ counts: { sent: 100, dead: 1 }, lastSentAt: часНазад(1), lastFailedAt: часНазад(48) }),
     ];
+    let зелёных = 0;
     for (const вход of входы) {
       const row = rowFromOutbox(FACES.notion, вход);
       if (row.state === "ok") {
+        зелёных += 1;
         assert.equal(
           typeof row.lastCheckedAt,
           "string",
@@ -973,6 +975,17 @@ describe("Здоровье приложений: момент последней
         );
       }
     }
+    // ПЕРЕБОР ОБЯЗАН БЫТЬ НЕПУСТЫМ. Ассерт живёт внутри `if (state === "ok")`,
+    // поэтому мутация, из-за которой НИ ОДИН вход не зеленеет, прошла бы его
+    // вакуумно — и «инвариант» доказывал бы только то, что зелёных нет.
+    assert.ok(зелёных >= 3, `зелёных входов в переборе ${зелёных}: доказывать инвариант нечем`);
+    // И один вход назван зелёным прямо, чтобы список нельзя было выхолостить
+    // целиком, оставив счётчик довольным.
+    assert.equal(
+      rowFromOutbox(FACES.notion, доставки({ counts: { sent: 12 }, lastSentAt: часНазад(2) })).state,
+      "ok",
+      "разобранная очередь с закрытой доставкой — эталонный зелёный вход",
+    );
   });
 
   it("heartbeat: проверка и событие — одно и то же; без сигнала — null", () => {
@@ -1016,8 +1029,162 @@ describe("Здоровье приложений: момент последней
     assert.equal(безВызовов.lastCheckedAt, null);
   });
 
-  it("модели: битая дата последнего вызова даёт null, а не мусор и не падение", () => {
+  it("модели: битая дата последнего вызова — «не оценить» БЕЗ времени, а не зелёное без времени", () => {
+    // ЭТОТ ТЕСТ РАНЬШЕ ЗАКРЕПЛЯЛ ДЕФЕКТ. Он проверял только `lastCheckedAt` и
+    // молчал про вердикт, а вердикт был `ok` «вызовы проходят, отказов сегодня
+    // 0»: гард «вызовов не было» спрашивал СЫРОЕ поле (`=== null`), мимо
+    // которого «не дата» проходит насквозь, а момент обёртка брала из
+    // разобранного. Зелёная строка без отметки времени — ровно то, что срез
+    // запрещает, и защита от битой даты консервировала её.
     const row = rowFromLlm(FACES.llm, { monitoring: ledger({ latestCompletedAt: "не дата" }), now: NOW });
+    assert.equal(row.state, "unknown", "нечитаемый момент не даёт права говорить «вызовы проходят»");
     assert.equal(row.lastCheckedAt, null, "битую дату отбрасываем: `toISOString()` уронил бы весь ответ");
+    assert.equal(row.at, undefined);
+    // «Вызовов не было» и «вызов был, а когда — не читается» чинят в разных
+    // местах: вторую нельзя называть первой.
+    assert.match(row.summary, /не читается/);
+    assert.doesNotMatch(row.summary, /вызовов не было/);
+    assert.match(row.detail ?? "", /не дата/, "что именно вернул ledger — владельцу видно");
+  });
+
+  it("сбор OurVend: отчёт называет свежесть, а момента успеха нет — «не оценить», а не зелёное", () => {
+    // Тот же класс, что у моделей: вердикт доказывал «данные свежие» полем
+    // `staleHoursRaw`, а момент проверки живёт в ДРУГИХ полях (читаемый
+    // `lastSuccessAt` и тик монитора). Служба считает `staleHoursRaw` из того
+    // же `lastSuccessAt`, поэтому через HTTP вход не приезжает — но это
+    // согласованность в двух модулях отсюда, и гард обязан стоять рядом с
+    // правилом.
+    const безМомента = rowFromOurvendSync(
+      FACES.ourvendSync,
+      сбор({
+        health: { ...ЗДОРОВЬЕ_СБОРА, lastSuccessAt: null },
+        lastRun: null,
+      }),
+    );
+    assert.equal(безМомента.state, "unknown", "«данные свежие» без времени проверки приёмку не проходит");
+    assert.match(безМомента.summary, /момента последнего успеха/);
+    assert.equal(безМомента.lastCheckedAt, null);
+
+    // Битая дата успеха — тот же вход: `разобрать` её отбрасывает.
+    const битаяДата = rowFromOurvendSync(
+      FACES.ourvendSync,
+      сбор({ health: { ...ЗДОРОВЬЕ_СБОРА, lastSuccessAt: "не дата" }, lastRun: null }),
+    );
+    assert.equal(битаяДата.state, "unknown");
+    assert.equal(битаяДата.lastCheckedAt, null);
+  });
+
+  it("сбор OurVend: ПРОГОНОВ НЕТ, а успех есть — проверка берётся из успеха (обе половины нужны)", () => {
+    // ЗУБЫ ДЛЯ `позднееИз`: без этого входа мутация
+    // `сПроверкой(вердиктСбора(...), input.lastRun?.at ?? null)` — то есть
+    // выбрасывание половины, ради которой функция и писалась, — проходила весь
+    // набор зелёной. Журнал прогонов чистится ретенцией, отчёт помнит успех:
+    // это не угол, а обычное состояние старого сбора.
+    const row = rowFromOurvendSync(
+      FACES.ourvendSync,
+      сбор({
+        health: { ...ЗДОРОВЬЕ_СБОРА, lastSuccessAt: часНазад(2).toISOString(), staleHoursRaw: 2, staleHoursShown: 2 },
+        lastRun: null,
+      }),
+    );
+    assert.equal(row.state, "ok");
+    assert.equal(row.lastCheckedAt, часНазад(2).toISOString(), "успех — вторая половина `позднееИз`");
+  });
+
+  it("учёт OurVend: зелёная ветка ПРОДА (зеркало погашено) называет время проверки", () => {
+    // Единственная зелёная ветка учёта, работающая на проде сегодня:
+    // `parity.mode === "retired"` (комментарий в правилах говорит это прямо).
+    // Прочие тесты идут через `stock` и `mirror`, то есть ровно мимо неё.
+    // Ветка безопасна только потому, что гард `lastRun === null` стоит выше:
+    // перенеси её вверх — и получишь `ok` без времени, не уронив ни теста.
+    const row = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        health: {
+          ...ЗДОРОВЬЕ_УЧЁТА,
+          parity: { mode: "retired", checked: 0, mismatches: 0, stockOk: true, stockChecked: 0 },
+        },
+      }),
+    );
+    assert.equal(row.state, "ok");
+    assert.match(row.summary, /сверка с зеркалом завершена/);
+    assert.equal(row.lastCheckedAt, часНазад(1).toISOString());
+
+    // И зубы для порядка правил: ветка `retired` безопасна ТОЛЬКО потому, что
+    // гард «прогонов нет» стоит выше. Перенеси её вверх — и погашенное зеркало
+    // выдаст `ok` «сравнивать больше не с чем» над монитором, который ни разу
+    // не запускался, да ещё без времени проверки.
+    const безПрогонов = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        health: {
+          ...ЗДОРОВЬЕ_УЧЁТА,
+          parity: { mode: "retired", checked: 0, mismatches: 0, stockOk: true, stockChecked: 0 },
+        },
+        lastRun: null,
+      }),
+    );
+    assert.equal(безПрогонов.state, "unknown", "«сравнивать больше не с чем» — не вердикт о нуле прогонов");
+    assert.equal(безПрогонов.lastCheckedAt, null);
+  });
+
+  it("битый момент прогона даёт строку БЕЗ времени, а не 500 на весь экран (Ф-2)", () => {
+    // `rowFromRaw` собирает `startedAt: d(r.started_at)!` без проверки на
+    // конечность, поэтому испорченный столбец приезжает в правила как
+    // `Invalid Date`. `toISOString()` на ней бросает `RangeError` ИЗ ЧИСТЫХ
+    // ПРАВИЛ, которые вызываются вне `попытка`, — то есть гасит `/apps/health`
+    // целиком. До среза ветки `молчаливыйИсточник` и `unavailableRow` даты не
+    // касались вовсе; момент проверки их к ней привёл.
+    const битая = new Date("сломано");
+    const выключен = rowFromMonitor(
+      FACES.coffee,
+      монитор({
+        monitor: { enabled: false, reason: "off" },
+        lastRun: { at: битая, outcome: "executed", reason: "[coffee:monitor] ok" },
+      }),
+    );
+    assert.equal(выключен.state, "unknown");
+    assert.equal(выключен.lastCheckedAt, null, "нечитаемый момент — это отсутствие момента");
+
+    // Тот же пояс на строке-заглушке: она существует ровно для того, чтобы
+    // витрина выживала при плохом чтении.
+    const заглушка = unavailableRow(FACES.fx, "журнал прогонов", битая);
+    assert.equal(заглушка.state, "unknown");
+    assert.equal(заглушка.lastCheckedAt, null);
+
+    // ЗЕЛЁНАЯ ВЕТКА — ГЛАВНОЕ ЗДЕСЬ. Успешный прогон с нечитаемым моментом
+    // отдавал `ok` «последний прогон прошёл» БЕЗ времени: `исо` дату
+    // отбрасывал, 500 не случалось, и строка тихо зеленела без отметки. Это
+    // тот же дефект, что был у моделей, и «не роняет ответ» его не оправдывает.
+    // Нечитаемый момент уравнен с отсутствующим — прогона для правил нет.
+    const прошёл = rowFromMonitor(
+      FACES.fx,
+      монитор({ lastRun: { at: битая, outcome: "executed", reason: "[fx:refresh] ok" } }),
+    );
+    assert.equal(прошёл.state, "unknown", "«прогон прошёл» без времени проверки приёмку не проходит");
+    assert.match(прошёл.summary, /не запускался|журнал прогонов пуст/);
+    assert.equal(прошёл.at, undefined);
+    assert.equal(прошёл.lastCheckedAt, null);
+
+    // Heartbeat: нечитаемый момент не имеет права дать «бот отвечает NaN мин».
+    const бот = rowFromHeartbeat(FACES.bot, { lastAt: битая, intervalMs: 5 * 60_000, now: NOW });
+    assert.equal(бот.state, "unknown");
+    assert.equal(бот.lastCheckedAt, null);
+    assert.doesNotMatch(бот.summary, /NaN/);
+
+    // Очередь: битый момент закрытия не съедает читаемый соседний (сравнение с
+    // `NaN` всегда ложно, поэтому нормализуется КАЖДЫЙ момент, а не максимум).
+    const очередь = rowFromOutbox(
+      FACES.notion,
+      доставки({ counts: { sent: 2, skipped: 1 }, lastSentAt: битая, lastSkippedAt: часНазад(3) }),
+    );
+    assert.equal(очередь.lastCheckedAt, часНазад(3).toISOString());
+
+    const всёБитое = rowFromOutbox(
+      FACES.notion,
+      доставки({ counts: { sent: 2 }, lastSentAt: битая }),
+    );
+    assert.equal(всёБитое.state, "unknown", "ни одного читаемого закрытия — зелёной строки быть не может");
+    assert.equal(всёБитое.lastCheckedAt, null);
   });
 });

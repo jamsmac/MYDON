@@ -151,7 +151,11 @@ export class AppsHealthService {
         : unavailableRow(FACES.notion, доставки.источник, null),
       сигнал.ok
         ? rowFromHeartbeat(FACES.bot, {
-            lastAt: сигнал.value?.occurredAt ?? null,
+            // Нечитаемый момент события — это «сигнала не было», а не «бот
+            // отвечает NaN мин назад»: `возраст` ушёл бы в NaN, сравнение с
+            // порогом дало бы `false`, и строка зазеленела бы БЕЗ времени
+            // проверки. Тот же пояс, что у прогонов выше.
+            lastAt: дата(сигнал.value?.occurredAt ?? null),
             intervalMs: BOT_HEARTBEAT_INTERVAL_MS,
             now,
           })
@@ -361,7 +365,27 @@ function снимокМониторов(
   return map;
 }
 
-/** Последний прогон каждого монитора: `agent_run` c `agent_name = "system"`. */
+/**
+ * Последний прогон каждого монитора: `agent_run` c `agent_name = "system"`.
+ *
+ * МОМЕНТ ПРОГОНА — ЭТО `startedAt`, НАЧАЛО ПРОВЕРКИ, хотя рядом лежит
+ * `finishedAt`. Так было и до среза (строка описывала им своё событие), и
+ * менять я не стал: журнал прогонов кладёт `finished_at` тем же тиком, разница
+ * — секунды, а ошибка уходит в БЕЗОПАСНУЮ сторону (давность проверки чуть
+ * завышается, «проверено давно» не превращается в «проверено только что»).
+ * Но контракт поля обещает «момент проверки», поэтому названо прямо: это
+ * момент, когда проверка НАЧАЛАСЬ.
+ *
+ * НЕЧИТАЕМЫЙ МОМЕНТ — ЭТО «ПРОГОНА НЕТ», А НЕ ИСКЛЮЧЕНИЕ. `rowFromRaw`
+ * (`routines/runs.service.ts`) собирает `startedAt: d(r.started_at)!` —
+ * `new Date(строка)` без проверки на конечность и с `!` поверх, — так что
+ * испорченный столбец приезжает сюда как `Invalid Date`. Ниже он ушёл бы в
+ * `toISOString()` внутри ЧИСТЫХ ПРАВИЛ, которые вызываются вне `попытка`, то
+ * есть уронил бы `/apps/health` целиком: витрина, гаснущая из-за одной строки,
+ * — то самое, против чего написана `unavailableRow`. Отбрасываем на границе,
+ * ровно как `дата` отбрасывает битое значение СУБД, и монитор честно
+ * становится «не запускался»: `unknown` без времени вместо 500.
+ */
 function последниеПрогоны(
   прогоны: Чтение<Awaited<ReturnType<RunsService["lastPerJob"]>>>,
 ): Map<string, MonitorRunLite> {
@@ -369,7 +393,9 @@ function последниеПрогоны(
   if (!прогоны.ok) return map;
   for (const r of прогоны.value) {
     if (r.agentName !== "system") continue;
-    map.set(r.skill, { at: r.startedAt, outcome: r.outcome, reason: r.reason });
+    const at = дата(r.startedAt ?? null);
+    if (at === null) continue;
+    map.set(r.skill, { at, outcome: r.outcome, reason: r.reason });
   }
   return map;
 }

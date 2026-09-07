@@ -337,6 +337,20 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     }
   });
 
+  it("нечитаемый момент прогона — «не запускался», а не 500 на весь ответ (Ф-2)", async () => {
+    // `rowFromRaw` не проверяет `started_at` на конечность, поэтому испорченный
+    // столбец приезжает в правила как `Invalid Date`. Ответ обязан собраться:
+    // строка честно говорит «не запускался», а экран не гаснет целиком.
+    const ответ = await сервис({
+      runs: [прогон(FACES.fx.key, { at: new Date("сломано") })],
+    }).health(NOW);
+    const fx = найти(ответ.outside, FACES.fx.key);
+    assert.equal(fx.state, "unknown");
+    assert.match(fx.summary, /не запускался|журнал прогонов пуст/);
+    assert.equal(fx.at, undefined);
+    assert.equal(fx.lastCheckedAt, null);
+  });
+
   it("монитор без прогонов — проверок не было ни разу (Р-Д1-2)", async () => {
     const ответ = await сервис({ runs: [] }).health(NOW);
     const fx = найти(ответ.outside, FACES.fx.key);
@@ -362,6 +376,20 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.equal(сбор.state, "unknown");
     assert.equal(сбор.lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString());
     assert.doesNotMatch(сбор.detail ?? "", /донор недоступен/, "текст исключения наружу не едет");
+
+    // СИММЕТРИЧНАЯ ТОЧКА ОТКАЗА УЧЁТА. Отчёт `/ourvend/health` один на две
+    // строки, значит и не собирается он для двух сразу — но тест был только на
+    // сбор, и замена третьего аргумента у `строкаУчёта` на `null` не роняла
+    // ничего. Ошибка, которую легко сделать: две ветки одного гарда правят
+    // по-разному.
+    const учёт = найти(ответ.outside, FACES.ourvendAccounting.key);
+    assert.equal(учёт.state, "unknown");
+    assert.equal(
+      учёт.lastCheckedAt,
+      new Date(NOW.getTime() - ЧАС).toISOString(),
+      "тик монитора учёта прочитан — «не запускался» было бы ложью и здесь",
+    );
+    assert.doesNotMatch(учёт.detail ?? "", /донор недоступен/, "текст исключения наружу не едет");
   });
 
   it("снимок не прочитался, а журнал прогонов прочитан — момент проверки известен", async () => {
@@ -370,6 +398,14 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.equal(fx.state, "unknown");
     assert.equal(fx.lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString());
     assert.doesNotMatch(fx.detail ?? "", /соединение закрыто/, "текст исключения наружу не едет");
+
+    // Обе строки OurVend идут по ветке `базаОтказала` — и обе обязаны отдать
+    // прочитанный тик, а не «не запускался».
+    for (const key of [FACES.ourvendSync.key, FACES.ourvendAccounting.key]) {
+      const row = найти(ответ.outside, key);
+      assert.equal(row.state, "unknown");
+      assert.equal(row.lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString(), key);
+    }
   });
 
   it("журнал прогонов не прочитался — момента нет, и он не выдумывается", async () => {

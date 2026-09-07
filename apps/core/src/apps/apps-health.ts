@@ -308,6 +308,58 @@ const ЧАС = 3_600_000;
  */
 export const OUTBOX_STUCK_MS = ЧАС;
 
+/**
+ * ISO-момент, только если дата ЧИТАЕТСЯ; иначе `null`.
+ *
+ * ТРЕТЬЯ ЗАЩИТА ЭТОГО СРЕЗА ДАННЫХ, рядом с `разобрать` (ISO-строка на входе)
+ * и `дата` службы (значение СУБД). Закрывает последний вход, где `Date`
+ * приезжает УЖЕ СОБРАННЫМ и никем не проверенным: моменты прогонов собирает
+ * `rowFromRaw` (`routines/runs.service.ts`) выражением
+ * `startedAt: d(r.started_at)!` — `new Date(строка)` без проверки на
+ * конечность и с `!` поверх. Нечитаемый `started_at` дал бы `Invalid Date`, а
+ * `toISOString()` на ней бросает `RangeError` — ПРЯМО ИЗ ЧИСТЫХ ПРАВИЛ,
+ * которые вызываются вне `попытка`, то есть 500 на весь `/apps/health`.
+ *
+ * ВИТРИНА ОБЯЗАНА ОТДАТЬ СТРОКУ, А НЕ ПОГАСИТЬ ЭКРАН — ровно для этого
+ * существует `unavailableRow`, и было бы издевательством, если бы срез,
+ * добавивший второй момент, уронил экран целиком там, где раньше строка
+ * молча выживала. Настоящее лечение стоит на границе (`последниеПрогоны`
+ * отбрасывает нечитаемый прогон, как `дата` — битое значение СУБД); эта
+ * функция — пояс на случай следующего источника моментов.
+ */
+function исо(момент: Date | null | undefined): string | null {
+  if (момент === null || момент === undefined) return null;
+  return Number.isFinite(момент.getTime()) ? момент.toISOString() : null;
+}
+
+/**
+ * Момент, только если он ЧИТАЕТСЯ; иначе `null` — «момента нет».
+ *
+ * ЕДИНОЕ ПРАВИЛО ФАЙЛА ДЛЯ ПЛОХОГО ВРЕМЕНИ: нечитаемое = отсутствующее.
+ * `разобрать` так поступает с ISO-строкой, `дата` службы — со значением СУБД;
+ * здесь то же для `Date`, который приехал УЖЕ СОБРАННЫМ и никем не
+ * проверенным (`rowFromRaw`: `startedAt: d(r.started_at)!`).
+ *
+ * ПОЧЕМУ НОРМАЛИЗАЦИЯ, А НЕ ОТДЕЛЬНАЯ ФОРМУЛИРОВКА «не читается» (в отличие от
+ * моделей, где она есть). У модели на руках ИСХОДНАЯ строка ledger — её можно
+ * показать владельцу. Здесь исходного текста нет вовсе: `Invalid Date` о себе
+ * не рассказывает ничего, и «прогон был, но когда — не скажу» ничем не
+ * полезнее честного «прогонов нет». Зато уравнивание закрывает вход в зелёную
+ * ветку: `ok` «последний прогон прошёл» без времени проверки становится
+ * недостижим ПО ПОСТРОЕНИЮ, а не по договорённости со службой.
+ */
+function читаемыйМомент(момент: Date | null | undefined): Date | null {
+  if (момент === null || момент === undefined) return null;
+  return Number.isFinite(момент.getTime()) ? момент : null;
+}
+
+/** Прогон, момент которого читается; иначе `null` — «прогона нет» (см. выше). */
+function сЧитаемымПрогоном<T extends { lastRun: MonitorRunLite | null }>(input: T): T {
+  return читаемыйМомент(input.lastRun?.at) === null && input.lastRun !== null
+    ? { ...input, lastRun: null }
+    : input;
+}
+
 function row(
   face: FaceMeta,
   state: HealthState,
@@ -315,6 +367,7 @@ function row(
   detail?: string,
   at?: Date,
 ): HealthRow {
+  const событие = исо(at);
   return {
     key: face.key,
     title: face.title,
@@ -327,7 +380,7 @@ function row(
     // разъехался `at` (у `молчаливыйИсточник` аргумента `at` нет вовсе).
     lastCheckedAt: null,
     ...(detail !== undefined && detail !== "" ? { detail } : {}),
-    ...(at !== undefined ? { at: at.toISOString() } : {}),
+    ...(событие !== null ? { at: событие } : {}),
   };
 }
 
@@ -341,7 +394,8 @@ function row(
  * каждой ветке: повторённый, он потерялся бы там, где сегодня теряется `at`.
  */
 function сПроверкой(строка: HealthRow, проверено: Date | null): HealthRow {
-  return проверено === null ? строка : { ...строка, lastCheckedAt: проверено.toISOString() };
+  const момент = исо(проверено);
+  return момент === null ? строка : { ...строка, lastCheckedAt: момент };
 }
 
 /**
@@ -386,7 +440,8 @@ export function позднееИз(a: Date | null | undefined, b: Date | null | 
  * но проверялись они в свой последний прогон.
  */
 export function rowFromMonitor(face: FaceMeta, input: MonitorRowInput): HealthRow {
-  return сПроверкой(вердиктМонитора(face, input), input.lastRun?.at ?? null);
+  const вход = сЧитаемымПрогоном(input);
+  return сПроверкой(вердиктМонитора(face, вход), вход.lastRun?.at ?? null);
 }
 
 /**
@@ -400,10 +455,8 @@ export function rowFromMonitor(face: FaceMeta, input: MonitorRowInput): HealthRo
  * судить по нему нечем.
  */
 export function rowFromOurvendSync(face: FaceMeta, input: OurvendSyncInput): HealthRow {
-  return сПроверкой(
-    вердиктСбора(face, input),
-    позднееИз(разобрать(input.health?.lastSuccessAt ?? null), input.lastRun?.at),
-  );
+  const вход = сЧитаемымПрогоном(input);
+  return сПроверкой(вердиктСбора(face, вход), проверкаСбора(вход));
 }
 
 /**
@@ -415,7 +468,8 @@ export function rowFromOurvendSync(face: FaceMeta, input: OurvendSyncInput): Hea
  * точностью до часа и назвать выдумку проверкой.
  */
 export function rowFromOurvendAccounting(face: FaceMeta, input: OurvendAccountingInput): HealthRow {
-  return сПроверкой(вердиктУчёта(face, input), input.lastRun?.at ?? null);
+  const вход = сЧитаемымПрогоном(input);
+  return сПроверкой(вердиктУчёта(face, вход), вход.lastRun?.at ?? null);
 }
 
 /**
@@ -448,7 +502,11 @@ export function rowFromOutbox(face: FaceMeta, input: OutboxRowInput): HealthRow 
  * иначе следующий автор пойдёт искать боту второй источник времени.
  */
 export function rowFromHeartbeat(face: FaceMeta, input: HeartbeatRowInput): HealthRow {
-  return сПроверкой(вердиктСигнала(face, input), input.lastAt);
+  // Нечитаемый момент сигнала — это «сигнала не было», а не «бот отвечает NaN
+  // мин назад»: возраст ушёл бы в NaN, сравнение с порогом дало бы `false`, и
+  // строка зазеленела бы без времени и с мусором в тексте.
+  const lastAt = читаемыйМомент(input.lastAt);
+  return сПроверкой(вердиктСигнала(face, { ...input, lastAt }), lastAt);
 }
 
 /**
@@ -461,10 +519,21 @@ export function rowFromHeartbeat(face: FaceMeta, input: HeartbeatRowInput): Heal
  * о вызовах не известно ничего, и это `null`.
  */
 export function rowFromLlm(face: FaceMeta, input: LlmRowInput): HealthRow {
-  return сПроверкой(
-    вердиктМоделей(face, input),
-    разобрать(input.monitoring?.latestCompletedAt ?? null) ?? null,
-  );
+  return сПроверкой(вердиктМоделей(face, input), моментВызова(input.monitoring) ?? null);
+}
+
+/**
+ * Момент последнего завершённого вызова — РАЗОБРАННЫЙ; `undefined` — вызовов не
+ * было либо дата не читается.
+ *
+ * ОДНА ФУНКЦИЯ НА ДВА ВОПРОСА, третий раз в файле (ср. `закрытиеДоставки`,
+ * `проверкаСбора`). Гард вердикта раньше спрашивал СЫРОЕ поле
+ * (`latestCompletedAt === null`), а обёртка — разобранное, и нераспознанная
+ * дата проходила гард насквозь: строка отдавала `ok` «вызовы проходят» БЕЗ
+ * времени проверки. Теперь оба спрашивают один разбор, и разойтись им нечем.
+ */
+function моментВызова(m: LlmMonitoringLite | null): Date | undefined {
+  return разобрать(m?.latestCompletedAt ?? null);
 }
 
 /**
@@ -562,7 +631,20 @@ function вердиктМонитора(face: FaceMeta, input: MonitorRowInput):
   return row(face, "unknown", `исход последнего прогона — ${исходЯрлык(run.outcome)}: оценить нечем`, run.reason, run.at);
 }
 
-/** Дата из ISO-строки, если она вообще дата: битая отбрасывается, а не роняет ответ. */
+/**
+ * Дата из ISO-строки, если она вообще дата: битая отбрасывается, а не роняет ответ.
+ *
+ * РИСК НА БУДУЩЕЕ: У `lastSuccessAt` В СИСТЕМЕ ДВА РАЗБОРЩИКА. Здесь голый
+ * `new Date`, а все остальные читатели того же поля (`rawStaleHours` в
+ * `ourvend/sync-runs.ts`, правила, бот) разбирают его `tashkentInstant`.
+ * Сегодня расхождения нет: продюсер (`ourvend-health.service.ts`) всегда
+ * отдаёт `toISOString()`, то есть строку С ЗОНОЙ, и оба разборщика читают её
+ * одинаково. Но если поле приедет в форме СУБД («YYYY-MM-DD HH:mm:ss») или
+ * голой датой, `tashkentInstant` подставит +05, а `new Date` — зону процесса
+ * либо UTC, и два ответа молча разойдутся НА ПЯТЬ ЧАСОВ. В этом репозитории
+ * сдвиг на пять часов уже случался (247 строк инкассаций), поэтому: меняешь
+ * форму, которую отдаёт продюсер, — приходи сюда, а не только в `staleHours`.
+ */
 function разобрать(iso: string | null): Date | undefined {
   if (iso === null) return undefined;
   const d = new Date(iso);
@@ -572,6 +654,24 @@ function разобрать(iso: string | null): Date | undefined {
 /** Момент, который строка про OurVend описывает: последний успех, иначе тик монитора. */
 function ourvendAt(lastSuccessAt: string | null, lastRun: MonitorRunLite | null): Date | undefined {
   return разобрать(lastSuccessAt) ?? lastRun?.at;
+}
+
+/**
+ * Момент последней ПРОВЕРКИ сбора: позднейший из читаемого успеха и тика
+ * монитора; `null` — ни одного.
+ *
+ * ОДНА ФУНКЦИЯ НА ДВА ВОПРОСА — тот же приём, что у `закрытиеДоставки`. Её
+ * спрашивает и обёртка («когда проверяли»), и зелёная ветка вердикта («имеем ли
+ * право говорить „данные свежие“»). Врозь они уже расходились: вердикт
+ * доказывал свежесть по `staleHoursRaw`, а обёртка искала момент в ДРУГОМ поле
+ * (`lastSuccessAt`), и вход `{ lastSuccessAt: null, staleHoursRaw: 1 }` при
+ * пустом журнале прогонов давал зелёную строку БЕЗ времени. Через HTTP такой
+ * вход сегодня не приезжает — служба считает `staleHoursRaw` из того же
+ * `lastSuccessAt` (`rawStaleHours`), — но это согласованность в двух модулях
+ * отсюда, то есть «по договорённости». Гард ниже делает её «по построению».
+ */
+function проверкаСбора(input: OurvendSyncInput): Date | null {
+  return позднееИз(разобрать(input.health?.lastSuccessAt ?? null), input.lastRun?.at);
 }
 
 /**
@@ -617,6 +717,21 @@ function вердиктСбора(face: FaceMeta, input: OurvendSyncInput): Heal
       `сбор стоит ${показ} ч — порог ${h.staleThresholdH} ч`,
       input.lastRun !== null ? исходСловами(input.lastRun) : undefined,
       at,
+    );
+  }
+  // ЗЕЛЁНОЙ БЕЗ ВРЕМЕНИ ПРОВЕРКИ НЕ БЫВАЕТ (срез Д1, Р-Д1-3). «Данные свежие»
+  // выше доказано `staleHoursRaw`, а момент проверки живёт в ДРУГИХ полях —
+  // читаемом `lastSuccessAt` и тике монитора. Рассогласуй их (битая дата
+  // успеха, пустой журнал прогонов) — и строка зазеленела бы, не умея назвать,
+  // когда её проверяли, то есть ровно так, как запрещает срез. Гард стоит
+  // рядом с правилом, а не в службе за два модуля отсюда.
+  if (проверкаСбора(input) === null) {
+    return row(
+      face,
+      "unknown",
+      "здоровье не оценить: отчёт называет данные свежими, а момента последнего успеха в нём нет",
+      "свежесть посчитана по одному полю отчёта, а когда сбор проверяли — сказать нечем: " +
+        "ни читаемого момента успеха, ни прогона в журнале",
     );
   }
   return row(
@@ -751,7 +866,12 @@ function вердиктУчёта(face: FaceMeta, input: OurvendAccountingInput)
  * зазеленеть без времени — ровно то, что запрещает Р-Д1-3.
  */
 function закрытиеДоставки(input: OutboxRowInput): Date | null {
-  return позднееИз(позднееИз(input.lastSentAt, input.lastSkippedAt), input.lastFailedAt);
+  // Нормализуем КАЖДЫЙ момент, а не результат: сравнение с `NaN` всегда ложно,
+  // поэтому один битый момент в `позднееИз` съел бы читаемый соседний.
+  return позднееИз(
+    позднееИз(читаемыйМомент(input.lastSentAt), читаемыйМомент(input.lastSkippedAt)),
+    читаемыйМомент(input.lastFailedAt),
+  );
 }
 
 /** Исход `a` случился ПОЗЖЕ исхода `b` (или `b` не случался вовсе)? */
@@ -935,8 +1055,10 @@ function вердиктМоделей(face: FaceMeta, input: LlmRowInput): Healt
   const m = input.monitoring;
   if (m === null) return row(face, "unknown", "здоровье не оценить: монитор ledger не ответил");
   // Момент последнего завершённого вызова — только если он разбирается: битая
-  // строка ушла бы в `toISOString()` и уронила бы весь ответ.
-  const at = разобрать(m.latestCompletedAt);
+  // строка ушла бы в `toISOString()` и уронила бы весь ответ. НИЖЕ ПО ЭТОМУ
+  // МОМЕНТУ СУДИТ И ГАРД «вызовов не было», а не по сырому полю: иначе
+  // нераспознанная дата проходит его насквозь и зеленит строку без времени.
+  const at = моментВызова(m);
 
   if (!m.meteredEnabled) {
     return row(
@@ -972,8 +1094,24 @@ function вердиктМоделей(face: FaceMeta, input: LlmRowInput): Healt
   }
   // Ни одного завершённого вызова: «отказов нет» здесь — та же ложь, что ноль
   // прогонов у монитора.
-  if (m.latestCompletedAt === null) {
-    return row(face, "unknown", "завершённых вызовов не было — оценивать нечего");
+  //
+  // ГАРД СПРАШИВАЕТ РАЗОБРАННЫЙ МОМЕНТ, А НЕ СЫРОЕ ПОЛЕ. Различие не
+  // косметическое: `latestCompletedAt: "не дата"` мимо `=== null` проходит, а
+  // `разобрать` его отбрасывает — и строка уходила в `ok` «вызовы проходят,
+  // отказов сегодня 0» без единой отметки времени. Две формулировки, потому
+  // что случаи разные: «вызовов не было» и «вызов был, а когда — не читается»
+  // чинят в разных местах, и вторую нельзя называть первой.
+  if (at === undefined) {
+    return row(
+      face,
+      "unknown",
+      m.latestCompletedAt === null
+        ? "завершённых вызовов не было — оценивать нечего"
+        : "момент последнего завершённого вызова не читается — оценивать нечем",
+      m.latestCompletedAt === null
+        ? undefined
+        : `ledger вернул «${m.latestCompletedAt}» вместо даты: судить о свежести вызовов нечем`,
+    );
   }
   // ПОСЛЕДНИЙ ЗАВЕРШЁННЫЙ ВЫЗОВ ОТКАЗАЛ — «вызовы проходят» сказать нельзя
   // (A-3). Утверждение строки касается не истории, а того, может ли система
