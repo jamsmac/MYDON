@@ -1188,3 +1188,111 @@ describe("Здоровье приложений: момент последней
     assert.equal(всёБитое.lastCheckedAt, null);
   });
 });
+
+/**
+ * ПОРОГОВЫЕ МОМЕНТЫ: битый момент не имеет права дать зелёное (срез Д1, П3).
+ *
+ * Срез ввёл правило «нечитаемый момент = отсутствующий» и применил его к
+ * моментам ПРОГОНОВ. Три момента остались снаружи — `MonitorRowInput.silentAfter`,
+ * `OurvendAccountingInput.silentAfter` и `OutboxRowInput.oldestPendingAt`, — и
+ * все три операнды ПОРОГОВОГО сравнения: сравнение с `NaN` всегда ложно,
+ * поэтому битый момент молча снимал правило и переворачивал `bad` в `ok`.
+ *
+ * ПОЧЕМУ ЗДЕСЬ ПРОВЕРЯЕТСЯ ТРИ ВХОДА, А НЕ ОДИН. У этих моментов `null` —
+ * ЗАКОННЫЙ штатный случай («расписания нет», «неразобранных доставок нет»), при
+ * котором правило порога честно пропускается и строка вправе зеленеть. Поэтому
+ * каждый тест пришпиливает ВСЕ ТРИ формы: читаемый порог — «сломано»,
+ * отсутствующий — зелёное, битый — «оценить нечем». Уравняй битый с `null`
+ * (одна нормализация без пост-фильтра) — и третья форма снова станет зелёной,
+ * то есть проверка обязана падать при откате.
+ */
+describe("Здоровье приложений: битый пороговый момент (срез Д1, П3)", () => {
+  const битая = new Date("сломано");
+
+  it("монитор: битый порог молчания даёт «не оценить», а не «последний прогон прошёл»", () => {
+    // Монитор молчит 30 часов, порог второго планового запуска давно прошёл.
+    const молчит = монитор({ lastRun: { at: часНазад(30), outcome: "executed", reason: "ok" }, silentAfter: часНазад(1) });
+    const сломано = rowFromMonitor(FACES.fx, молчит);
+    assert.equal(сломано.state, "bad");
+    assert.match(сломано.summary, /монитор молчит/);
+
+    // Расписания нет вовсе — о молчании судить нечем ЗАКОННО, строка зелёная.
+    const безРасписания = rowFromMonitor(FACES.fx, монитор({ ...молчит, silentAfter: null }));
+    assert.equal(безРасписания.state, "ok");
+
+    // А вот битый порог — это утверждение «расписание есть», без времени.
+    const битый = rowFromMonitor(FACES.fx, монитор({ ...молчит, silentAfter: битая }));
+    assert.equal(битый.state, "unknown", "зелёное над нечитаемым порогом приёмку не проходит");
+    assert.match(битый.summary, /не оценить/);
+    assert.match(битый.summary, /не читается/);
+    assert.doesNotMatch(битый.summary, /NaN|Invalid/);
+    assert.doesNotMatch(битый.detail ?? "", /NaN|Invalid/);
+    // Момент проверки берётся из ДРУГОГО поля и не теряется: «когда проверяли»
+    // мы знаем даже там, где не знаем, когда монитор был должен тикнуть.
+    assert.equal(битый.lastCheckedAt, часНазад(30).toISOString());
+  });
+
+  it("учёт OurVend: битый порог молчания гасит «сверка сходится»", () => {
+    const молчит = учёт({ lastRun: { at: часНазад(30), outcome: "executed", reason: "ok" }, silentAfter: часНазад(1) });
+    const сломано = rowFromOurvendAccounting(FACES.ourvendAccounting, молчит);
+    assert.equal(сломано.state, "bad");
+    assert.match(сломано.summary, /монитор молчит/);
+
+    const безРасписания = rowFromOurvendAccounting(FACES.ourvendAccounting, { ...молчит, silentAfter: null });
+    assert.equal(безРасписания.state, "ok");
+    assert.match(безРасписания.summary, /сверка сходится/);
+
+    const битый = rowFromOurvendAccounting(FACES.ourvendAccounting, { ...молчит, silentAfter: битая });
+    assert.equal(битый.state, "unknown");
+    assert.match(битый.summary, /не оценить/);
+    // Что сказали бы правила — в `detail`: диагноз не пропадает, он теряет право
+    // называться зелёным.
+    assert.match(битый.detail ?? "", /сверка сходится/);
+    assert.equal(битый.lastCheckedAt, часНазад(30).toISOString());
+  });
+
+  it("очередь: битый момент застоя гасит «в очереди 500, доставлено 5»", () => {
+    const очередь = доставки({ counts: { pending: 500, sent: 5 }, lastSentAt: часНазад(1) });
+    const сломано = rowFromOutbox(FACES.notion, { ...очередь, oldestPendingAt: часНазад(9) });
+    assert.equal(сломано.state, "bad");
+    assert.match(сломано.summary, /очередь не разбирается/);
+
+    // Неразобранных нет — момента нет законно, и строка зелёная.
+    const свежая = rowFromOutbox(FACES.notion, очередь);
+    assert.equal(свежая.state, "ok");
+
+    const битый = rowFromOutbox(FACES.notion, { ...очередь, oldestPendingAt: битая });
+    assert.equal(битый.state, "unknown");
+    assert.match(битый.summary, /не оценить/);
+    assert.doesNotMatch(битый.summary, /NaN/);
+    assert.equal(битый.at, undefined, "нечитаемый момент не едет наружу даже в `at`");
+    assert.equal(битый.lastCheckedAt, часНазад(1).toISOString());
+  });
+
+  it("очередь: битый момент УСПЕХА не делает свежий отказ несвежим (находка перебора П4)", () => {
+    // ПОРЯДОК ИСХОДОВ СУДИТСЯ ТЕМИ ЖЕ МОМЕНТАМИ, и `позже` сравнивал их СЫРЫМИ,
+    // в отличие от `закрытиеДоставки`. Сравнение с `NaN` ложно в обе стороны:
+    // битый момент успеха делал СВЕЖИЙ терминальный отказ «старым», и строка с
+    // записью в тупике зеленела. Правило файла на этот случай уже написано —
+    // «успехов не было вовсе: тогда отказ свежий по определению», — только до
+    // нормализации оно не срабатывало, потому что `Invalid Date` не `null`.
+    const тупик = доставки({ counts: { sent: 200, dead: 1 }, lastFailedAt: часНазад(1) });
+    const свежий = rowFromOutbox(FACES.notion, { ...тупик, lastSentAt: часНазад(5) });
+    assert.equal(свежий.state, "bad");
+    assert.match(свежий.summary, /в тупике 1/);
+
+    // Старый отказ, за которым доставки пошли, красным быть не должен —
+    // проверяем, что нормализация не покрасила и его.
+    const старый = rowFromOutbox(FACES.notion, {
+      ...тупик,
+      lastFailedAt: часНазад(5),
+      lastSentAt: часНазад(1),
+    });
+    assert.equal(старый.state, "ok");
+
+    const битыйУспех = rowFromOutbox(FACES.notion, { ...тупик, lastSentAt: битая });
+    assert.equal(битыйУспех.state, "bad", "нечитаемый успех — это отсутствие успеха, а не свежий успех");
+    assert.match(битыйУспех.summary, /в тупике 1/);
+    assert.equal(битыйУспех.lastCheckedAt, часНазад(1).toISOString());
+  });
+});
