@@ -76,6 +76,37 @@ const ЗДОРОВЬЕ_OURVEND: OurvendHealth = {
   },
 };
 
+/**
+ * Отчёт сбора, в котором ДВАДЦАТЬ ПРОГОНОВ И НИ ОДНОГО УСПЕХА: серия отказов,
+ * читаемого момента нет ни в одной таблице. Ровно тот вход, на котором служба
+ * печатала «не запускался» над двадцатью прогонами (десятый круг, Ф-1).
+ */
+const ДВАДЦАТЬ_ОТКАЗОВ: OurvendHealth = {
+  ...ЗДОРОВЬЕ_OURVEND,
+  runs: Array.from({ length: 20 }, (_, i) => ({
+    id: `sync-fail-${i}`,
+    startedAt: new Date(NOW.getTime() - (i + 1) * 3 * ЧАС).toISOString(),
+    finishedAt: new Date(NOW.getTime() - (i + 1) * 3 * ЧАС).toISOString(),
+    status: "failed" as const,
+    machinesTotal: 2,
+    machinesOk: 0,
+    durationMs: 1000,
+    error: "таймаут",
+  })),
+  failedStreak: 20,
+  lastSuccessAt: null,
+  staleHours: null,
+};
+
+/** Отчёт сбора, прочитанный и ПУСТОЙ: `vending_sync_run` без единой строки. */
+const ПУСТОЙ_ОТЧЁТ: OurvendHealth = {
+  ...ЗДОРОВЬЕ_OURVEND,
+  runs: [],
+  failedStreak: 0,
+  lastSuccessAt: null,
+  staleHours: null,
+};
+
 const МОНИТОРИНГ_LLM: LlmLedgerMonitoring = {
   generatedAt: NOW.toISOString(),
   day: "2026-09-06",
@@ -121,6 +152,8 @@ interface Мир {
   /** Снимка расписаний нет вовсе (агенты ни разу не публиковали). */
   безСнимка?: boolean;
   runs?: ReturnType<typeof прогон>[];
+  /** Отчёт `/ourvend/health` вместо штатного (один успешный прогон час назад). */
+  ourvend?: OurvendHealth;
   /** Отказ конкретного источника: сообщение исключения. */
   отказ?: {
     снимок?: string;
@@ -188,7 +221,7 @@ function сервис(м: Мир = {}): AppsHealthService {
     health: () =>
       м.отказ?.ourvend !== undefined
         ? Promise.reject(new Error(м.отказ.ourvend))
-        : Promise.resolve(ЗДОРОВЬЕ_OURVEND),
+        : Promise.resolve(м.ourvend ?? ЗДОРОВЬЕ_OURVEND),
   } as unknown as Ourvend;
   const llm = {
     monitoring: () =>
@@ -345,10 +378,12 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     }
   });
 
-  it("нечитаемый момент прогона — «не запускался», а не 500 на весь ответ (Ф-2)", async () => {
+  it("нечитаемый момент прогона — «не знаем», а не «не запускался» и не 500 на весь ответ (Ф-2; десятый круг, Ф-1)", async () => {
     // `rowFromRaw` не проверяет `started_at` на конечность, поэтому испорченный
-    // столбец приезжает в правила как `Invalid Date`. Ответ обязан собраться:
-    // строка честно говорит «не запускался», а экран не гаснет целиком.
+    // столбец приезжает в службу как `Invalid Date`. Ответ обязан собраться
+    // (экран не гаснет целиком), а строка — НЕ утверждать «проверок не было»:
+    // строка прогона в журнале ЕСТЬ, назвать её нечем. Прежняя редакция
+    // отбрасывала такую строку на границе и получала честный с виду ноль.
     const ответ = await сервис({
       runs: [прогон(FACES.fx.key, { at: new Date("сломано") })],
     }).health(NOW);
@@ -357,6 +392,75 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.match(fx.summary, /не запускался|журнал прогонов пуст/);
     assert.equal(fx.at, undefined);
     assert.equal(fx.lastCheckedAt, null);
+    assert.equal(fx.checksKnown, false, "строка прогона есть — «не запускался» над ней ложь, а не скромность");
+  });
+
+  it("сбор: снимок не прочитался, журнал пуст, в отчёте двадцать отказов — «не знаем», а не «не запускался» (десятый круг, Ф-1)", async () => {
+    // Сценарий ревью: `agent_run` пуст (свежая установка, после смоука, первый
+    // прогон убит деплоем), `runs.snapshot()` бросил, а отчёт OurVend с
+    // двадцатью прогонами уже лежит в `ourvend.value`. Служба считала
+    // свидетельства по ОДНОМУ журналу и печатала «не запускался» над двадцатью
+    // прогонами; правило на том же входе отвечало «не знаем». Теперь дверь одна.
+    const ответ = await сервис({
+      runs: [],
+      отказ: { снимок: "соединение закрыто" },
+      ourvend: ДВАДЦАТЬ_ОТКАЗОВ,
+    }).health(NOW);
+    const сбор = найти(ответ.outside, FACES.ourvendSync.key);
+    assert.equal(сбор.state, "unknown");
+    assert.match(сбор.detail ?? "", /снимок расписаний/);
+    assert.equal(сбор.lastCheckedAt, null);
+    assert.equal(сбор.checksKnown, false, "двадцать прогонов в отчёте — это свидетельства, а не их отсутствие");
+
+    // Тот же отказ снимка при отчёте С УСПЕХОМ: момент успеха — читаемое
+    // свидетельство, и оно едет на провод, а не теряется вместе со снимком.
+    const сУспехом = await сервис({ runs: [], отказ: { снимок: "соединение закрыто" } }).health(NOW);
+    const сборСУспехом = найти(сУспехом.outside, FACES.ourvendSync.key);
+    assert.equal(сборСУспехом.lastCheckedAt, ЗДОРОВЬЕ_OURVEND.lastSuccessAt);
+    assert.equal(сборСУспехом.checksKnown, true);
+  });
+
+  it("сбор: журнал пуст, отчёт не собрался — «не знаем», не «ни разу» (десятый круг, Ф-1)", async () => {
+    // Одна таблица пуста, вторую не прочитали: ноль свидетельств недоказуем.
+    const ответ = await сервис({ runs: [], отказ: { ourvend: "донор недоступен" } }).health(NOW);
+    const сбор = найти(ответ.outside, FACES.ourvendSync.key);
+    assert.equal(сбор.state, "unknown");
+    assert.match(сбор.detail ?? "", /отчёт OurVend/);
+    assert.equal(сбор.lastCheckedAt, null);
+    assert.equal(сбор.checksKnown, false, "по одному пустому agent_run «сбор не запускался» утверждать нельзя");
+
+    // КОНТРАСТ — УЧЁТ НА ТОМ ЖЕ ВХОДЕ. У отчёта учёта моментов нет вовсе, его
+    // единственное свидетельство — тик монитора в журнале, а журнал прочитан
+    // и пуст: здесь ноль настоящий, и утверждение законно.
+    const учёт = найти(ответ.outside, FACES.ourvendAccounting.key);
+    assert.equal(учёт.lastCheckedAt, null);
+    assert.equal(учёт.checksKnown, true, "у учёта одна таблица, и она прочитана: «проверок не было» доказано");
+  });
+
+  it("сбор: журнал не прочитан — отчёт всё равно спрашивается, но ноль по одному отчёту не выводится", async () => {
+    // Отчёт помнит успех: момент проверки известен, хотя журнал не прочитан.
+    const сУспехом = await сервис({ отказ: { прогоны: "таблица недоступна" } }).health(NOW);
+    const сбор = найти(сУспехом.outside, FACES.ourvendSync.key);
+    assert.equal(сбор.state, "unknown");
+    assert.match(сбор.detail ?? "", /журнал прогонов/);
+    assert.equal(сбор.lastCheckedAt, ЗДОРОВЬЕ_OURVEND.lastSuccessAt, "успех из отчёта — читаемый момент проверки");
+    assert.equal(сбор.checksKnown, true);
+
+    // Отчёт прочитан и ПУСТ, журнал не прочитан: одной пустой таблицы для нуля
+    // мало — «не знаем», зеркально к «журнал пуст, отчёт не собрался».
+    const пустой = await сервис({ отказ: { прогоны: "таблица недоступна" }, ourvend: ПУСТОЙ_ОТЧЁТ }).health(NOW);
+    const сборПустой = найти(пустой.outside, FACES.ourvendSync.key);
+    assert.equal(сборПустой.lastCheckedAt, null);
+    assert.equal(сборПустой.checksKnown, false, "журнал не прочитан — ноль по одному отчёту недоказуем");
+  });
+
+  it("сбор: обе таблицы прочитаны и пусты — единственный законный «не запускался»", async () => {
+    const ответ = await сервис({ runs: [], ourvend: ПУСТОЙ_ОТЧЁТ }).health(NOW);
+    const сбор = найти(ответ.outside, FACES.ourvendSync.key);
+    assert.equal(сбор.state, "unknown");
+    assert.match(сбор.summary, /сбор не запускался|журнал прогонов пуст/);
+    assert.equal(сбор.lastCheckedAt, null);
+    assert.equal(сбор.checksKnown, true, "обе таблицы прочитаны, обе пусты — ноль свидетельств настоящий");
   });
 
   it("монитор без прогонов — проверок не было ни разу (Р-Д1-2)", async () => {
