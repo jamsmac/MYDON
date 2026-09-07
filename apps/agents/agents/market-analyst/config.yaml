@@ -70,11 +70,11 @@ skills:
 
 # Хуки прогона (волна R). Правило расстановки — _template/config.yaml; проверяются только у active-агента
 # и только на cron-прогоне: ручной запуск с деки и задача с checkpoint идут мимо (preRunApplies, runner.ts).
+# source_fresh НЕ ставим (ревью 07.09): курсы из Core в apps/agents не читает никто — scan-fx по SKILL.md ходит
+# в cbu.uz напрямую, read-sources читает web_sources вживую. Хук на system/fx:refresh гейтил бы все 6 cron-навыков
+# (включая scan-tenders) монитором, который может быть выключен FX_REFRESH_CRON=off.
 hooks:
   pre_run:
-    - kind: source_fresh          # scan-fx читает курсы ЦБ, которые приносит fx:refresh (cron 5 9 * * *);
-      run: system/fx:refresh      # 48 ч = два тика. На проде 07.09 монитор ещё в unknown — до первого
-      max_age_hours: 48           # executed-прогона cron-запуски агента стоят с причиной в /flows; это и есть сигнал
     - kind: quiet_hours           # ночь по Ташкенту (правило и выбор окна — _template/config.yaml)
       from: "23:00"
       to: "07:00"

@@ -22,11 +22,11 @@ skills:
 
 # Хуки прогона (волна R). Правило расстановки — _template/config.yaml; проверяются только у active-агента
 # и только на cron-прогоне: ручной запуск с деки и задача с checkpoint идут мимо (preRunApplies, runner.ts).
+# source_fresh НЕ ставим (ревью 07.09): business-brief сегодня not_implemented (нет в SKILLS), а llm-исполнитель
+# подмешивает только COMPANY.md, ROLE.md и KB-страницы с диска — за данными в Core не ходит. Хук на
+# system/ourvend:sync гейтил бы навык монитором, от которого он не зависит.
 hooks:
   pre_run:
-    - kind: source_fresh          # business-brief — сводка по парку из продаж OurVend (briefing Core);
-      run: system/ourvend:sync    # синк каждые 3 ч (OURVEND_SYNC_CRON), 6 ч = два тика
-      max_age_hours: 6
     - kind: quiet_hours           # ночь по Ташкенту (правило и выбор окна — _template/config.yaml)
       from: "23:00"
       to: "07:00"

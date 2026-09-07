@@ -26,11 +26,11 @@ skills:
 
 # Хуки прогона (волна R). Правило расстановки — _template/config.yaml; проверяются только у active-агента
 # и только на cron-прогоне: ручной запуск с деки и задача с checkpoint идут мимо (preRunApplies, runner.ts).
+# source_fresh НЕ ставим (ревью 07.09): monitor-stock читает только briefing.idleMachines, а Core считает его
+# по ручному полю machine_card.status != 'in_service' (registry.service.ts) — синк OurVend это поле не трогает;
+# parts-audit читает /parts/queue. Ни один навык не зависит от system/ourvend:sync — хук стоял бы на чужом источнике.
 hooks:
   pre_run:
-    - kind: source_fresh          # monitor-stock считает простой по продажам OurVend — на протухшем синке
-      run: system/ourvend:sync    # все автоматы «простаивают». Синк каждые 3 ч, 6 ч = два тика.
-      max_age_hours: 6            # Гейтит и parts-audit: цена — одна пропущенная сверка узлов в понедельник.
     - kind: quiet_hours           # ночь по Ташкенту (правило и выбор окна — _template/config.yaml)
       from: "23:00"
       to: "07:00"
