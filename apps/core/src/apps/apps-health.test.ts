@@ -100,6 +100,8 @@ const строка = (state: HealthRow["state"], key = "x"): HealthRow => ({
   title: key,
   state,
   summary: "—",
+  // Поле обязательное: «проверок не было» — это ЗНАЧЕНИЕ, а не отсутствие поля.
+  lastCheckedAt: null,
 });
 
 describe("Здоровье приложений: три честных состояния (R-A2-2, решения Р-3…Р-6)", () => {
@@ -668,12 +670,235 @@ describe("Здоровье приложений: разделы «снаружи
   });
 
   it("недоступный источник даёт «не оценить», но текст исключения наружу не едет", () => {
-    // Маршрут читается без токена, а сообщения драйвера несут хост и
-    // пользователя базы: наружу — ярлык прочитанного, причина — в журнал.
-    const row = unavailableRow(FACES.notion, "очередь доставок");
+    // Маршрут закрыт токеном (`ReadTokenGuard`, круг починок C-1), а ярлык —
+    // второй пояс: сервисный токен держат ещё бот и агенты, а сообщения
+    // драйвера несут хост и пользователя базы. Наружу — ярлык прочитанного,
+    // причина — в журнал Core.
+    const row = unavailableRow(FACES.notion, "очередь доставок", null);
     assert.equal(row.state, "unknown");
     assert.match(row.summary, /не отвечает/);
     assert.match(row.detail ?? "", /очередь доставок/);
     assert.match(row.detail ?? "", /журнал Core/);
+    assert.equal(row.lastCheckedAt, null, "журнал проверок не прочитан — момента нет");
+  });
+
+  it("недоступный источник с ИЗВЕСТНЫМ моментом проверки его не теряет", () => {
+    // Отчёт OurVend не собрался, а журнал прогонов прочитан: тик монитора
+    // известен, и «не запускался» здесь было бы ложью о работающем мониторе.
+    const row = unavailableRow(FACES.ourvendSync, "отчёт OurVend", часНазад(1));
+    assert.equal(row.state, "unknown");
+    assert.equal(row.lastCheckedAt, часНазад(1).toISOString());
+    assert.doesNotMatch(row.detail ?? "", /Error|host|password/i, "текст исключения наружу не едет");
+  });
+});
+
+/**
+ * Момент последней проверки (срез Д1, Р-Д1-2, Р-Д1-3).
+ *
+ * ПОЧЕМУ ЭТО ОТДЕЛЬНОЕ ПОЛЕ, А НЕ `at`. `at` — момент СОБЫТИЯ, о котором
+ * говорит строка, и у выключенного монитора, у разобранной очереди Notion и у
+ * «не оценить» его честно нет. «Когда проверяли» существует и там, а без него
+ * «нет данных» неотличимо от «нет данных уже неделю».
+ */
+describe("Здоровье приложений: момент последней проверки (Р-Д1-2, Р-Д1-3)", () => {
+  it("поле есть в КАЖДОЙ строке: «проверок не было» — значение, а не отсутствие поля", () => {
+    const rows = [
+      rowFromMonitor(FACES.fx, монитор()),
+      rowFromMonitor(FACES.fx, монитор({ lastRun: null, silentAfter: null })),
+      rowFromOurvendSync(FACES.ourvendSync, сбор()),
+      rowFromOurvendAccounting(FACES.ourvendAccounting, учёт()),
+      rowFromOutbox(FACES.notion, доставки()),
+      rowFromHeartbeat(FACES.bot, { lastAt: null, intervalMs: 5 * 60_000, now: NOW }),
+      rowFromLlm(FACES.llm, { monitoring: ledger(), now: NOW }),
+      rowFromLlm(FACES.llm, { monitoring: null, now: NOW }),
+      unavailableRow(FACES.llm, "монитор ledger", null),
+    ];
+    for (const row of rows) {
+      assert.ok(
+        row.lastCheckedAt === null || typeof row.lastCheckedAt === "string",
+        `${row.key}: lastCheckedAt обязано быть ISO-строкой или null, а не пропадать`,
+      );
+    }
+  });
+
+  it("монитор без прогонов — проверок не было ни разу: null, а не выдуманное число дней", () => {
+    const row = rowFromMonitor(FACES.fx, монитор({ lastRun: null, silentAfter: null }));
+    assert.equal(row.state, "unknown");
+    assert.equal(row.at, undefined);
+    assert.equal(row.lastCheckedAt, null, "экран обязан сказать «не запускался», а не давность");
+  });
+
+  it("ВЫКЛЮЧЕННЫЙ монитор с прогонами в прошлом называет давность, хотя события нет", () => {
+    // Главная ценность поля: `молчаливыйИсточник` отдаёт строку без `at`, и до
+    // среза выключенный монитор выглядел как никогда не запускавшийся. Снятый
+    // с расписания вчера проверялся вчера.
+    const row = rowFromMonitor(
+      FACES.coffee,
+      монитор({
+        monitor: { enabled: false, reason: "off" },
+        lastRun: { at: часНазад(30), outcome: "executed", reason: "[coffee:monitor] бункеров 12" },
+      }),
+    );
+    assert.equal(row.state, "unknown");
+    assert.equal(row.at, undefined, "события строка не описывает: монитор выключен");
+    assert.equal(row.lastCheckedAt, часНазад(30).toISOString());
+  });
+
+  it("монитора нет в снимке, а прогоны были — момент проверки не теряется", () => {
+    const row = rowFromMonitor(
+      FACES.globerent,
+      монитор({
+        monitor: null,
+        lastRun: { at: часНазад(50), outcome: "executed", reason: "[globerent:monitor] ok" },
+      }),
+    );
+    assert.equal(row.state, "unknown");
+    assert.match(row.summary, /не заявлен в снимке/);
+    assert.equal(row.lastCheckedAt, часНазад(50).toISOString());
+  });
+
+  it("зелёная строка монитора называет время проверки (Р-Д1-3)", () => {
+    const row = rowFromMonitor(FACES.fx, монитор());
+    assert.equal(row.state, "ok");
+    assert.equal(row.lastCheckedAt, часНазад(1).toISOString());
+  });
+
+  it("сбор OurVend: проверка — ПОЗДНЕЙШИЙ момент, а не последний успех недельной давности", () => {
+    // Серия отказов: успеха нет неделю, но монитор тикает каждые три часа и
+    // каждый раз падает. «Проверено 7 д назад» было бы ложью, а именно так
+    // ответил бы `ourvendAt` — он отдаёт предпочтение успеху, а не максимуму.
+    const row = rowFromOurvendSync(
+      FACES.ourvendSync,
+      сбор({
+        health: {
+          ...ЗДОРОВЬЕ_СБОРА,
+          failedStreak: 3,
+          lastSuccessAt: часНазад(24 * 7).toISOString(),
+          staleHoursRaw: 168,
+          staleHoursShown: 168,
+        },
+        lastRun: { at: часНазад(1), outcome: "failed", reason: "[ourvend:sync] таймаут" },
+      }),
+    );
+    assert.equal(row.state, "bad");
+    assert.equal(row.lastCheckedAt, часНазад(1).toISOString());
+  });
+
+  it("сбор OurVend: отчёт не собрался — проверка берётся из тика монитора", () => {
+    const row = rowFromOurvendSync(FACES.ourvendSync, сбор({ health: null }));
+    assert.equal(row.state, "unknown");
+    assert.equal(row.lastCheckedAt, часНазад(1).toISOString());
+  });
+
+  it("сбор OurVend: ни прогонов, ни успехов — null", () => {
+    const row = rowFromOurvendSync(
+      FACES.ourvendSync,
+      сбор({
+        health: { ...ЗДОРОВЬЕ_СБОРА, runs: 0, lastSuccessAt: null, staleHoursRaw: null, staleHoursShown: null },
+        lastRun: null,
+      }),
+    );
+    assert.equal(row.state, "unknown");
+    assert.equal(row.lastCheckedAt, null);
+  });
+
+  it("учёт OurVend без прогонов — null: лаг в часах момента не даёт", () => {
+    // `salesLagShownH` округлён ДЛЯ ПОКАЗА, и `now - лаг` был бы выдуманным
+    // моментом с точностью до часа.
+    const row = rowFromOurvendAccounting(FACES.ourvendAccounting, учёт({ lastRun: null }));
+    assert.equal(row.state, "unknown");
+    assert.equal(row.lastCheckedAt, null);
+  });
+
+  it("учёт OurVend с прогоном — ISO-момент тика монитора", () => {
+    const row = rowFromOurvendAccounting(FACES.ourvendAccounting, учёт());
+    assert.equal(row.state, "ok");
+    assert.equal(row.lastCheckedAt, часНазад(1).toISOString());
+  });
+
+  it("ЗЕЛЁНАЯ ОЧЕРЕДЬ NOTION НАЗЫВАЕТ ВРЕМЯ ПРОВЕРКИ, хотя события у неё нет (Р-Д1-3)", () => {
+    // Пробел из разведки: при разобранной очереди `at` = oldestPendingAt =
+    // undefined, и зелёная строка стояла вообще без времени.
+    const row = rowFromOutbox(FACES.notion, доставки({ counts: { sent: 12 }, lastSentAt: часНазад(2) }));
+    assert.equal(row.state, "ok");
+    assert.equal(row.at, undefined, "события нет: очередь разобрана");
+    assert.equal(row.lastCheckedAt, часНазад(2).toISOString());
+  });
+
+  it("очередь Notion: пропуск свежее успеха — проверка это пропуск (диспетчер жив, ключа нет)", () => {
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({
+        counts: { sent: 200, skipped: 50 },
+        lastSentAt: часНазад(48),
+        lastSkippedAt: часНазад(1),
+      }),
+    );
+    assert.equal(row.state, "unknown");
+    assert.match(row.summary, /источник не настроен/);
+    assert.equal(row.lastCheckedAt, часНазад(1).toISOString());
+  });
+
+  it("очередь Notion: ни одной ЗАКРЫТОЙ доставки — null, возраст очереди проверкой не считается", () => {
+    // `oldestPendingAt` — момент СОЗДАНИЯ строки, которую мы положили сами.
+    // Считать его проверкой значило бы объявить вставшую очередь «проверенной
+    // только что» ровно потому, что в неё подкладывают новые доставки.
+    //
+    // ЗАКРЕПЛЁННЫЙ УГОЛ: вердикт здесь «в порядке» (правила не менялись), а
+    // момента проверки нет — единственная зелёная строка без времени во всём
+    // ответе. Её `summary` сам говорит «доставлено 0»; менять вердикт — не
+    // задача этого раздела, но подменять момент возрастом очереди нельзя.
+    const row = rowFromOutbox(
+      FACES.notion,
+      доставки({ counts: { pending: 500 }, oldestPendingAt: new Date(NOW.getTime() - 5 * 60_000) }),
+    );
+    assert.match(row.summary, /доставлено 0/);
+    assert.equal(row.lastCheckedAt, null, "ни одна доставка не закрылась — проверок не было");
+  });
+
+  it("heartbeat: проверка и событие — одно и то же; без сигнала — null", () => {
+    const свежий = rowFromHeartbeat(FACES.bot, {
+      lastAt: new Date(NOW.getTime() - 60_000),
+      intervalMs: 5 * 60_000,
+      now: NOW,
+    });
+    assert.equal(свежий.state, "ok");
+    assert.equal(свежий.lastCheckedAt, new Date(NOW.getTime() - 60_000).toISOString());
+    assert.equal(свежий.lastCheckedAt, свежий.at, "у бота сигнал и есть проверка");
+
+    const молчок = rowFromHeartbeat(FACES.bot, { lastAt: null, intervalMs: 5 * 60_000, now: NOW });
+    assert.equal(молчок.state, "unknown");
+    assert.equal(молчок.lastCheckedAt, null);
+  });
+
+  it("модели: выключенный метрируемый маршрут всё равно называет давность прошлых вызовов", () => {
+    // Строка говорит «оценивать нечего» и не несёт `at`, но вызовы были: до
+    // среза источник выглядел как никогда не проверявшийся.
+    const row = rowFromLlm(FACES.llm, {
+      monitoring: ledger({ meteredEnabled: false, latestCompletedAt: часНазад(72).toISOString() }),
+      now: NOW,
+    });
+    assert.equal(row.state, "unknown");
+    assert.equal(row.at, undefined);
+    assert.equal(row.lastCheckedAt, часНазад(72).toISOString());
+  });
+
+  it("модели: монитор ledger не ответил или завершённых вызовов не было — null", () => {
+    const безМонитора = rowFromLlm(FACES.llm, { monitoring: null, now: NOW });
+    assert.equal(безМонитора.state, "unknown");
+    assert.equal(безМонитора.lastCheckedAt, null);
+
+    const безВызовов = rowFromLlm(FACES.llm, {
+      monitoring: ledger({ latestCompletedAt: null, latestCompletedStatus: null }),
+      now: NOW,
+    });
+    assert.equal(безВызовов.state, "unknown");
+    assert.match(безВызовов.summary, /завершённых вызовов не было/);
+    assert.equal(безВызовов.lastCheckedAt, null);
+  });
+
+  it("модели: битая дата последнего вызова даёт null, а не мусор и не падение", () => {
+    const row = rowFromLlm(FACES.llm, { monitoring: ledger({ latestCompletedAt: "не дата" }), now: NOW });
+    assert.equal(row.lastCheckedAt, null, "битую дату отбрасываем: `toISOString()` уронил бы весь ответ");
   });
 });

@@ -19,6 +19,7 @@ import {
   rowFromOutbox,
   splitSections,
   unavailableRow,
+  позднееИз,
   type FaceMeta,
   type HealthRow,
   type MonitorRunLite,
@@ -124,9 +125,13 @@ export class AppsHealthService {
     const базаОтказала = отказ(расписания) ?? отказ(прогоны);
 
     const строкаМонитора = (face: FaceMeta): HealthRow => {
-      if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
-      const снимок = мониторы.get(face.key) ?? null;
       const lastRun = последние.get(face.key) ?? null;
+      // МОМЕНТ ПРОВЕРКИ ОТДАЁМ И В ОТКАЗЕ ЧТЕНИЯ. `базаОтказала` поднимается на
+      // отказе снимка ЛИБО журнала прогонов: если не прочитался только снимок,
+      // журнал на руках и тик монитора известен. Не прочитался журнал —
+      // `последние` пуста, и `null` выходит сам, без отдельной ветки.
+      if (базаОтказала !== null) return unavailableRow(face, базаОтказала, lastRun?.at ?? null);
+      const снимок = мониторы.get(face.key) ?? null;
       return rowFromMonitor(face, {
         snapshotPublished: снимокЕсть,
         monitor: снимок,
@@ -142,17 +147,20 @@ export class AppsHealthService {
       ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => строкаМонитора(face)),
       доставки.ok
         ? rowFromOutbox(FACES.notion, { ...доставки.value, now })
-        : unavailableRow(FACES.notion, доставки.источник),
+        // Счётчики не прочитаны: ни одного момента закрытой доставки на руках.
+        : unavailableRow(FACES.notion, доставки.источник, null),
       сигнал.ok
         ? rowFromHeartbeat(FACES.bot, {
             lastAt: сигнал.value?.occurredAt ?? null,
             intervalMs: BOT_HEARTBEAT_INTERVAL_MS,
             now,
           })
-        : unavailableRow(FACES.bot, сигнал.источник),
+        // Журнал событий не прочитан: о сигналах бота не известно ничего.
+        : unavailableRow(FACES.bot, сигнал.источник, null),
       ledger.ok
         ? rowFromLlm(FACES.llm, { monitoring: ledgerСловами(ledger.value), now })
-        : unavailableRow(FACES.llm, ledger.источник),
+        // Монитор ledger не ответил: о завершённых вызовах не известно ничего.
+        : unavailableRow(FACES.llm, ledger.источник, null),
       // Монитор, которого нет в реестре лиц: молча пропасть с экрана он не
       // должен — строку получает, но во «внутренних» (splitSections), потому
       // что про связь с чужой системой у него ничего не известно.
@@ -184,8 +192,11 @@ export class AppsHealthService {
     now: Date,
   ): HealthRow {
     const face = FACES.ourvendSync;
-    if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
-    if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
+    // Что успели прочитать — то и отдаём: отчёт OurVend мог не собраться при
+    // исправном журнале прогонов, и тогда момент проверки известен.
+    const проверено = последние.get(face.key)?.at ?? null;
+    if (базаОтказала !== null) return unavailableRow(face, базаОтказала, проверено);
+    if (!ourvend.ok) return unavailableRow(face, ourvend.источник, проверено);
     const h = ourvend.value;
     return rowFromOurvendSync(face, {
       snapshotPublished: снимокЕсть,
@@ -216,8 +227,11 @@ export class AppsHealthService {
     now: Date,
   ): HealthRow {
     const face = FACES.ourvendAccounting;
-    if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
-    if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
+    // То же правило, что у сбора: момент тика монитора известен независимо от
+    // того, собрался ли отчёт OurVend.
+    const проверено = последние.get(face.key)?.at ?? null;
+    if (базаОтказала !== null) return unavailableRow(face, базаОтказала, проверено);
+    if (!ourvend.ok) return unavailableRow(face, ourvend.источник, проверено);
     const h = ourvend.value;
     const снимок = мониторы.get(face.key) ?? null;
     const lastRun = последние.get(face.key) ?? null;
@@ -276,11 +290,11 @@ export class AppsHealthService {
     for (const r of rows) {
       counts[r.status] = Number(r.n);
       const newest = дата(r.newest);
-      if (r.status === "sent") lastSentAt = позднее(lastSentAt, newest);
-      if (r.status === "skipped") lastSkippedAt = позднее(lastSkippedAt, newest);
+      if (r.status === "sent") lastSentAt = позднееИз(lastSentAt, newest);
+      if (r.status === "skipped") lastSkippedAt = позднееИз(lastSkippedAt, newest);
       // `dead` и `unknown` — один терминальный отказ на два статуса: в обоих
       // случаях запись до Notion не дошла (у `unknown` — неизвестно, дошла ли).
-      if (r.status === "dead" || r.status === "unknown") lastFailedAt = позднее(lastFailedAt, newest);
+      if (r.status === "dead" || r.status === "unknown") lastFailedAt = позднееИз(lastFailedAt, newest);
       if (r.status !== "pending" && r.status !== "dispatching") continue;
       const at = дата(r.oldest);
       // Битую дату отбрасываем здесь: ниже она ушла бы в `toISOString()` и
@@ -321,13 +335,6 @@ const ИЗВЕСТНЫЕ_МОНИТОРЫ = new Set<string>([
 function дата(value: Date | string | null): Date | null {
   const at = value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
   return at !== null && Number.isFinite(at.getTime()) ? at : null;
-}
-
-/** Более поздний из двух моментов (любой может отсутствовать). */
-function позднее(a: Date | null, b: Date | null): Date | null {
-  if (a === null) return b;
-  if (b === null) return a;
-  return b.getTime() > a.getTime() ? b : a;
 }
 
 /** Ярлык не прочитавшегося источника (не текст исключения) либо `null`. */

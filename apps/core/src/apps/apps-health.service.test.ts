@@ -122,8 +122,17 @@ interface Мир {
   безСнимка?: boolean;
   runs?: ReturnType<typeof прогон>[];
   /** Отказ конкретного источника: сообщение исключения. */
-  отказ?: { снимок?: string; ourvend?: string; ledger?: string; доставки?: string; бот?: string };
-  доставки?: { status: string; n: number; oldest: Date | null }[];
+  отказ?: {
+    снимок?: string;
+    /** Журнал прогонов (`lastPerJob`): без него о проверках не известно ничего. */
+    прогоны?: string;
+    ourvend?: string;
+    ledger?: string;
+    доставки?: string;
+    бот?: string;
+  };
+  /** `newest` — `max(completed_at)` по статусу: момент ЗАКРЫТИЯ доставки. */
+  доставки?: { status: string; n: number; oldest: Date | null; newest?: Date | null }[];
 }
 
 /** Заглушка Db: сервис делает ровно `select().from().where().groupBy()`. */
@@ -170,7 +179,10 @@ function сервис(м: Мир = {}): AppsHealthService {
                   updatedAt: NOW,
                 },
           ),
-    lastPerJob: () => Promise.resolve(м.runs ?? monitors.map((m) => прогон(m.name))),
+    lastPerJob: () =>
+      м.отказ?.прогоны !== undefined
+        ? Promise.reject(new Error(м.отказ.прогоны))
+        : Promise.resolve(м.runs ?? monitors.map((m) => прогон(m.name))),
   } as unknown as Runs;
   const ourvend = {
     health: () =>
@@ -306,5 +318,79 @@ describe("Сборка здоровья приложений (R-A2-2, решен
       "незнакомый монитор обязан получить строку, а не исчезнуть",
     );
     assert.equal(ответ.outside.some((r) => r.key === "новый:монитор"), false);
+  });
+
+  it("каждая строка ответа несёт момент проверки, а зелёная — обязательно ISO (Р-Д1-3)", async () => {
+    const ответ = await сервис().health(NOW);
+    for (const row of [...ответ.outside, ...ответ.internal]) {
+      assert.ok(
+        row.lastCheckedAt === null || typeof row.lastCheckedAt === "string",
+        `${row.key}: поле lastCheckedAt пропало из строки`,
+      );
+      if (row.state === "ok") {
+        assert.equal(
+          typeof row.lastCheckedAt,
+          "string",
+          `${row.key}: «в порядке» без времени проверки приёмку не проходит`,
+        );
+      }
+    }
+  });
+
+  it("монитор без прогонов — проверок не было ни разу (Р-Д1-2)", async () => {
+    const ответ = await сервис({ runs: [] }).health(NOW);
+    const fx = найти(ответ.outside, FACES.fx.key);
+    assert.equal(fx.state, "unknown");
+    assert.equal(fx.at, undefined);
+    assert.equal(fx.lastCheckedAt, null);
+  });
+
+  it("монитор с прогоном — ISO-момент того самого прогона", async () => {
+    const тик = new Date(NOW.getTime() - 40 * 60_000);
+    const ответ = await сервис({
+      monitors: [{ name: FACES.coffee.key, cron: "0 */3 * * *", enabled: true }],
+      runs: [прогон(FACES.coffee.key, { at: тик })],
+    }).health(NOW);
+    assert.equal(найти(ответ.internal, FACES.coffee.key).lastCheckedAt, тик.toISOString());
+  });
+
+  it("отчёт OurVend не собрался, а журнал прогонов прочитан — момент проверки не теряется", async () => {
+    // `unavailableRow` получает ровно то, что успели прочитать: «не запускался»
+    // здесь было бы ложью о работающем мониторе.
+    const ответ = await сервис({ отказ: { ourvend: "донор недоступен" } }).health(NOW);
+    const сбор = найти(ответ.outside, FACES.ourvendSync.key);
+    assert.equal(сбор.state, "unknown");
+    assert.equal(сбор.lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString());
+    assert.doesNotMatch(сбор.detail ?? "", /донор недоступен/, "текст исключения наружу не едет");
+  });
+
+  it("снимок не прочитался, а журнал прогонов прочитан — момент проверки известен", async () => {
+    const ответ = await сервис({ отказ: { снимок: "соединение закрыто" } }).health(NOW);
+    const fx = найти(ответ.outside, FACES.fx.key);
+    assert.equal(fx.state, "unknown");
+    assert.equal(fx.lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString());
+    assert.doesNotMatch(fx.detail ?? "", /соединение закрыто/, "текст исключения наружу не едет");
+  });
+
+  it("журнал прогонов не прочитался — момента нет, и он не выдумывается", async () => {
+    const ответ = await сервис({ отказ: { прогоны: "таблица недоступна" } }).health(NOW);
+    const fx = найти(ответ.outside, FACES.fx.key);
+    assert.equal(fx.state, "unknown");
+    assert.match(fx.detail ?? "", /журнал прогонов/);
+    assert.doesNotMatch(fx.detail ?? "", /таблица недоступна/, "текст исключения наружу не едет");
+    assert.equal(fx.lastCheckedAt, null);
+  });
+
+  it("очередь доставок: момент проверки — последняя ЗАКРЫТАЯ доставка, а не возраст очереди", async () => {
+    const закрыта = new Date(NOW.getTime() - 20 * 60_000);
+    const ответ = await сервис({
+      доставки: [
+        { status: "sent", n: 10, oldest: new Date(NOW.getTime() - 10 * ЧАС), newest: закрыта },
+        { status: "pending", n: 2, oldest: new Date(NOW.getTime() - 5 * 60_000), newest: null },
+      ],
+    }).health(NOW);
+    const notion = найти(ответ.outside, FACES.notion.key);
+    assert.equal(notion.state, "ok");
+    assert.equal(notion.lastCheckedAt, закрыта.toISOString());
   });
 });
