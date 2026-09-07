@@ -27,6 +27,15 @@ skills:
   - draft-service-reply
   - service-dispatch        # диспетчер новой сервис-заявки из intake (T2, событие, не cron)
 
+# Хуки прогона (волна R). Правило расстановки — _template/config.yaml; проверяются только у active-агента
+# и только на cron-прогоне: ручной запуск с деки и задача с checkpoint идут мимо (preRunApplies, runner.ts).
+# source_fresh НЕ ставим: обращения и реестр техники — внутренние данные Core.
+hooks:
+  pre_run:
+    - kind: quiet_hours           # ночь по Ташкенту (правило и выбор окна — _template/config.yaml)
+      from: "23:00"
+      to: "07:00"
+
 # triage — структурный разбор внутренних данных (можно ollama); draft клиенту — claude-p за качество.
 # ВНИМАНИЕ (04.09.2026): поле рантаймом НЕ читается — модель задаёт LLM_MODEL/LLM_FALLBACK_MODELS,
 # усилие — `model-effort` во frontmatter llm-навыка. Оставлено как заметка о замысле.

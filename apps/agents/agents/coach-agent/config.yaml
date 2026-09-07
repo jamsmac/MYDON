@@ -23,6 +23,15 @@ model_routing:
   complex: reasoning-strong
 skills:
   - coach-review
+
+# Хуки прогона (волна R). Правило расстановки — _template/config.yaml; проверяются только у active-агента
+# и только на cron-прогоне: ручной запуск с деки и задача с checkpoint идут мимо (preRunApplies, runner.ts).
+# source_fresh НЕ ставим: coach-review читает журнал прогонов — внутренние данные Core.
+hooks:
+  pre_run:
+    - kind: quiet_hours           # ночь по Ташкенту (правило и выбор окна — _template/config.yaml)
+      from: "23:00"
+      to: "07:00"
 changelog:
   - "1.2.0 — EVAL/PROPOSE на живом LLM-пути: судья по рубрике + предложение правки SKILL.md (HITL). Активирован, еженедельная оркестрация. Спит без шлюза."
   - "1.1.0 — детерминированный скелет: рубрика, вердикт, safety-блок, path-guard, применение diff (coach.ts). EVAL/PROPOSE включатся со шлюзом."
