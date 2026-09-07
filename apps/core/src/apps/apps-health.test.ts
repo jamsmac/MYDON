@@ -100,8 +100,10 @@ const строка = (state: HealthRow["state"], key = "x"): HealthRow => ({
   title: key,
   state,
   summary: "—",
-  // Поле обязательное: «проверок не было» — это ЗНАЧЕНИЕ, а не отсутствие поля.
+  // Поля обязательные: «проверок не было» — это ЗНАЧЕНИЕ, а не отсутствие поля,
+  // а `checksKnown` отвечает, ЧТО ИМЕННО значит `null` рядом (Ф-1).
   lastCheckedAt: null,
+  checksKnown: false,
 });
 
 describe("Здоровье приложений: три честных состояния (R-A2-2, решения Р-3…Р-6)", () => {
@@ -674,12 +676,16 @@ describe("Здоровье приложений: разделы «снаружи
     // второй пояс: сервисный токен держат ещё бот и агенты, а сообщения
     // драйвера несут хост и пользователя базы. Наружу — ярлык прочитанного,
     // причина — в журнал Core.
-    const row = unavailableRow(FACES.notion, "очередь доставок", null);
+    const row = unavailableRow(FACES.notion, "очередь доставок", "не знаем");
     assert.equal(row.state, "unknown");
     assert.match(row.summary, /не отвечает/);
     assert.match(row.detail ?? "", /очередь доставок/);
     assert.match(row.detail ?? "", /журнал Core/);
     assert.equal(row.lastCheckedAt, null, "журнал проверок не прочитан — момента нет");
+    // ВТОРОЙ ВХОД ПОЧИНКИ Ф-1. Отказ чтения — не «источника никогда не
+    // проверяли»: диспетчер Notion мог работать год, мы просто не прочитали его
+    // таблицу. Без этого ассерта экран снова напишет «не запускался».
+    assert.equal(row.checksKnown, false, "об отказе чтения нельзя утверждать «проверок не было»");
   });
 
   it("недоступный источник с ИЗВЕСТНЫМ моментом проверки его не теряет", () => {
@@ -688,6 +694,7 @@ describe("Здоровье приложений: разделы «снаружи
     const row = unavailableRow(FACES.ourvendSync, "отчёт OurVend", часНазад(1));
     assert.equal(row.state, "unknown");
     assert.equal(row.lastCheckedAt, часНазад(1).toISOString());
+    assert.equal(row.checksKnown, true, "момент на руках — значит о проверках известно");
     assert.doesNotMatch(row.detail ?? "", /Error|host|password/i, "текст исключения наружу не едет");
   });
 });
@@ -711,7 +718,7 @@ describe("Здоровье приложений: момент последней
       rowFromHeartbeat(FACES.bot, { lastAt: null, intervalMs: 5 * 60_000, now: NOW }),
       rowFromLlm(FACES.llm, { monitoring: ledger(), now: NOW }),
       rowFromLlm(FACES.llm, { monitoring: null, now: NOW }),
-      unavailableRow(FACES.llm, "монитор ledger", null),
+      unavailableRow(FACES.llm, "монитор ledger", "не знаем"),
     ];
     for (const row of rows) {
       assert.ok(
@@ -1294,5 +1301,78 @@ describe("Здоровье приложений: битый пороговый �
     assert.equal(битыйУспех.state, "bad", "нечитаемый успех — это отсутствие успеха, а не свежий успех");
     assert.match(битыйУспех.summary, /в тупике 1/);
     assert.equal(битыйУспех.lastCheckedAt, часНазад(1).toISOString());
+  });
+});
+
+/*
+ * ТРИ СМЫСЛА `lastCheckedAt === null`, РАЗВЕДЁННЫЕ ПО ПРОВОДУ (круг починок
+ * среза Д1, Ф-1).
+ *
+ * Панель печатала «не запускался» везде, где момента нет, — то есть УТВЕРЖДАЛА
+ * о мире то, чего система не знает. Ниже — оба достижимых входа, на которых это
+ * утверждение ложно, и «ни разу» рядом с ними: без третьего теста пара «правда
+ * / ложь» сошлась бы на одном значении признака.
+ */
+describe("Здоровье приложений: «не было ни разу» ≠ «не знаем» (Ф-1)", () => {
+  it("закрытые доставки без момента закрытия: строка не спорит сама с собой", () => {
+    // ВХОД, ПРОТИВОРЕЧИВШИЙ СЕБЕ В ОДНОЙ СТРОКЕ: слева «у закрытых доставок (3)
+    // нет момента закрытия», справа «не запускался». Права левая половина —
+    // проходы диспетчера БЫЛИ, неизвестен их момент. Страховку на строки без
+    // `completed_at` вердикт держит намеренно (`пропущено === всего` выше и это
+    // правило), значит вход достижим, а не выдуман.
+    const row = rowFromOutbox(FACES.notion, доставки({ counts: { sent: 3 } }));
+    assert.equal(row.state, "unknown");
+    assert.match(row.summary, /у закрытых доставок \(3\) нет момента закрытия/);
+    assert.equal(row.lastCheckedAt, null);
+    assert.equal(
+      row.checksKnown,
+      false,
+      "закрытия есть — «проверок не было ни разу» здесь ложь о работающем диспетчере",
+    );
+  });
+
+  it("монитор ledger не ответил — о вызовах не известно ничего, а не «ни разу»", () => {
+    const row = rowFromLlm(FACES.llm, { monitoring: null, now: NOW });
+    assert.equal(row.state, "unknown");
+    assert.equal(row.lastCheckedAt, null);
+    assert.equal(row.checksKnown, false, "монитор молчит — судить о вызовах нечем");
+  });
+
+  it("пустая очередь и монитор без прогонов — вот это «ни разу», и оно утверждение", () => {
+    // ТРЕТИЙ ТЕСТ ОБЯЗАТЕЛЕН: если бы `checksKnown` всегда был `false`, два
+    // теста выше прошли бы зелёными, а экран потерял бы слово «не запускался»
+    // целиком — починка в другую сторону.
+    const пусто = rowFromOutbox(FACES.notion, доставки());
+    assert.equal(пусто.lastCheckedAt, null);
+    assert.equal(пусто.checksKnown, true, "таблица прочитана и пуста — доставок не было ни разу");
+
+    const монитор_ = rowFromMonitor(FACES.fx, монитор({ lastRun: null, silentAfter: null }));
+    assert.equal(монитор_.lastCheckedAt, null);
+    assert.equal(монитор_.checksKnown, true, "журнал прогонов прочитан — прогонов в нём нет");
+
+    const бот = rowFromHeartbeat(FACES.bot, { lastAt: null, intervalMs: 5 * 60_000, now: NOW });
+    assert.equal(бот.checksKnown, true, "журнал событий прочитан — сигналов в нём нет");
+  });
+
+  it("нечитаемый момент прогона остаётся «ни разу»: строка не спорит с вердиктом", () => {
+    // РЕШЕНИЕ, А НЕ УПУЩЕНИЕ. `сЧитаемымПрогоном` обнуляет битый прогон ДО
+    // правил, поэтому вердикт уже сказал «монитор ни разу не запускался».
+    // Скажи колонка времени «неизвестно» — строка снова противоречила бы
+    // собственному заголовку, то есть повторила бы дефект, который чинит Ф-1.
+    const row = rowFromMonitor(
+      FACES.fx,
+      монитор({ lastRun: { at: new Date("сломано"), outcome: "executed", reason: "[fx] ok" } }),
+    );
+    assert.equal(row.lastCheckedAt, null);
+    assert.equal(row.checksKnown, true);
+    assert.match(row.summary, /не запускался|журнал прогонов пуст/);
+  });
+
+  it("известный момент — всегда знание: невозможной пары нет по построению", () => {
+    // Полный перебор форм держит `apps-health.invariants.test.ts`; здесь —
+    // читаемый пример того же утверждения на самом обычном входе.
+    const row = rowFromMonitor(FACES.fx, монитор());
+    assert.equal(typeof row.lastCheckedAt, "string");
+    assert.equal(row.checksKnown, true);
   });
 });

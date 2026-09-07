@@ -2,7 +2,7 @@ import Link from "next/link";
 import { isSkipReason, type SkipReason } from "@mydon/shared";
 import type { AgentState, AgentStatusRow } from "../lib/core";
 import { runWhen } from "../lib/crons";
-import { AGENT_STATE_LED, AGENT_STATE_WORD } from "../lib/state";
+import { AGENT_BREAKDOWN_LED, AGENT_STATE_LED, AGENT_STATE_WORD } from "../lib/state";
 import { Av8 } from "./av8";
 
 /**
@@ -214,8 +214,11 @@ function AgentTile({ row, now }: { row: AgentStatusRow; now: Date }) {
         <div className="agn">{row.name}</div>
         <div className="agled">
           {/* Тон «поломки» — тот же, что у предупреждения в журнале прогонов
-              (`.run-led.warn`): не авария, но и не спокойствие. */}
-          <span className={поломка ? "led run-led warn" : AGENT_STATE_LED[row.state]}>
+              (`.run-led.warn`): не авария, но и не спокойствие. Класс живёт в
+              общем доме (`lib/state.ts`, `AGENT_BREAKDOWN_LED`), а не литералом
+              здесь: пара «слово + лампа» обязана меняться одним движением, и у
+              литерала сторож классов её не видел (Ф-5). */}
+          <span className={поломка ? AGENT_BREAKDOWN_LED : AGENT_STATE_LED[row.state]}>
             {AGENT_STATE_WORD[row.state]}
           </span>
         </div>

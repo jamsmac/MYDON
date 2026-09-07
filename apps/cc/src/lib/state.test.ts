@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_BREAKDOWN_LED,
   AGENT_STATE_LED,
   AGENT_STATE_WORD,
   CARD_CHIP,
@@ -243,6 +244,22 @@ describe("Слово и лампа меняются одним движение�
         );
       }
     }
+  });
+
+  it("пятая лампа занятости живёт в общем доме, а не литералом в плитке (Ф-5)", () => {
+    // «Молчит из-за поломки» — единственное исключение из обещания докблока:
+    // слово плитка берёт из словаря, а лампу — отдельной константой, потому что
+    // состоянием провода этот случай не является. Пока класс стоял литералом,
+    // сторож классов его не видел, и исключение нигде не было названо.
+    const код = текст(path.join("components", "agent-grid.tsx"));
+    expect(код, "плитка перестала брать лампу поломки из lib/state").toContain("AGENT_BREAKDOWN_LED");
+    expect(код, "класс сломанного молчуна снова написан от руки").not.toMatch(
+      литерал("led run-led warn"),
+    );
+    // Значение пришпилено: сторож тона (`test/palette.test.ts`) судит
+    // `.run-led.warn` по CSS, и разъехаться этой паре нечем только пока класс
+    // здесь тот самый.
+    expect(AGENT_BREAKDOWN_LED).toBe("led run-led warn");
   });
 
   it("экран не переписывает класс состояния от руки", () => {

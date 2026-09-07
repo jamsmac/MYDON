@@ -24,6 +24,7 @@ import {
   type HealthRow,
   type MonitorRunLite,
   type MonitorSnapshotLite,
+  type СведенияОПроверке,
 } from "./apps-health";
 
 /**
@@ -118,6 +119,18 @@ export class AppsHealthService {
     ]);
 
     const мониторы = снимокМониторов(расписания);
+    /*
+     * ЧТО ГОВОРИТЬ О ПРОВЕРКАХ, КОГДА ЧТЕНИЕ ОТКАЗАЛО (круг починок среза Д1, Ф-1).
+     *
+     * `базаОтказала` поднимается на отказе снимка ЛИБО журнала прогонов, и до
+     * этого круга оба случая отдавали один `null` — экран печатал «не
+     * запускался» и там, где журнал прочитать не удалось. Теперь разведено по
+     * причине отказа: журнал не прочитан — «не знаем»; прочитан и пуст —
+     * «ни разу», и только это утверждение экран печатает словом.
+     */
+    const прогоныНеЧитаны = отказ(прогоны) !== null;
+    const проверкаПоЖурналу = (lastRun: MonitorRunLite | null): СведенияОПроверке =>
+      прогоныНеЧитаны ? "не знаем" : (lastRun?.at ?? "ни разу");
     // Снимок опубликован хоть раз: отличает «слой агентов не запущен» от
     // «агенты работают, но про этот монитор не сообщали».
     const снимокЕсть = расписания.ok && расписания.value !== null;
@@ -126,11 +139,10 @@ export class AppsHealthService {
 
     const строкаМонитора = (face: FaceMeta): HealthRow => {
       const lastRun = последние.get(face.key) ?? null;
-      // МОМЕНТ ПРОВЕРКИ ОТДАЁМ И В ОТКАЗЕ ЧТЕНИЯ. `базаОтказала` поднимается на
-      // отказе снимка ЛИБО журнала прогонов: если не прочитался только снимок,
-      // журнал на руках и тик монитора известен. Не прочитался журнал —
-      // `последние` пуста, и `null` выходит сам, без отдельной ветки.
-      if (базаОтказала !== null) return unavailableRow(face, базаОтказала, lastRun?.at ?? null);
+      // МОМЕНТ ПРОВЕРКИ ОТДАЁМ И В ОТКАЗЕ ЧТЕНИЯ. Не прочитался только снимок —
+      // журнал на руках и тик монитора известен; не прочитался сам журнал — о
+      // проверках не известно ничего, и на экране это РАЗНЫЕ слова.
+      if (базаОтказала !== null) return unavailableRow(face, базаОтказала, проверкаПоЖурналу(lastRun));
       const снимок = мониторы.get(face.key) ?? null;
       return rowFromMonitor(face, {
         snapshotPublished: снимокЕсть,
@@ -142,13 +154,13 @@ export class AppsHealthService {
     };
 
     const rows: HealthRow[] = [
-      this.строкаСбора(мониторы, последние, ourvend, базаОтказала, снимокЕсть, now),
-      this.строкаУчёта(мониторы, последние, ourvend, базаОтказала, снимокЕсть, now),
+      this.строкаСбора(мониторы, последние, ourvend, базаОтказала, проверкаПоЖурналу, снимокЕсть, now),
+      this.строкаУчёта(мониторы, последние, ourvend, базаОтказала, проверкаПоЖурналу, снимокЕсть, now),
       ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => строкаМонитора(face)),
       доставки.ok
         ? rowFromOutbox(FACES.notion, { ...доставки.value, now })
-        // Счётчики не прочитаны: ни одного момента закрытой доставки на руках.
-        : unavailableRow(FACES.notion, доставки.источник, null),
+        // Счётчики не прочитаны: о проходах диспетчера не известно ничего.
+        : unavailableRow(FACES.notion, доставки.источник, "не знаем"),
       сигнал.ok
         ? rowFromHeartbeat(FACES.bot, {
             // Нечитаемый момент события — это «сигнала не было», а не «бот
@@ -160,11 +172,11 @@ export class AppsHealthService {
             now,
           })
         // Журнал событий не прочитан: о сигналах бота не известно ничего.
-        : unavailableRow(FACES.bot, сигнал.источник, null),
+        : unavailableRow(FACES.bot, сигнал.источник, "не знаем"),
       ledger.ok
         ? rowFromLlm(FACES.llm, { monitoring: ledgerСловами(ledger.value), now })
         // Монитор ledger не ответил: о завершённых вызовах не известно ничего.
-        : unavailableRow(FACES.llm, ledger.источник, null),
+        : unavailableRow(FACES.llm, ledger.источник, "не знаем"),
       // Монитор, которого нет в реестре лиц: молча пропасть с экрана он не
       // должен — строку получает, но во «внутренних» (splitSections), потому
       // что про связь с чужой системой у него ничего не известно.
@@ -192,13 +204,14 @@ export class AppsHealthService {
     последние: Map<string, MonitorRunLite>,
     ourvend: Чтение<Awaited<ReturnType<OurvendHealthService["health"]>>>,
     базаОтказала: string | null,
+    проверкаПоЖурналу: (lastRun: MonitorRunLite | null) => СведенияОПроверке,
     снимокЕсть: boolean,
     now: Date,
   ): HealthRow {
     const face = FACES.ourvendSync;
     // Что успели прочитать — то и отдаём: отчёт OurVend мог не собраться при
     // исправном журнале прогонов, и тогда момент проверки известен.
-    const проверено = последние.get(face.key)?.at ?? null;
+    const проверено = проверкаПоЖурналу(последние.get(face.key) ?? null);
     if (базаОтказала !== null) return unavailableRow(face, базаОтказала, проверено);
     if (!ourvend.ok) return unavailableRow(face, ourvend.источник, проверено);
     const h = ourvend.value;
@@ -227,13 +240,14 @@ export class AppsHealthService {
     последние: Map<string, MonitorRunLite>,
     ourvend: Чтение<Awaited<ReturnType<OurvendHealthService["health"]>>>,
     базаОтказала: string | null,
+    проверкаПоЖурналу: (lastRun: MonitorRunLite | null) => СведенияОПроверке,
     снимокЕсть: boolean,
     now: Date,
   ): HealthRow {
     const face = FACES.ourvendAccounting;
     // То же правило, что у сбора: момент тика монитора известен независимо от
     // того, собрался ли отчёт OurVend.
-    const проверено = последние.get(face.key)?.at ?? null;
+    const проверено = проверкаПоЖурналу(последние.get(face.key) ?? null);
     if (базаОтказала !== null) return unavailableRow(face, базаОтказала, проверено);
     if (!ourvend.ok) return unavailableRow(face, ourvend.источник, проверено);
     const h = ourvend.value;

@@ -263,6 +263,8 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.equal(notion.state, "unknown");
     assert.match(notion.detail ?? "", /очередь доставок/);
     assert.doesNotMatch(notion.detail ?? "", /таблица заблокирована/, "текст исключения наружу не едет");
+    // Диспетчер Notion мог работать год — мы не смогли прочитать его таблицу.
+    assert.equal(notion.checksKnown, false, "отказ чтения — не «доставок ещё не было»");
   });
 
   it("счётчики доставок складываются по статусам, тупик красит строку", async () => {
@@ -327,6 +329,12 @@ describe("Сборка здоровья приложений (R-A2-2, решен
         row.lastCheckedAt === null || typeof row.lastCheckedAt === "string",
         `${row.key}: поле lastCheckedAt пропало из строки`,
       );
+      // Признак смысла едет ВМЕСТЕ с моментом (Ф-1): без него `null` снова
+      // станет одним словом на три разных случая.
+      assert.equal(typeof row.checksKnown, "boolean", `${row.key}: поле checksKnown пропало из строки`);
+      if (row.lastCheckedAt !== null) {
+        assert.equal(row.checksKnown, true, `${row.key}: момент известен, а о проверках «не знаем»`);
+      }
       if (row.state === "ok") {
         assert.equal(
           typeof row.lastCheckedAt,
@@ -357,6 +365,10 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.equal(fx.state, "unknown");
     assert.equal(fx.at, undefined);
     assert.equal(fx.lastCheckedAt, null);
+    // ЖУРНАЛ ПРОЧИТАН И ПУСТ — вот это «не запускался», и его экран печатает
+    // словом. Пара с тестом отказа чтения ниже: одно значение признака на два
+    // противоположных случая и было дефектом Ф-1.
+    assert.equal(fx.checksKnown, true, "журнал прочитан — «прогонов не было» это утверждение");
   });
 
   it("монитор с прогоном — ISO-момент того самого прогона", async () => {
@@ -375,6 +387,7 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     const сбор = найти(ответ.outside, FACES.ourvendSync.key);
     assert.equal(сбор.state, "unknown");
     assert.equal(сбор.lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString());
+    assert.equal(сбор.checksKnown, true, "тик монитора на руках — о проверках известно");
     assert.doesNotMatch(сбор.detail ?? "", /донор недоступен/, "текст исключения наружу не едет");
 
     // СИММЕТРИЧНАЯ ТОЧКА ОТКАЗА УЧЁТА. Отчёт `/ourvend/health` один на две
@@ -415,6 +428,10 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.match(fx.detail ?? "", /журнал прогонов/);
     assert.doesNotMatch(fx.detail ?? "", /таблица недоступна/, "текст исключения наружу не едет");
     assert.equal(fx.lastCheckedAt, null);
+    // ВТОРОЙ ДОСТИЖИМЫЙ ВХОД Ф-1, И ОН ЖИВЁТ ИМЕННО ЗДЕСЬ, НА СТЫКЕ СО СЛУЖБОЙ:
+    // журнал проверок не прочитан — «не запускался» было бы утверждением о
+    // мониторе, который мог тикать всё это время.
+    assert.equal(fx.checksKnown, false, "журнал проверок не прочитан — утверждать нечего");
   });
 
   it("свежая установка: доставки положены, ни одна не закрылась — «не оценить», а не «в порядке»", async () => {
@@ -428,6 +445,7 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.equal(notion.state, "unknown");
     assert.match(notion.summary, /ни одна доставка ещё не закрылась/);
     assert.equal(notion.lastCheckedAt, null);
+    assert.equal(notion.checksKnown, true, "таблица прочитана: закрытий в ней нет ни одного");
   });
 
   it("очередь доставок: момент проверки — последняя ЗАКРЫТАЯ доставка, а не возраст очереди", async () => {
