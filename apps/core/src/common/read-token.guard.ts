@@ -22,6 +22,15 @@ import { assertServiceToken } from "./service-token.guard";
  * `curl http://core:3001/agents/status` без единого заголовка отдавал то же
  * содержимое — дверь стояла, а стена рядом отсутствовала.
  *
+ * КТО НОСИТ ЭТОТ GUARD СЕЙЧАС (счёт на срез A3): `AppsController`,
+ * `ArtifactsController` и `AttachmentsController` — классом, целиком; в
+ * `AgentsController` — два маршрута (`GET /agents/status`,
+ * `GET /agents/skills`), потому что рядом с ними живут `GET /agents` и
+ * `GET /agents/:name`, которыми ходят панель, бот и MCP-сервер. Вместе с
+ * тремя прежними guard'ами (`DocsController`, `RoutinesController`,
+ * `EventsController`) это шесть закрытых на чтение контроллеров: «GET открыт»
+ * в Core — дефолт, а не правило.
+ *
  * Три прежних guard'а НЕ переписываем на этот: их комментарии несут причины
  * своих волн, и правка ради единообразия стоила бы этих причин.
  */
