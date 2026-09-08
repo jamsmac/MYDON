@@ -195,6 +195,58 @@ describe("Карточка агента: шапка", () => {
     expect(шапка.getByText(/урезан потолком системы T0/)).toBeVisible();
   });
 
+  it("ДАВНОСТЬ СОСТОЯНИЯ ЕСТЬ, И ОНА ИЗ ЧАСОВ CORE (круг починок, C-3)", async () => {
+    // Дефект: правило «плитка без давности врёт» было применено только к сетке
+    // на главной. Агент со снятым расписанием и прогоном 12 июня давал шапку
+    // «молчит · последний прогон — выполнено» — байт в байт как у
+    // отработавшего час назад.
+    const молчун = (since: string) => async () => ({
+      tz: "Asia/Tashkent",
+      now: "2026-09-06T08:00:00.000Z",
+      paused: { schedules: false, tasks: false },
+      runtime: рантайм(),
+      agents: [состояние({ state: "idle", reason: "последний прогон — выполнено", since })],
+    });
+
+    agentsStatus.mockImplementation(молчун("2026-09-06T03:00:00.000Z"));
+    const свежий = render(await screenFor());
+    const причина = свежий.container.querySelector(".agr");
+    // ЧАСЫ CORE, А НЕ ЧАСЫ РЕНДЕРА: `now` ответа — 6 сентября, `since` — того
+    // же дня по Ташкенту, значит «сегодня». Часы машины (любой день, кроме 6
+    // сентября 2026) дали бы «06.09» — на этом ассерт и краснеет.
+    expect(причина).toHaveTextContent("последний прогон — выполнено · сегодня 08:00");
+    // Тон давности — свой (`.agw`), как в плитке: «12.06 08:00» и «сегодня
+    // 08:00» должны отличаться взглядом, а не только вчитыванием.
+    expect(причина?.querySelector(".agw")).not.toBeNull();
+    const свежийТекст = причина?.textContent ?? "";
+    свежий.unmount();
+
+    agentsStatus.mockImplementation(молчун("2026-06-12T03:00:00.000Z"));
+    const старый = render(await screenFor());
+    const староеТекст = старый.container.querySelector(".agr")?.textContent ?? "";
+    expect(староеТекст).not.toEqual(свежийТекст);
+    expect(староеТекст).toMatch(/12\.06/);
+  });
+
+  it("без `since` давность не выдумывается: об этом уже сказала причина", async () => {
+    agentsStatus.mockImplementation(async () => ({
+      tz: "Asia/Tashkent",
+      now: "2026-09-06T08:00:00.000Z",
+      paused: { schedules: false, tasks: false },
+      runtime: рантайм(),
+      agents: [
+        состояние({
+          state: "idle",
+          reason: "ещё не запускался: в журнале прогонов нет ни одной записи",
+        }),
+      ],
+    }));
+    const { container } = render(await screenFor());
+    const причина = container.querySelector(".agr");
+    expect(причина).toHaveTextContent(/ещё не запускался/);
+    expect(причина?.querySelector(".agw")).toBeNull();
+  });
+
   it("Core не назвал состояние этого агента — шапка говорит это, а не молчит", async () => {
     agentsStatus.mockImplementation(async () => ({
       tz: "Asia/Tashkent",
