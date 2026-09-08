@@ -24,7 +24,7 @@ const ALLOWED: ReadonlySet<string> = new Set(["light", "dark", "system"]);
  * Запомнить выбор темы. `light`/`dark` — кука `mydon_theme` на год; `system` —
  * куки нет вовсе: «как в системе» = отсутствие явного выбора, и хранить его
  * отдельным значением значило бы завести третье состояние, которого
- * `themeFor` в middleware не знает.
+ * `themeFor` в прокси (`src/proxy.ts`) не знает.
  *
  * Кука НЕ httpOnly и НЕ secure намеренно: её читает клиентский `ThemeSync`
  * через `document.cookie` при SPA-переходе, а панель живёт по http за
@@ -48,7 +48,7 @@ export async function setTheme(choice: ThemeChoice | "system"): Promise<ActionRe
     } else {
       store.set(THEME_COOKIE, choice, { path: "/", sameSite: "lax", maxAge: YEAR_SECONDS });
     }
-    // Корневой layout ставит `data-theme` на <html> из заголовка middleware —
+    // Корневой layout ставит `data-theme` на <html> из заголовка прокси —
     // перерисовать нужно именно его, а не страницу.
     revalidatePath("/", "layout");
     return { ok: true };

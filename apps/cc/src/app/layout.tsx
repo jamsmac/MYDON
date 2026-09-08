@@ -144,7 +144,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // заголовок несёт фактическую тему (на /apps без куки это «dark»), а
   // переключатель показывает ВЫБОР — «как в системе» там законно. Кука —
   // единственный носитель выбора; чужое значение считаем отсутствием выбора,
-  // ровно как `themeFor` в middleware.
+  // ровно как `themeFor` в прокси (`src/proxy.ts`).
   const rawTheme = (await cookies()).get(THEME_COOKIE)?.value;
   const themeChoice: ThemeChoice | "system" = rawTheme === "light" || rawTheme === "dark" ? rawTheme : "system";
 
