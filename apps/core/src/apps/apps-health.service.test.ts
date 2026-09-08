@@ -169,7 +169,18 @@ interface Мир {
   };
   /** `newest` — `max(completed_at)` по статусу: момент ЗАКРЫТИЯ доставки. */
   доставки?: { status: string; n: number; oldest: Date | null; newest?: Date | null }[];
+  /**
+   * Источник ВИСИТ: обещание, которое не исполнится никогда.
+   *
+   * Отдельно от `отказ`, и это разные вещи (П3): отказ приезжает исключением и
+   * ловится `catch`, а зависание не приезжает вовсе — до таймаута внутри
+   * `попытка()` его не отличить от «ещё считаем».
+   */
+  висит?: { снимок?: boolean; ourvend?: boolean; ledger?: boolean };
 }
+
+/** Обещание, которое не исполнится: так выглядит источник, переставший отвечать. */
+const НАВСЕГДА = <T,>(): Promise<T> => new Promise<T>(() => {});
 
 /** Заглушка Db: сервис делает ровно `select().from().where().groupBy()`. */
 function fakeDb(м: Мир): Db {
@@ -187,7 +198,8 @@ function fakeDb(м: Мир): Db {
   } as unknown as Db;
 }
 
-function сервис(м: Мир = {}): AppsHealthService {
+/** Пять источников службы одним набором: их делят обычная и быстрая сборки. */
+function зависимости(м: Мир): [Db, Runs, Ourvend, Llm, Events] {
   const monitors = м.monitors ?? [
     { name: FACES.ourvendSync.key, cron: "0 */3 * * *", enabled: true },
     { name: FACES.ourvendAccounting.key, cron: "5 8 * * *", enabled: true },
@@ -198,7 +210,9 @@ function сервис(м: Мир = {}): AppsHealthService {
   ];
   const runs = {
     snapshot: () =>
-      м.отказ?.снимок !== undefined
+      м.висит?.снимок === true
+        ? НАВСЕГДА()
+        : м.отказ?.снимок !== undefined
         ? Promise.reject(new Error(м.отказ.снимок))
         : Promise.resolve(
             м.безСнимка === true
@@ -222,15 +236,19 @@ function сервис(м: Мир = {}): AppsHealthService {
   } as unknown as Runs;
   const ourvend = {
     health: () =>
-      м.отказ?.ourvend !== undefined
-        ? Promise.reject(new Error(м.отказ.ourvend))
-        : Promise.resolve(м.ourvend ?? ЗДОРОВЬЕ_OURVEND),
+      м.висит?.ourvend === true
+        ? НАВСЕГДА()
+        : м.отказ?.ourvend !== undefined
+          ? Promise.reject(new Error(м.отказ.ourvend))
+          : Promise.resolve(м.ourvend ?? ЗДОРОВЬЕ_OURVEND),
   } as unknown as Ourvend;
   const llm = {
     monitoring: () =>
-      м.отказ?.ledger !== undefined
-        ? Promise.reject(new Error(м.отказ.ledger))
-        : Promise.resolve(МОНИТОРИНГ_LLM),
+      м.висит?.ledger === true
+        ? НАВСЕГДА()
+        : м.отказ?.ledger !== undefined
+          ? Promise.reject(new Error(м.отказ.ledger))
+          : Promise.resolve(МОНИТОРИНГ_LLM),
   } as unknown as Llm;
   const events = {
     latest: () =>
@@ -238,7 +256,30 @@ function сервис(м: Мир = {}): AppsHealthService {
         ? Promise.reject(new Error(м.отказ.бот))
         : Promise.resolve({ occurredAt: new Date(NOW.getTime() - 60_000) }),
   } as unknown as Events;
-  return new AppsHealthService(fakeDb(м), runs, ourvend, llm, events);
+  return [fakeDb(м), runs, ourvend, llm, events];
+}
+
+function сервис(м: Мир = {}): AppsHealthService {
+  return new AppsHealthService(...зависимости(м));
+}
+
+/**
+ * Таймаут источника в тесте — 200 мс: набор не имеет права ждать боевые пять
+ * секунд, а число обязано доехать до ярлыка строки («0,2 с»), иначе ассерт
+ * пропустил бы литерал в тексте.
+ */
+const ТАЙМАУТ_В_ТЕСТЕ_МС = 200;
+
+/**
+ * Служба с коротким таймаутом источника — НАСЛЕДНИК, а не своя реализация:
+ * проверяется тот же `попытка()`, что уедет на прод, подменено одно число.
+ */
+class СлужбаСКороткимТаймаутом extends AppsHealthService {
+  protected override readonly таймаутИсточникаМс = ТАЙМАУТ_В_ТЕСТЕ_МС;
+}
+
+function быстраяСлужба(м: Мир = {}): AppsHealthService {
+  return new СлужбаСКороткимТаймаутом(...зависимости(м));
 }
 
 const найти = (rows: HealthRow[], key: string): HealthRow => {
@@ -362,6 +403,45 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     // ложью о слое, чей снимок мы не смогли прочитать.
     assert.equal(слой.lastCheckedAt, null);
     assert.equal(слой.checksKnown, false, "снимок не прочитан — об отчётах слоя не известно ничего");
+  });
+
+  it("ЗАВИСШИЙ ИСТОЧНИК НЕ УНОСИТ ГОТОВЫЕ СТРОКИ: таймаут внутри попытки (П3)", async () => {
+    // Дефект: `попытка()` ловила только rejection, таймаута не было вовсе. Один
+    // медленный источник (OurVend после истечения минутного кеша, ledger на
+    // нагруженной базе — 9–10 с) держал `Promise.all`, панель резала запрос на
+    // восьмой секунде, и ВЕСЬ `/apps` становился `CoreDown`: восемь готовых
+    // строк исчезали, а ярлык «не прочитано» не появлялся никогда.
+    const ответ = await быстраяСлужба({ висит: { ourvend: true } }).health(NOW);
+    const все = [...ответ.outside, ...ответ.internal];
+    assert.equal(все.length, 10, "строки на месте: витрина не гаснет из-за одного источника");
+    // Зависший источник — своя строка «не оценить» с ярлыком, называющим
+    // секунды ИЗ КОНСТАНТЫ (в тесте — 200 мс, то есть «0,2 с»): литерал «5 с»
+    // в тексте этот ассерт не пройдёт.
+    for (const key of [FACES.ourvendSync.key, FACES.ourvendAccounting.key]) {
+      const row = найти(ответ.outside, key);
+      assert.equal(row.state, "unknown", key);
+      assert.match(row.detail ?? "", /источник не ответил за 0,2 с/, key);
+      assert.match(row.detail ?? "", /отчёт OurVend/, `${key}: ярлык прочитанного остаётся`);
+    }
+    // Соседи посчитаны: молчание одного источника — не молчание всех.
+    assert.equal(найти(ответ.outside, FACES.bot.key).state, "ok");
+    assert.equal(найти(ответ.outside, FACES.llm.key).state, "ok");
+    assert.equal(найти(ответ.internal, FACES.agents.key).state, "ok");
+  });
+
+  it("зависший СНИМОК — тот же исход: строки говорят «не прочитан», а не «снимка нет» (П3)", async () => {
+    // Вторая половина того же: снимок расписаний — условие восьми строк, и
+    // зависший он раньше уносил ответ целиком, а не свою ветку `базаОтказала`.
+    const ответ = await быстраяСлужба({ висит: { снимок: true } }).health(NOW);
+    const слой = найти(ответ.internal, FACES.agents.key);
+    assert.equal(слой.state, "unknown");
+    assert.match(слой.detail ?? "", /снимок расписаний — источник не ответил за 0,2 с/);
+    assert.doesNotMatch(слой.summary, /ещё не отчитывались/, "молчание источника — не пустой снимок");
+    // Снимок не прочитан — об отчётах слоя не известно ничего (П5 держится и
+    // на этой ветке: она приходит той же дверью).
+    assert.equal(слой.checksKnown, false);
+    // Журнал прогонов прочитан — тик монитора известен и здесь.
+    assert.equal(найти(ответ.outside, FACES.fx.key).lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString());
   });
 
   it("отказ одного источника даёт «не оценить» ЕГО строке, а не роняет ответ", async () => {
