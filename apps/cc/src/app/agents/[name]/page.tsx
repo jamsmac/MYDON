@@ -273,9 +273,15 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
       row: AgentStatusRow | null;
       paused: AgentsStatus["paused"];
       runtime: AgentsStatus["runtime"];
+      /**
+       * Часы CORE (`AgentsStatus.now`) — от них считается давность состояния в
+       * шапке. До этой правки поле выбрасывалось, и шапка не печатала давность
+       * вовсе (правило C-3 было применено только к плитке на главной).
+       */
+      now: string;
     }>(async () => {
-      const { agents, paused, runtime } = await core.agentsStatus();
-      return { row: agents.find((a) => a.name === name) ?? null, paused, runtime };
+      const { agents, paused, runtime, now } = await core.agentsStatus();
+      return { row: agents.find((a) => a.name === name) ?? null, paused, runtime, now };
     }),
     прочитать<SkillDeck>(() => core.skillDeck(name)),
     прочитать<AgentRun[]>(async () => (await core.agentRuns(name)).runs),
@@ -302,6 +308,17 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
   // Час рендера — только для подписи дня прогона («сегодня 08:00» против
   // «03.09 08:00»): голое время читалось бы как сегодняшнее.
   const now = new Date();
+  /*
+   * ДАВНОСТЬ СОСТОЯНИЯ — ОТ ЧАСОВ CORE, А НЕ ОТ ЧАСОВ РЕНДЕРА (круг починок,
+   * C-3; тот же довод, что у сетки на главной и доски рутин): на границе суток
+   * «сегодня» панели и «сегодня» Core разъезжаются, и шапка подписала бы
+   * вчерашний прогон сегодняшним днём. Состояние и его `since` приходят одним
+   * ответом — и время, от которого считается давность, обязано быть из того же
+   * ответа. Статус не прочитался — состояния тоже нет, и давность печатать не
+   * над чем; фолбэк на часы рендера здесь ровно для того, чтобы это выражение
+   * не требовало второго условия.
+   */
+  const часыСостояния = статус.value !== null ? new Date(статус.value.now) : now;
 
   return (
     <>
@@ -344,6 +361,20 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
                       "порученных задач",
                     )}
                   </>
+                )}
+                {/* ДАВНОСТЬ — ТЕМ ЖЕ `runWhen`, ЧТО В ПЛИТКЕ (круг починок,
+                    C-3). Правило было применено только к сетке: у агента со
+                    снятым расписанием и прогоном 12 июня шапка писала «молчит ·
+                    последний прогон — выполнено» — байт в байт как у
+                    отработавшего час назад. Формат берём из доски рутин, а не
+                    свой: второй словарь дат разошёлся бы с первым, и две
+                    поверхности назвали бы один факт по-разному.
+
+                    `since` отсутствует, когда его честно нет (агент ни разу не
+                    запускался, системная пауза) — выдумывать «неизвестно когда»
+                    не надо, об этом уже сказала причина. */}
+                {состояние.since !== undefined && (
+                  <span className="agw"> · {runWhen(состояние.since, часыСостояния)}</span>
                 )}
               </div>
             </>
