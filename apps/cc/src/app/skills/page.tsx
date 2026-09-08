@@ -1,5 +1,4 @@
 import { CoreDown } from "../../components/core-down";
-import { ConsoleTheme } from "../../components/console-theme";
 import { SkillTree } from "../../components/skill-tree";
 import { SkillsDeck } from "../../components/skills-deck";
 import { core, CoreUnavailable, type SkillDeck } from "../../lib/core";
@@ -26,7 +25,6 @@ export default async function Skills() {
 
   return (
     <>
-      <ConsoleTheme />
       <div className="page-head">
         <h1>Навыки</h1>
         <p className="lead">

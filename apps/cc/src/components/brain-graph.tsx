@@ -556,8 +556,9 @@ export function BrainGraph({ graph, focus }: { graph: DocsGraph; focus?: string 
      * `getComputedStyle` возвращает ЖИВОЙ объект: значения токенов он отдаёт
      * уже новые сам. Не хватает только кадра — на осевшем графе цикла нет, и
      * после переключения темы граф остался бы нарисованным старой палитрой.
-     * Слушаем оба источника: `data-theme` на <html> (явный выбор,
-     * <ConsoleTheme/>) и системную настройку.
+     * Слушаем оба источника: `data-theme` на <html> (его ставят middleware и
+     * `ThemeSync` — областной дефолт либо явный выбор из куки) и системную
+     * настройку.
      */
     const themeWatcher = new MutationObserver(draw);
     themeWatcher.observe(document.documentElement, {

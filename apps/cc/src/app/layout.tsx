@@ -9,6 +9,7 @@ import { FloatingChat } from "../components/floating-chat";
 import { CommandPalette } from "../components/command-palette";
 import { HeaderActions } from "../components/header-actions";
 import { Background } from "../components/bg/background";
+import { ThemeSync } from "../components/theme-sync";
 import "./globals.css";
 
 // Шрифты фирменные (ТЗ) — ЛОКАЛЬНЫЕ ФАЙЛЫ, а не `next/font/google`.
@@ -139,8 +140,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   ]);
   const inbox = pending + queue;
 
-  // Тема — АТРИБУТОМ В РАЗМЕТКЕ, до любого скрипта (Р-Д2-1): прежний
-  // `ConsoleTheme` ставил её из `useEffect`, и первый кадр консоли был светлым.
+  // Тема — АТРИБУТОМ В РАЗМЕТКЕ, до любого скрипта (Р-Д2-1): прежний ручной
+  // штамп темы ставил её из `useEffect` на каждой странице, и первый кадр
+  // консоли был светлым.
   // `undefined` — атрибута нет вовсе, работает `prefers-color-scheme`.
   // `suppressHydrationWarning`: клиентский `ThemeSync` вправе поменять атрибут
   // раньше, чем React сверит разметку, — это ожидаемое расхождение, не дефект.
@@ -155,6 +157,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     >
       <body>
         <Background />
+        <ThemeSync />
         <div className="app" data-console={isConsole ? "true" : undefined}>
           <header className="hdr">
             <svg className="logo" viewBox="0 0 24 24" aria-hidden>

@@ -1,6 +1,5 @@
 import { RUN_OUTCOMES, RUN_OUTCOME_LABELS, isRunOutcome } from "@mydon/shared";
 import Link from "next/link";
-import { ConsoleTheme } from "../../components/console-theme";
 import { CoreDown } from "../../components/core-down";
 import { FlowStrip } from "../../components/flow-strip";
 import { core, CoreRefused, CoreUnavailable, type FlowPlayback, type FlowSummary } from "../../lib/core";
@@ -89,7 +88,6 @@ export default async function FlowsPage({
 
   return (
     <>
-      <ConsoleTheme />
       <div className="page-head">
         <h1>Прогоны</h1>
         <p className="lead">

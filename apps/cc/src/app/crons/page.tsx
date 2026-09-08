@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { ConsoleTheme } from "../../components/console-theme";
 import { CoreDown } from "../../components/core-down";
 import { PauseToggles } from "../../components/pause-toggles";
 import { UpcomingRuns } from "../../components/upcoming-runs";
@@ -48,7 +47,6 @@ export default async function CronsPage() {
 
   return (
     <>
-      <ConsoleTheme />
       <div className="page-head">
         <h1>Рутины</h1>
         <p className="lead">
