@@ -34,6 +34,17 @@
 -- IF NOT EXISTS — защитный паттерн 0067…0073: автодеплой применяет миграции без
 -- отката, и каждый оператор обязан быть безопасен на повторном прогоне.
 --
+-- Две заставы DO $$ … RAISE EXCEPTION — плата за это IF NOT EXISTS. Он молчит не
+-- только на повторном прогоне: если колонка (или индекс) УЖЕ есть ЛЮБОЙ ДРУГОЙ
+-- формы, оператор пропускается без ошибки. Опыт на базе уровня 0088: руками
+-- добавленная `alter table attachment add column tags text` — и 0089 применяется
+-- БЕЗ ОШИБКИ, журнал говорит «90 записей», а читатель получает в tags NULL там,
+-- где тип обещает string[]. Для этого проекта правки через редактор Supabase не
+-- гипотетика, поэтому расхождение обязано падать ГРОМКО и до первого чтения.
+-- Заставы не мешают повторному прогону: на уже применённой 0089 форма совпадает.
+-- Откатывать их нечем и не нужно — они ничего не меняют, только читают каталог.
+-- Сценарий tools/pglite-checks/check-0089-shape.mjs воспроизводит этот опыт.
+--
 -- Откат (вручную; строки attachment и файлы в хранилище остаются, но названия,
 -- направления и метки артефактов, записанных после выката, будут потеряны):
 --   DROP INDEX IF EXISTS "attachment_kind_created_idx";
@@ -51,4 +62,36 @@
 ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "title" text;--> statement-breakpoint
 ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "domain" "domain";--> statement-breakpoint
 ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "tags" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "attachment_kind_created_idx" ON "attachment" USING btree ("kind","created_at" DESC NULLS FIRST);
+DO $$
+DECLARE mismatch text;
+BEGIN
+  SELECT string_agg(format('%s %s %s default %s', column_name, udt_name,
+                           case when is_nullable = 'YES' then 'NULL' else 'NOT NULL' end,
+                           coalesce(column_default, '<нет>')), '; ' ORDER BY column_name)
+    INTO mismatch
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'attachment'
+     AND column_name IN ('title', 'domain', 'tags')
+     AND (column_name::text, udt_name::text, is_nullable::text) NOT IN
+         (('title', 'text', 'YES'), ('domain', 'domain', 'YES'), ('tags', 'jsonb', 'NO'));
+  IF mismatch IS NOT NULL THEN
+    RAISE EXCEPTION '0089: форма колонок attachment расходится с ожидаемой (%); ожидалось title text NULL, domain domain NULL, tags jsonb NOT NULL', mismatch
+      USING HINT = 'Колонку почти наверняка добавили в базу вручную, и ADD COLUMN IF NOT EXISTS выше её МОЛЧА пропустил. Приведите форму (тип, NOT NULL, DEFAULT ''[]''::jsonb у tags) и примените миграцию заново.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'attachment'
+                    AND column_name = 'tags' AND column_default LIKE '%[]%::jsonb%') THEN
+    RAISE EXCEPTION '0089: у attachment.tags нет DEFAULT ''[]''::jsonb — старые строки останутся без пустого списка'
+      USING HINT = 'Тот же случай, что выше: колонка уже существовала, и ADD COLUMN IF NOT EXISTS её пропустил.';
+  END IF;
+END $$;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "attachment_kind_created_idx" ON "attachment" USING btree ("kind","created_at" DESC NULLS FIRST);--> statement-breakpoint
+DO $$
+BEGIN
+  IF (SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'attachment_kind_created_idx')
+     <> 'CREATE INDEX attachment_kind_created_idx ON public.attachment USING btree (kind, created_at DESC)' THEN
+    RAISE EXCEPTION '0089: индекс attachment_kind_created_idx не той формы: %',
+      (SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'attachment_kind_created_idx')
+      USING HINT = 'CREATE INDEX IF NOT EXISTS выше молча пропускает уже существующий индекс любой формы. Ожидается (kind, created_at DESC), то есть DESC NULLS FIRST — путь сортировки витрины /artifacts; с NULLS LAST сортировочная половина индекса мертва. Пересоздайте индекс и примените миграцию заново.';
+  END IF;
+END $$;

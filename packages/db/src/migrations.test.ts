@@ -348,7 +348,7 @@ describe("Цепочка миграций: файл ↔ журнал (сторо
       .filter((строка) => !строка.trimStart().startsWith("--"))
       .join("\n");
 
-    assert.equal(sql.split("--> statement-breakpoint").length, 4, "ровно четыре оператора");
+    assert.equal(sql.split("--> statement-breakpoint").length, 6, "ровно шесть операторов");
     assert.match(sql, /ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "title" text;/);
     assert.match(sql, /ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "domain" "domain";/);
     assert.match(
@@ -383,6 +383,20 @@ describe("Цепочка миграций: файл ↔ журнал (сторо
     // записана в самом файле, чтобы следующий автор не «улучшил» индекс.
     assert.doesNotMatch(операторы, /CONCURRENTLY/);
     assert.match(sql, /CONCURRENTLY в транзакции запрещён/);
+    // Заставы формы — плата за IF NOT EXISTS: он пропускает уже существующую
+    // колонку (или индекс) ЛЮБОЙ формы без ошибки, и журнал говорит «применено»
+    // при колонке не того типа. Проверяем, что заставы в файле есть и что они
+    // именно ПАДАЮТ, а не пишут NOTICE: молчаливое расхождение — то же, что его
+    // отсутствие. Опыт и три вида расхождения — check-0089-shape.mjs.
+    assert.equal((операторы.match(/^DO \$\$$/gm) ?? []).length, 2, "заставы формы (DO $$) пропали из 0089");
+    assert.equal(
+      (операторы.match(/RAISE EXCEPTION/g) ?? []).length,
+      3,
+      "застава без RAISE EXCEPTION расхождение не роняет",
+    );
+    assert.doesNotMatch(операторы, /RAISE (NOTICE|WARNING)/, "застава обязана падать, а не писать в лог");
+    assert.match(операторы, /udt_name/, "застава колонок не смотрит фактический тип");
+    assert.match(операторы, /attachment_kind_created_idx' \)\s*\n?\s*<>|indexdef/, "застава индекса не сверяет форму");
     // Существующие фото и чеки не трогаем: ни UPDATE, ни DELETE, ни смены типов, ни DROP.
     assert.doesNotMatch(операторы, /^\s*(UPDATE|DELETE|DROP|ALTER TABLE "attachment" ALTER COLUMN)/m);
     assert.doesNotMatch(операторы, /"document"/, "document не сносится в этом срезе — только помечается в схеме");

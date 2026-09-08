@@ -45,7 +45,8 @@ pnpm --filter @mydon/db build && pnpm --filter @mydon/core build
 # миграции целиком (или --upto 83)
 NODE_PATH=~/pgtest/node_modules node tools/pglite-checks/run-migrations.mjs
 
-# все сценарии каталога: бэкфилл 0083 → 0084, узлы У1–У6, строка «Модели» (Ф-2)
+# ВСЕ сценарии каталога — по поиску, а не по списку: список тут уже успел
+# устареть дважды, а новый сценарий должен гоняться по факту своего появления
 for c in tools/pglite-checks/check-*.mjs; do
   NODE_PATH=~/pgtest/node_modules node "$c"
 done
