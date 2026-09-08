@@ -110,4 +110,87 @@ describe("ThemeSync: тема следует маршруту при SPA-нав�
     expect(document.documentElement.dataset.theme).toBe("dark");
     document.cookie = "mydon_bg=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   });
+
+  /*
+   * Круг починок 1, находка 1: прокси читает куку через `request.cookies.get`
+   * (декодирует значение), `document.cookie` в браузере — нет. Одно правило
+   * `themeFor` на двух по-разному разобранных входах — не правило, а
+   * видимость: сервер принял бы `%64ark` как `dark`, клиент до фикса видел
+   * сырую `%64ark`, `isThemeChoice` её отвергал — форма Д-2 другой дверью.
+   */
+  it("кука процентно закодирована — клиент декодирует её так же, как прокси", () => {
+    // %64 = 0x64 = 'd': `%64ark` — валидная процентная запись слова "dark".
+    document.cookie = `${THEME_COOKIE}=%64ark; path=/`;
+    навигация.pathname = "/stock";
+    render(оболочка(false));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("кривой процент в куке не роняет эффект — мусор равен отсутствию куки", () => {
+    // `decodeURIComponent("%")` бросает URIError: незавершённая процентная
+    // последовательность. Кука произвольно подделываема, падать нельзя.
+    document.cookie = `${THEME_COOKIE}=%; path=/`;
+    какСерверДляКонсоли();
+    навигация.pathname = "/apps";
+    expect(() => render(оболочка(true))).not.toThrow();
+    // Кука отвергнута — в силе правило маршрута: /apps тёмный по умолчанию.
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  /*
+   * Круг починок 1, находка 5: без сверки с текущим значением эффект пишет
+   * атрибут заново даже когда он уже верный — `brain-graph.tsx` слушает
+   * `data-theme` MutationObserver'ом ровно для перерисовки холста, а
+   * `setAttribute` того же значения ВСЁ РАВНО ставит запись мутации (в jsdom
+   * проверено отдельно — фиксирует и голый `setAttribute` с тем же
+   * значением). Шпион на `setAttribute` здесь не годится: `dataset.x = …` в
+   * jsdom пишет атрибут в обход публичного метода прототипа, спай его не
+   * видит совсем — считаем НАСТОЯЩИЕ записи мутации через MutationObserver,
+   * как их видит `brain-graph.tsx`.
+   *
+   * Гидрация на тёмном маршруте и переход между двумя тёмными маршрутами —
+   * оба случая должны обойтись без единой записи атрибута; смена на светлый
+   * маршрут — ровно одна, и она законная.
+   */
+  it("тот же атрибут не пишется повторно тем же значением", async () => {
+    какСерверДляКонсоли(); // сервер уже поставил dark — как на живой странице
+    навигация.pathname = "/apps";
+    let записей = 0;
+    const observer = new MutationObserver((records) => {
+      записей += records.length;
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+    const { rerender } = render(оболочка(true));
+    await Promise.resolve(); // дать MutationObserver'у слить микрозадачу
+    // Гидрация /apps: тема уже dark, эффекту нечего переписывать.
+    expect(записей).toBe(0);
+
+    навигация.pathname = "/crons"; // тоже консоль, тоже dark
+    rerender(оболочка(true));
+    await Promise.resolve();
+    expect(записей).toBe(0);
+
+    навигация.pathname = "/stock"; // бизнес-экран — тема меняется, запись законна
+    rerender(оболочка(true));
+    await Promise.resolve();
+    expect(записей).toBe(1);
+    expect(document.documentElement.dataset.theme).toBeUndefined();
+
+    observer.disconnect();
+  });
+
+  /*
+   * Круг починок 1, находка 6: `.app` отсутствует в DOM ровно в этом
+   * сценарии — компонент рендерится без обёртки, как в тесте «ничего не
+   * рисует» выше. Молчаливый no-op здесь — решение, закреплённое кодовым
+   * комментарием у `ThemeSync`; тест пинит его как поведение, а не как
+   * случайность: `data-theme` не зависит от `.app` и обязан быть выставлен
+   * даже без него.
+   */
+  it("без .app в DOM эффект не падает и всё равно ставит data-theme", () => {
+    навигация.pathname = "/apps"; // консоль — тема должна стать dark
+    expect(() => render(<ThemeSync />)).not.toThrow();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
 });

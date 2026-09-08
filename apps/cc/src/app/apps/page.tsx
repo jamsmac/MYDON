@@ -33,7 +33,7 @@ export const dynamic = "force-dynamic";
  * разбор в `времяСостояния`.
  *
  * Тёмная тема — не отсюда: `/apps` числится в `CONSOLE_ROUTES` (`lib/theme.ts`),
- * атрибут ставят middleware (первый кадр) и `ThemeSync` (SPA-переход).
+ * атрибут ставят прокси (`proxy.ts`, первый кадр) и `ThemeSync` (SPA-переход).
  */
 
 /**

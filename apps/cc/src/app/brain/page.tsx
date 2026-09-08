@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * и каким инструментом он лезет наружу.
  *
  * Тёмная тема — не отсюда: `/brain` числится в `CONSOLE_ROUTES` (`lib/theme.ts`),
- * атрибут ставят middleware (первый кадр) и `ThemeSync` (SPA-переход).
+ * атрибут ставят прокси (`proxy.ts`, первый кадр) и `ThemeSync` (SPA-переход).
  */
 export default async function BrainPage({
   searchParams,

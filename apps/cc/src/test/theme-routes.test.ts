@@ -59,7 +59,21 @@ function абзацМаркера(): string {
   return строки.slice(от, до).join("\n");
 }
 
-/** Текстовые файлы под `src`, кроме тестов: путь относительно `src`. */
+/** Путь этого файла относительно `src` — единственное исключение сканирования. */
+const СТОРОЖ = path.join("test", "theme-routes.test.ts");
+
+/**
+ * Текстовые файлы под `src`, кроме самого сторожа (круг починок 1, находка 4).
+ *
+ * РАНЬШЕ исключались ВСЕ файлы `*.test.tsx?` — дыра: файл вроде
+ * `components/theme-stamp.test.tsx` с текстом `ConsoleTheme` и прямой записью
+ * в `dataset.theme` оставался невидим сразу обоим тестам ниже (измерено), а
+ * импорт чего-то из него под псевдонимом в обычном исходнике не оставил бы
+ * следа банальных строк «ConsoleTheme»/«console-theme» в СВОЁМ тексте. Своё
+ * исключение нужно только самому сторожу — ему приходится называть искомые
+ * строки текстом, чтобы их искать; остальным файлам, включая прочие тесты,
+ * прятаться незачем.
+ */
 function исходники(dir: string): string[] {
   const out: string[] = [];
   for (const имя of readdirSync(dir)) {
@@ -69,8 +83,9 @@ function исходники(dir: string): string[] {
       continue;
     }
     if (!/\.(tsx?|css|mjs|js|md)$/.test(имя)) continue;
-    if (/\.test\.tsx?$/.test(имя)) continue;
-    out.push(path.relative(СРЦ, полный));
+    const отн = path.relative(СРЦ, полный);
+    if (отн === СТОРОЖ) continue;
+    out.push(отн);
   }
   return out;
 }
@@ -122,8 +137,22 @@ describe("ConsoleTheme снесён, тему при навигации держ
     // серверный штамп. Ловится прямая запись атрибута где угодно, кроме
     // самого ThemeSync; чтение (`brain-graph.tsx` слушает его
     // MutationObserver'ом) под запрет не попадает.
+    //
+    // Разрешённые писатели — ИМЕННОЙ список, а не блок «все тесты» (круг
+    // починок 1, находка 4): `theme-sync.tsx` — единственный писатель в
+    // проде; `theme-sync.test.tsx` и `header-actions.test.tsx` пишут атрибут
+    // в СВОИХ фикстурах, симулируя серверный штамп до гидрации (и снимают
+    // его же в `afterEach`/по ходу теста) — это не конкурент ThemeSync, а
+    // подготовка сцены для теста. Новый файл в список не попадает сам собой:
+    // автору придётся объяснить, зачем он тоже пишет атрибут, а не расширять
+    // исключение молча.
+    const РАЗРЕШЕНО_ПИСАТЬ = new Set([
+      path.join("components", "theme-sync.tsx"),
+      path.join("components", "theme-sync.test.tsx"),
+      path.join("components", "header-actions.test.tsx"),
+    ]);
     const лишние = исходники(СРЦ).filter((rel) => {
-      if (rel === path.join("components", "theme-sync.tsx")) return false;
+      if (РАЗРЕШЕНО_ПИСАТЬ.has(rel)) return false;
       if (!/\.tsx?$/.test(rel)) return false;
       return /dataset\.theme\s*=|setAttribute\(\s*["']data-theme["']/.test(текст(rel));
     });
@@ -131,10 +160,42 @@ describe("ConsoleTheme снесён, тему при навигации держ
   });
 
   it("theme-sync.tsx — клиентский и без серверных модулей", () => {
-    // Компонент делит `lib/theme` с middleware: `next/headers` или
+    // Компонент делит `lib/theme` с прокси (`apps/cc/src/proxy.ts`): `next/headers` или
     // `server-only` в этой цепочке уронили бы клиентскую сборку.
     const код = текст(path.join("components", "theme-sync.tsx"));
     expect(код.startsWith('"use client";')).toBe(true);
     expect(код).not.toMatch(/next\/headers|server-only/);
+  });
+});
+
+/**
+ * §9 навыка отстал от §4 и кода (круг починок 1, находка 2).
+ *
+ * ДО Д2 §4 и §9 врали СОГЛАСОВАННО — оба называли механизм темы через
+ * `ConsoleTheme`. Задача 2 почистила §4 (абзац-маркер `CONSOLE_ROUTES`) и
+ * код, а §9 — НЕТ: он по-прежнему называет `<ConsoleTheme/>` (со ссылкой на
+ * `apps/cc/src/components/console-theme.tsx`, файла которого больше нет) и
+ * утверждает, что первый кадр каждой тёмной страницы приходит светлым — то
+ * есть переход от согласованной лжи к рассогласованной, а он хуже честной
+ * непочинки. Сторож выше (`исходники()`) этого не видит: он сканирует только
+ * `apps/cc/src`, а `rules.md` живёт вне этого дерева.
+ *
+ * §9 ЗДЕСЬ НЕ ПЕРЕПИСЫВАЕТСЯ — снятие пометки долга это Р-Д2-8 (задача 5).
+ * Пока §9 её не снял, эти тесты КРАСНЫЕ, и это ОЖИДАЕМО: цель не в том,
+ * чтобы почини́ть §9 раньше времени, а в том, чтобы забывчивость задачи 5
+ * (не убрать пометку) осталась видимой, а не прошла молча.
+ */
+describe("долг §9 навыка про ConsoleTheme ещё не снят — красный до задачи 5, Р-Д2-8 (круг починок 1)", () => {
+  const ЗЕРКАЛА: readonly [string, string][] = [
+    [".claude/skills/mydon-design/rules.md", path.join(КОРЕНЬ, ".claude/skills/mydon-design/rules.md")],
+    [".agents/skills/mydon-design/rules.md", path.join(КОРЕНЬ, ".agents/skills/mydon-design/rules.md")],
+    [
+      "docs/agentic-os-starter/claude-skills/mydon-design/rules.md",
+      path.join(КОРЕНЬ, "docs/agentic-os-starter/claude-skills/mydon-design/rules.md"),
+    ],
+  ];
+
+  it.each(ЗЕРКАЛА)("%s не должен называть снесённый ConsoleTheme", (_имя, файл) => {
+    expect(readFileSync(файл, "utf8")).not.toMatch(/ConsoleTheme|console-theme/);
   });
 });
