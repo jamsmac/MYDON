@@ -815,6 +815,48 @@ describe("Здоровье приложений: момент последней
     const row = rowFromOurvendAccounting(FACES.ourvendAccounting, учёт({ lastRun: null }));
     assert.equal(row.state, "unknown");
     assert.equal(row.lastCheckedAt, null);
+    // «МОМЕНТА НЕТ» И «ПРОВЕРОК НЕ БЫЛО» — РАЗНЫЕ УТВЕРЖДЕНИЯ, И БЕЗ ЭТОГО
+    // АССЕРТА ТЕСТ ПРОПУСКАЛ ВТОРОЕ (одиннадцатый круг починок, И-1). Вход
+    // фикстуры — ровно тот, что каждый день бывает на проде: журнал прогонов
+    // пуст, а снимок продаж часовой давности лежит в отчёте
+    // (`salesLagShownH: 1`). Момента он не даёт — свидетельство даёт.
+    assert.equal(row.checksKnown, false, "снимок часовой давности — свидетельство, а не его отсутствие");
+  });
+
+  it("учёт OurVend: ни прогонов, ни следа снимка — вот здесь «не запускался» (И-1)", () => {
+    // ОБРАТНАЯ ПОЛОВИНА ПРЕДЫДУЩЕГО ТЕСТА: без неё починка «всегда не знаем»
+    // прошла бы зелёной, а экран потерял бы слово «не запускался» у учёта
+    // целиком. Следов у снимка два, по одному на половину (продажи и остатки
+    // едут разными POST-ами), и ноль требует отсутствия обоих.
+    const row = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        lastRun: null,
+        health: {
+          ...ЗДОРОВЬЕ_УЧЁТА,
+          salesLagShownH: null,
+          parity: { mode: "stock", checked: 0, mismatches: 0, stockOk: false, stockChecked: 0 },
+        },
+      }),
+    );
+    assert.equal(row.state, "unknown");
+    assert.equal(row.lastCheckedAt, null);
+    assert.equal(row.checksKnown, true, "отчёт прочитан, снимков нет ни в одной половине, журнал пуст");
+
+    // И КАЖДАЯ ПОЛОВИНА ПООТДЕЛЬНОСТИ ЗАКРЫВАЕТ НОЛЬ. Продаж не было ни одной
+    // (`salesLagShownH: null`), а остатки монитор довёз — прогон был.
+    const толькоОстатки = rowFromOurvendAccounting(
+      FACES.ourvendAccounting,
+      учёт({
+        lastRun: null,
+        health: {
+          ...ЗДОРОВЬЕ_УЧЁТА,
+          salesLagShownH: null,
+          parity: { mode: "stock", checked: 0, mismatches: 0, stockOk: true, stockChecked: 12 },
+        },
+      }),
+    );
+    assert.equal(толькоОстатки.checksKnown, false, "сверенные пары остатков — след нашего снимка");
   });
 
   it("учёт OurVend с прогоном — ISO-момент тика монитора", () => {
@@ -1170,7 +1212,7 @@ describe("Здоровье приложений: момент последней
       монитор({ lastRun: { at: битая, outcome: "executed", reason: "[fx:refresh] ok" } }),
     );
     assert.equal(прошёл.state, "unknown", "«прогон прошёл» без времени проверки приёмку не проходит");
-    assert.match(прошёл.summary, /не запускался|журнал прогонов пуст/);
+    assert.match(прошёл.summary, /момент его начала не читается/, "строка прогона в журнале есть (М-2)");
     assert.equal(прошёл.at, undefined);
     assert.equal(прошёл.lastCheckedAt, null);
 
@@ -1387,7 +1429,29 @@ describe("Здоровье приложений: «не было ни разу»
         false,
         "строка прогона есть — «проверок не было» здесь ложь о работавшем мониторе",
       );
-      assert.match(row.summary, /не запускался|журнал прогонов пуст/);
+      // И ВЕРДИКТ БОЛЬШЕ НЕ ВРЁТ ОБЕИМИ ПОЛОВИНАМИ (одиннадцатый круг, М-2).
+      // Прежняя фраза «монитор не запускался ИЛИ журнал прогонов пуст» стояла
+      // рядом с лампой «когда проверяли — неизвестно», а в журнале лежала
+      // строка: ложны обе альтернативы, и строка спорила сама с собой.
+      assert.match(row.summary, /прогон в журнале есть, момент его начала не читается/);
+      assert.doesNotMatch(row.summary, /не запускался|журнал прогонов пуст/);
+      assert.match(row.detail ?? "", /приехал не датой/);
+
+      // ТА ЖЕ ФРАЗА У УЧЁТА: гард «прогонов нет» у него свой, и разъехаться
+      // двум формулировкам одного факта нечем — они из одной функции.
+      const учётСБитым = rowFromOurvendAccounting(
+        FACES.ourvendAccounting,
+        учёт({ lastRun: { at: момент, outcome: "executed", reason: "[ourvend:accounting] ok" } }),
+      );
+      assert.match(учётСБитым.summary, /прогон в журнале есть, момент его начала не читается/);
+      assert.equal(учётСБитым.checksKnown, false);
+
+      // ОБРАТНАЯ ПОЛОВИНА: прогона нет ВОВСЕ — прежняя фраза остаётся, и она
+      // правдива. Без этого ассерта починка «всегда третья формулировка»
+      // прошла бы зелёной.
+      const безПрогона = rowFromMonitor(FACES.fx, монитор({ lastRun: null, silentAfter: null }));
+      assert.match(безПрогона.summary, /не запускался|журнал прогонов пуст/);
+      assert.doesNotMatch(безПрогона.summary, /не читается/);
     }
   });
 
