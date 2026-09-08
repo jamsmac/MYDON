@@ -444,6 +444,22 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.equal(найти(ответ.outside, FACES.fx.key).lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString());
   });
 
+  it("монитор с именем лица слоя не даёт ВТОРОЙ строки с тем же ключом (M-8)", async () => {
+    // Защита, а не починка: на сегодняшних именах мониторов (`x:y`) вход
+    // недостижим, но имя приезжает из тела `PUT /routines/snapshot` — его
+    // выбирает рантайм. Дубль ключа — это два вердикта об одном источнике и
+    // дубль React-key на `/apps`.
+    const ответ = await сервис({
+      monitors: [{ name: FACES.agents.key, cron: "*/5 * * * *", enabled: true }],
+    }).health(NOW);
+    const все = [...ответ.outside, ...ответ.internal];
+    assert.equal(
+      все.filter((r) => r.key === FACES.agents.key).length,
+      1,
+      "лицо слоя собирает свежесть снимка, а не строка снимка: второй такой строки быть не должно",
+    );
+  });
+
   it("отказ одного источника даёт «не оценить» ЕГО строке, а не роняет ответ", async () => {
     const ответ = await сервис({ отказ: { ourvend: "донор недоступен" } }).health(NOW);
     const сбор = найти(ответ.outside, FACES.ourvendSync.key);
