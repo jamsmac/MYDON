@@ -6,6 +6,7 @@ import { ServiceTokenGuard } from "./common/service-token.guard";
 import { AgentsModule } from "./agents/agents.module";
 import { AppsModule } from "./apps/apps.module";
 import { ApprovalsModule } from "./approvals/approvals.module";
+import { ArtifactsModule } from "./artifacts/artifacts.module";
 import { AttachmentsModule } from "./attachments/attachments.module";
 import { AuditModule } from "./audit/audit.module";
 import { CatalogModule } from "./catalog/catalog.module";
@@ -55,6 +56,7 @@ import { VerificationModule } from "./verification/verification.module";
     RoutinesModule,
     DocsModule,
     AttachmentsModule,
+    ArtifactsModule,
     AuditModule,
     CatalogModule,
     CoffeeModule,
