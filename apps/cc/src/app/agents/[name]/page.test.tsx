@@ -258,6 +258,21 @@ describe("Карточка агента: системная пауза расп�
     expect(container.querySelector(".notice")).toBeNull();
   });
 
+  it("ожидающие поручения названы числом и в карточке, и в строке паузы (ревью Ф-1)", async () => {
+    agentsStatus.mockImplementation(async () => ({
+      tz: "Asia/Tashkent",
+      now: "2026-09-06T08:00:00.000Z",
+      paused: { schedules: false, tasks: true },
+      runtime: рантайм({ paused: { schedules: false, tasks: true } }),
+      agents: [
+        состояние({ state: "idle", reason: "последний прогон — выполнено", queuedAssigned: 1 }),
+      ],
+    }));
+    const { container } = render(await screenFor());
+    expect(container.querySelector(".agr")).toHaveTextContent(/в очереди 1 порученная задача/);
+    expect(container.querySelector(".notice")).toHaveTextContent(/Сейчас 1 задача ждёт снятия паузы/);
+  });
+
   it("пауза ЗАДАЧ — отдельной строкой и у работающего агента (перепроверка прода, корень 1)", async () => {
     // Раньше карточка полагалась на то, что вердикт при паузе задач — «на
     // паузе» с той же формулировкой. Теперь занятый агент под паузой работает,

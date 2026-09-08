@@ -3545,11 +3545,22 @@ async function проверитьЛица() {
     });
     if (!задача.r.ok) throw new Error(`создание задачи → ${задача.r.status}: ${задача.text.slice(0, 200)}`);
     задачаId = задача.json.id;
+    // Ф-1: пока задача в `todo` без claim, состояние обязано назвать очередь
+    // числом — ни одно правило вердикта такую задачу не видит, и без этого
+    // агент выглядел «молчит: последний прогон — пропущен».
+    const ждёт = мой(await состояние());
+    if (ждёт.queuedAssigned !== 1) {
+      throw new Error(`порученная задача в очереди не названа: queuedAssigned=${ждёт.queuedAssigned}`);
+    }
+    if (ждёт.state === "working") throw new Error("ожидание задачи занятостью не является");
     const захват = await jsonRequest("POST", `/tasks/${задача.json.id}/agent-run/claim`, { agentName: агент });
     if (!захват.r.ok || захват.json?.claimed !== true) {
       throw new Error(`claim → ${захват.r.status}: ${захват.text.slice(0, 200)}`);
     }
     const работает = мой(await состояние());
+    if (работает.queuedAssigned !== undefined) {
+      throw new Error(`после claim задача не должна считаться очередью: ${работает.queuedAssigned}`);
+    }
     if (работает.state !== "working" || работает.skill !== навык || работает.taskId !== задача.json.id) {
       throw new Error(`с живым claim: ${работает.state} — «${работает.reason}» (навык ${работает.skill})`);
     }

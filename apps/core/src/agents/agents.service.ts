@@ -15,7 +15,7 @@ import { RunsService } from "../routines/runs.service";
 import { settingValue } from "../system/settings";
 import { SystemService } from "../system/system.service";
 import { AGENT_SCHEDULE_SOURCE } from "../tasks/agent-schedule";
-import { TasksService, type ModelEffort } from "../tasks/tasks.service";
+import { TasksService, isAssignedTaskSql, type ModelEffort } from "../tasks/tasks.service";
 import {
   computeAgentState,
   type AgentState,
@@ -100,6 +100,19 @@ export interface AgentStatusRow {
   taskId?: string;
   skill?: string;
   lastRun?: { at: string; outcome: string; skipReason: string | null; reason: string };
+  /**
+   * Сколько ПОРУЧЕННЫХ задач этого агента ждут в очереди (`todo`, без claim и
+   * без затыка) — ревью Ф-1.
+   *
+   * Задача в `todo` не попадает ни в одно правило состояния: claim'а у неё нет,
+   * затыка нет, — и агент с ожидающей задачей выглядел «молчит: последний
+   * прогон — выполнено · N ч назад». Под `AGENTS_TASKS_PAUSED=1` она лежит там
+   * до снятия паузы (на проде так лежит «Навык parts-audit: запуск из deck» от
+   * 05.09), а строка парка «новые порученные задачи никто не возьмёт» спорила
+   * с плиткой этого агента — и читатель верит плитке. Числом, а не состоянием:
+   * ожидание задачи занятостью не является. Отсутствует, когда очередь пуста.
+   */
+  queuedAssigned?: number;
 }
 
 /** Снимок рантайма агентов глазами сетки: когда отчитался и какие паузы применил. */
@@ -129,7 +142,7 @@ export interface AgentsStatusView {
   /**
    * Что рантайм агентов ПРИМЕНИЛ на деле — против намерения в `paused`
    * (перепроверка прода, Д-3). Тумблеры выше читаются из конфига в ту же
-   * секунду, а слой агентов перечитывает настройки раз в 10 минут и кладёт
+   * секунду, а слой агентов перечитывает настройки своим тиком и кладёт
    * действующие у себя паузы в снимок расписаний. Без сверки экран показывал
    * тринадцать «молчит» над worker'ом, который ещё не взял ни одной задачи, и
    * «на паузе» над worker'ом, который ещё claim'ит.
@@ -463,10 +476,11 @@ export class AgentsService {
 
     const agents = rows.map((row): AgentStatusRow => {
       const lastRun = lastRuns.get(row.name) ?? null;
+      const очередь = inFlight.queued.get(row.name) ?? 0;
       const verdict = computeAgentState({
         passportStatus: row.status,
         archivedAt: row.archivedAt,
-        claimedTasks: inFlight.get(row.name) ?? [],
+        claimedTasks: inFlight.claimed.get(row.name) ?? [],
         lastRun,
         paused,
         now,
@@ -483,6 +497,9 @@ export class AgentsService {
         ...(verdict.since !== undefined ? { since: verdict.since.toISOString() } : {}),
         ...(verdict.taskId !== undefined ? { taskId: verdict.taskId } : {}),
         ...(verdict.skill !== undefined ? { skill: verdict.skill } : {}),
+        // Ноль не печатаем: «в очереди 0» — не вопрос владельца (то же правило,
+        // что у сводки сетки).
+        ...(очередь > 0 ? { queuedAssigned: очередь } : {}),
         ...(lastRun !== null
           ? {
               lastRun: {
@@ -512,13 +529,16 @@ export class AgentsService {
    * (R-P5-7b): при включённом ужесточении и не-owner запросе личные задачи из
    * состояния уходят. Флаг выключен (дефолт) — выдача не меняется.
    */
-  private async agentTasksInFlight(excludePersonal: boolean): Promise<Map<string, ClaimedTaskLite[]>> {
+  private async agentTasksInFlight(
+    excludePersonal: boolean,
+  ): Promise<{ claimed: Map<string, ClaimedTaskLite[]>; queued: Map<string, number> }> {
     const rows = await this.db
       .select({
         id: task.id,
         ownerRef: task.ownerRef,
         skill: task.agentSkill,
         source: task.source,
+        status: task.status,
         claimedAt: task.agentRunClaimedAt,
         blockedAt: task.agentExecutionBlockedAt,
         blockedReason: task.agentExecutionBlockedReason,
@@ -528,7 +548,15 @@ export class AgentsService {
         and(
           eq(task.ownerKind, "agent"),
           notInArray(task.status, ["done", "cancelled"]),
-          or(eq(task.status, "in_progress"), isNotNull(task.agentExecutionBlockedAt)),
+          or(
+            eq(task.status, "in_progress"),
+            isNotNull(task.agentExecutionBlockedAt),
+            // ОЖИДАЮЩИЕ ПОРУЧЕННЫЕ — ТЕМ ЖЕ ЗАПРОСОМ (ревью Ф-1): своя выборка
+            // ради одного числа добавила бы третий поход к той же таблице.
+            // Предикат очереди — общий с рантаймом (`isAssignedTaskSql`), иначе
+            // «в очереди N» считало бы cron-задачи, которых пауза не касается.
+            and(eq(task.status, "todo"), isAssignedTaskSql()),
+          ),
           // `is distinct from`, а не `<> 'personal'`: `task.domain` бывает NULL,
           // и обычное сравнение выбросило бы задачи без направления совсем.
           ...(excludePersonal ? [sql`${task.domain} is distinct from 'personal'`] : []),
@@ -536,8 +564,16 @@ export class AgentsService {
       );
 
     const byAgent = new Map<string, ClaimedTaskLite[]>();
+    const queued = new Map<string, number>();
     for (const row of rows) {
       if (row.ownerRef === null) continue; // задача агента без исполнителя — не его состояние
+      // Ждёт в очереди: `todo` без claim и без затыка. Затык Core тоже
+      // возвращает задачу в `todo` (`tasks.service.ts`, release с
+      // `shouldBlock`), поэтому одного статуса мало — различает отметка.
+      if (row.status === "todo" && row.claimedAt === null && row.blockedAt === null) {
+        queued.set(row.ownerRef, (queued.get(row.ownerRef) ?? 0) + 1);
+        continue;
+      }
       const list = byAgent.get(row.ownerRef) ?? [];
       list.push({
         id: row.id,
@@ -551,7 +587,7 @@ export class AgentsService {
       });
       byAgent.set(row.ownerRef, list);
     }
-    return byAgent;
+    return { claimed: byAgent, queued };
   }
 
   /**
@@ -901,7 +937,7 @@ export class AgentsService {
  * Намерение против факта: тумблеры конфига против пауз в снимке рантайма (Д-3).
  *
  * Свежесть снимка — правилом доски рутин (`snapshotFreshness`): протухший
- * снимок означает не «рантайм отстаёт на 10 минут», а «что он применил
+ * снимок означает не «рантайм отстаёт на один тик», а «что он применил
  * сейчас, неизвестно», и панель обязана сказать это другими словами.
  * `lagging` считается и по протухшему снимку — последнее, что известно о
  * рантайме, всё равно расходится с конфигом; `stale` рядом уточняет, чему

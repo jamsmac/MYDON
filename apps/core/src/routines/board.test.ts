@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { AGENTS_SNAPSHOT_INTERVAL_MS, AGENTS_SNAPSHOT_MISS_LIMIT } from "@mydon/shared";
+import {
+  AGENTS_SNAPSHOT_INTERVAL_MS,
+  AGENTS_SNAPSHOT_MAX_SILENCE_SEC,
+  AGENTS_SNAPSHOT_MISS_LIMIT,
+} from "@mydon/shared";
 import { STALE_AFTER_SEC, computeBoard, nextOccurrences, snapshotFreshness, type BoardInput } from "./board";
 
 const now = new Date("2026-09-06T03:10:00.000Z"); // 08:10 Ташкент, суббота
@@ -167,6 +171,14 @@ describe("computeBoard (R-R-3)", () => {
     const тик = AGENTS_SNAPSHOT_INTERVAL_MS / 1000;
     assert.equal(STALE_AFTER_SEC, тик * AGENTS_SNAPSHOT_MISS_LIMIT);
     assert.ok(AGENTS_SNAPSHOT_MISS_LIMIT >= 3, "меньше трёх периодов — один пропущенный тик снова ложная авария");
+    // ВЕРХНЯЯ ГРАНИЦА ТОЖЕ ПИНИТСЯ (ревью Ф-4): раньше сюда проходил любой
+    // лимит — `MISS_LIMIT = 10` (100 минут тишины) не ронял ни одного теста, а
+    // это полтора часа молча пропущенных cron-срабатываний под зелёным экраном.
+    assert.ok(
+      STALE_AFTER_SEC <= AGENTS_SNAPSHOT_MAX_SILENCE_SEC,
+      `окно молчания ${STALE_AFTER_SEC} с больше допустимых ${AGENTS_SNAPSHOT_MAX_SILENCE_SEC} с: ` +
+        "мёртвый рантайм пропускает срабатывания молча, и узнавать об этом позже нельзя",
+    );
     const дваПропуска = new Date(now.getTime() - (2 * тик + 30) * 1000);
     assert.equal(snapshotFreshness(дваПропуска, now).stale, false, "два пропущенных тика прощаются");
     const триПропуска = new Date(now.getTime() - (3 * тик + 1) * 1000);

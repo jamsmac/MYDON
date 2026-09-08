@@ -282,7 +282,7 @@ describe("Состояние агента словами (R-A2-1, решения
   });
 
   it("ВЫКЛЮЧЕН В КАРТОЧКЕ, НО ДЕРЖИТ ЖИВОЙ CLAIM — работает, «дорабатывает начатую» (ревью I-1)", () => {
-    // Рантайм перечитывает карточки раз в 10 минут: до перечитки worker берёт
+    // Рантайм перечитывает карточки своим тиком: до перечитки worker берёт
     // задачи и жжёт cron, а карточка говорила «выключен» — ложь в обратную
     // сторону. Живой claim выше паспорта; паспорт — в причине.
     const claimedAt = new Date(NOW.getTime() - 60_000);
@@ -290,6 +290,10 @@ describe("Состояние агента словами (R-A2-1, решения
     assert.equal(verdict.state, "working");
     assert.match(verdict.reason, /выполняет задачу/);
     assert.match(verdict.reason, /в карточке выключен \(статус paused\) — дорабатывает начатую задачу/);
+    // «Не возьмёт ПОСЛЕ ПЕРЕЧИТКИ» с числом из общей константы (ревью Ф-5):
+    // до неё оба гейта рантайма читают старую память, а у Core предиката по
+    // статусу агента нет вовсе — в этом окне worker берёт и новые задачи.
+    assert.match(verdict.reason, /новых не возьмёт после перечитки карточек \(до 5 мин\)/);
     assert.deepEqual(verdict.since, claimedAt);
     assert.equal(verdict.taskId, "11111111-1111-4111-8111-111111111111");
     // Затык на этой же живой работе виден и под выключенной карточкой.
@@ -300,7 +304,7 @@ describe("Состояние агента словами (R-A2-1, решения
       }),
     );
     assert.equal(затык.state, "blocked");
-    // Живой работы нет — паспорт решает, даже при старом затыке и оборванном claim.
+    // Живой работы нет — паспорт решает, но затык остаётся В ПРИЧИНЕ (Ф-3).
     const старый = computeAgentState(
       input({
         passportStatus: "paused",
@@ -309,6 +313,56 @@ describe("Состояние агента словами (R-A2-1, решения
     );
     assert.equal(старый.state, "paused");
     assert.match(старый.reason, /статус paused/);
+    assert.match(старый.reason, /неразобранный затык Core/);
+  });
+
+  it("ВЫКЛЮЧЕННАЯ КАРТОЧКА НЕ ПРЯЧЕТ ЗАТЫК И УПАВШИЙ ПРОГОН: они уходят в причину хвостом (ревью Ф-3)", () => {
+    // Владелец гасит карточку, чтобы остановить кровотечение после
+    // `skill_failed` — и затык (возможно, с оплаченным вызовом в неизвестном
+    // исходе) пропадал с экрана: «на паузе: агент выключен в карточке», ни
+    // слова о задаче. Состояние честное, но поломка обязана остаться видимой.
+    const blockedAt = new Date(NOW.getTime() - 3_600_000);
+    const затык = computeAgentState(
+      input({
+        passportStatus: "paused",
+        claimedTasks: [
+          task({ claimedAt: null, blockedAt, blockedReason: "skill_failed: исход metered-вызова неизвестен" }),
+        ],
+      }),
+    );
+    assert.equal(затык.state, "paused", "выключенная карточка — честный ответ на «почему молчит»");
+    assert.match(затык.reason, /статус paused/);
+    assert.match(затык.reason, /неразобранный затык Core \(навык «parts-audit»\)/);
+    assert.match(затык.reason, /skill_failed: исход metered-вызова неизвестен/);
+    assert.equal(затык.taskId, "11111111-1111-4111-8111-111111111111", "затык должно быть куда открыть");
+    assert.equal(затык.skill, "parts-audit");
+    assert.equal(затык.since, undefined, "момент выключения карточки неизвестен — датировать нечем");
+
+    // Затык без записанной причины — сказано и это, а не пустой хвост.
+    const безПричины = computeAgentState(
+      input({ passportStatus: "deprecated", claimedTasks: [task({ claimedAt: null, blockedAt, blockedReason: null })] }),
+    );
+    assert.match(безПричины.reason, /статус deprecated/);
+    assert.match(безПричины.reason, /причина не записана/);
+
+    // Задач нет, но последний прогон упал — тот же приём.
+    const упал = computeAgentState(
+      input({
+        passportStatus: "paused",
+        lastRun: { at: new Date(NOW.getTime() - 7_200_000), outcome: "failed", skipReason: null, reason: "провайдер вернул 500" },
+      }),
+    );
+    assert.equal(упал.state, "paused");
+    assert.match(упал.reason, /последний прогон упал: провайдер вернул 500/);
+
+    // Ничего не сломано — хвоста нет: строка, которая есть всегда, не значит ничего.
+    const чисто = computeAgentState(
+      input({
+        passportStatus: "paused",
+        lastRun: { at: new Date(NOW.getTime() - 7_200_000), outcome: "executed", skipReason: null, reason: "сделано" },
+      }),
+    );
+    assert.equal(чисто.reason, "агент выключен в карточке (статус paused)");
   });
 
   it("порядок правил закреплён целиком: оба тумблера и выключенная карточка не отменяют живой claim", () => {

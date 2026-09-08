@@ -70,7 +70,9 @@ describe("Сетка агентов: сводка", () => {
   it("затыки называет отдельно — их не прячут в «молчат»", () => {
     render(
       <AgentGrid
-        rows={[row({ name: "knowledge-curator", state: "blocked", reason: "Core остановил задачу" })]}
+        rows={[
+          row({ name: "knowledge-curator", state: "blocked", reason: "Core остановил задачу" }),
+        ]}
         paused={безПаузы}
         now={NOW}
       />,
@@ -95,7 +97,9 @@ describe("Сетка агентов: системная пауза", () => {
             "назначенные задачи на паузе (это настройка системы, а не агента); cron-прогоны этой паузой не остановлены",
         })),
     ];
-    const { container } = render(<AgentGrid rows={все} paused={{ schedules: false, tasks: true }} now={NOW} />);
+    const { container } = render(
+      <AgentGrid rows={все} paused={{ schedules: false, tasks: true }} now={NOW} />,
+    );
     const строка = container.querySelector(".notice");
     expect(строка).not.toBeNull();
     expect(строка).toHaveTextContent(/настройка системы/i);
@@ -122,6 +126,50 @@ describe("Сетка агентов: системная пауза", () => {
   });
 });
 
+describe("Сетка агентов: ожидающие поручения (ревью Ф-1)", () => {
+  it("под паузой задач плитка называет очередь, а строка парка — их общее число", () => {
+    // На проде так лежит «Навык parts-audit: запуск из deck» от 05.09. Без
+    // числа плитка говорила «молчит: последний прогон — выполнено», то есть
+    // «делать нечего», прямо под строкой «новые порученные задачи никто не
+    // возьмёт» — и читатель верит плитке.
+    const ждёт = row({
+      name: "vendhub-ops",
+      state: "idle",
+      reason: "последний прогон — выполнено",
+      since: "2026-09-06T07:00:00.000Z",
+      queuedAssigned: 2,
+    });
+    const свободен = row({ name: "globerent-scout", state: "idle", reason: "повода нет" });
+    const { container } = render(
+      <AgentGrid rows={[ждёт, свободен]} paused={{ schedules: false, tasks: true }} now={NOW} />,
+    );
+    const плитка = screen.getByText("vendhub-ops").closest(".agtile");
+    expect(плитка).toHaveTextContent(/в очереди 2 порученные задачи/);
+    // Та же цифра — в строке про тумблер: два экрана об одном факте.
+    expect(container.querySelector(".notice")).toHaveTextContent(
+      /Сейчас 2 задачи ждут снятия паузы/,
+    );
+    // У свободного агента числа нет: «в очереди 0» — не вопрос владельца.
+    expect(screen.getByText("globerent-scout").closest(".agtile")).not.toHaveTextContent(
+      /в очереди/,
+    );
+  });
+
+  it("очередь называется и БЕЗ паузы: задача ждёт опроса worker'а, это правда в обоих случаях", () => {
+    const { container } = render(
+      <AgentGrid
+        rows={[
+          row({ name: "vendhub-ops", state: "idle", reason: "повода нет", queuedAssigned: 1 }),
+        ]}
+        paused={безПаузы}
+        now={NOW}
+      />,
+    );
+    expect(container.querySelector(".agr")).toHaveTextContent(/в очереди 1 порученная задача/);
+    expect(container.querySelector(".notice")).toBeNull();
+  });
+});
+
 describe("Сетка агентов: поломка не прячется за системной паузой (ревью C-1b)", () => {
   it("skipped/llm_failed под AGENTS_TASKS_PAUSED=1 — «молчит» с полосой внимания, а не серая «на паузе»", () => {
     // Core больше не даёт `paused` по тумблеру: такой агент приходит `idle`
@@ -131,7 +179,12 @@ describe("Сетка агентов: поломка не прячется за �
       state: "idle",
       reason: "последний прогон пропущен — модель не ответила",
       since: "2026-09-06T07:00:00.000Z",
-      lastRun: { at: "2026-09-06T07:00:00.000Z", outcome: "skipped", skipReason: "llm_failed", reason: "модель не ответила" },
+      lastRun: {
+        at: "2026-09-06T07:00:00.000Z",
+        outcome: "skipped",
+        skipReason: "llm_failed",
+        reason: "модель не ответила",
+      },
     });
     render(<AgentGrid rows={[сломан]} paused={{ schedules: false, tasks: true }} now={NOW} />);
     const плитка = screen.getByText("solution-scout").closest(".agtile");
@@ -139,6 +192,46 @@ describe("Сетка агентов: поломка не прячется за �
     expect(плитка).toHaveAttribute("data-state", "idle");
     // Давность прогона осталась на плитке — под тумблером она раньше исчезала.
     expect(плитка?.querySelector(".agw")).not.toBeNull();
+  });
+});
+
+describe("Сетка агентов: полоса внимания и оборванный claim (ревью Ф-5)", () => {
+  it("оборванный claim с прошлым сломанным прогоном полосы НЕ получает: текст плитки про lease", () => {
+    // Причина такого `idle` говорит про истёкший lease и судьбу задачи, а
+    // `lastRun` описывает ПРОШЛЫЙ заход — полоса внимания вставала над
+    // текстом, который её не объясняет. Различаем по данным: у оборванного
+    // claim есть `taskId`, у молчания из журнала — нет.
+    const оборван = row({
+      name: "vendhub-ops",
+      state: "idle",
+      reason:
+        "прошлый прогон не завершился, lease истёк (навык «parts-audit») — задачу можно взять заново",
+      taskId: "11111111-1111-4111-8111-111111111111",
+      since: "2026-09-06T08:40:00.000Z",
+      lastRun: {
+        at: "2026-09-06T07:00:00.000Z",
+        outcome: "skipped",
+        skipReason: "llm_failed",
+        reason: "модель не ответила",
+      },
+    });
+    const { container } = render(<AgentGrid rows={[оборван]} paused={безПаузы} now={NOW} />);
+    expect(container.querySelector(".agtile")).not.toHaveAttribute("data-attention");
+
+    // А без задачи (молчание из журнала) полоса на месте — правило не сломано.
+    const молчит = row({
+      name: "vendhub-ops",
+      state: "idle",
+      reason: "последний прогон пропущен — модель не ответила",
+      lastRun: {
+        at: "2026-09-06T07:00:00.000Z",
+        outcome: "skipped",
+        skipReason: "llm_failed",
+        reason: "модель не ответила",
+      },
+    });
+    const второй = render(<AgentGrid rows={[молчит]} paused={безПаузы} now={NOW} />);
+    expect(второй.container.querySelector(".agtile")).toHaveAttribute("data-attention", "true");
   });
 });
 
@@ -162,7 +255,13 @@ describe("Сетка агентов: рантайм ещё не подхвати
         now={NOW}
       />,
     );
-    expect(container.querySelector(".notice")).toHaveTextContent(/снимок расписаний не прочитался/);
+    const строка = container.querySelector(".notice");
+    expect(строка).toHaveTextContent(/снимок расписаний не прочитался/);
+    // Тумблеры названы по именам, а не «выше» (ревью Ф-5): при обоих
+    // выключенных строк выше нет вовсе.
+    expect(строка).toHaveTextContent(/AGENTS_TASKS_PAUSED/);
+    expect(строка).toHaveTextContent(/AGENTS_SCHEDULES_PAUSED/);
+    expect(строка).not.toHaveTextContent(/тумблеры выше/);
   });
 
   it("владелец снял паузу задач, рантайм ещё на ней — строка называет расхождение и давность снимка", () => {
@@ -183,10 +282,17 @@ describe("Сетка агентов: рантайм ещё не подхвати
   });
 
   it("конфиг и снимок сходятся — строки нет; снимка нет — тоже нет", () => {
-    const { container } = render(<AgentGrid rows={обычныйДень} paused={безПаузы} runtime={снимок()} now={NOW} />);
+    const { container } = render(
+      <AgentGrid rows={обычныйДень} paused={безПаузы} runtime={снимок()} now={NOW} />,
+    );
     expect(container.querySelector(".notice")).toBeNull();
     const без = render(
-      <AgentGrid rows={обычныйДень} paused={безПаузы} runtime={снимок({ paused: null, reportedAt: null, ageSec: null })} now={NOW} />,
+      <AgentGrid
+        rows={обычныйДень}
+        paused={безПаузы}
+        runtime={снимок({ paused: null, reportedAt: null, ageSec: null })}
+        now={NOW}
+      />,
     );
     expect(без.container.querySelector(".notice")).toBeNull();
   });
@@ -196,7 +302,12 @@ describe("Сетка агентов: рантайм ещё не подхвати
       <AgentGrid
         rows={обычныйДень}
         paused={{ schedules: false, tasks: true }}
-        runtime={снимок({ ageSec: 7200, stale: true, paused: { schedules: false, tasks: false }, lagging: true })}
+        runtime={снимок({
+          ageSec: 7200,
+          stale: true,
+          paused: { schedules: false, tasks: false },
+          lagging: true,
+        })}
         now={NOW}
       />,
     );
@@ -460,7 +571,10 @@ describe("Сетка агентов: давность состояния (кру
     // плитка печатала ровно тот же текст, что у отработавшего час назад.
     render(
       <AgentGrid
-        rows={[молчун("stale-agent", "2026-06-12T03:00:00.000Z"), молчун("fresh-agent", "2026-09-06T03:00:00.000Z")]}
+        rows={[
+          молчун("stale-agent", "2026-06-12T03:00:00.000Z"),
+          молчун("fresh-agent", "2026-09-06T03:00:00.000Z"),
+        ]}
         paused={безПаузы}
         now={NOW}
       />,
@@ -475,7 +589,12 @@ describe("Сетка агентов: давность состояния (кру
   it("без `since` давность не выдумывается", () => {
     render(
       <AgentGrid
-        rows={[row({ name: "new-agent", reason: "ещё не запускался: в журнале прогонов нет ни одной записи" })]}
+        rows={[
+          row({
+            name: "new-agent",
+            reason: "ещё не запускался: в журнале прогонов нет ни одной записи",
+          }),
+        ]}
         paused={безПаузы}
         now={NOW}
       />,

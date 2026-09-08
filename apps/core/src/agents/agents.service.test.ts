@@ -726,6 +726,7 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
           id: "11111111-1111-4111-8111-111111111111",
           ownerRef: "vendhub-ops",
           skill: "parts-audit",
+          status: "in_progress",
           claimedAt: new Date(now.getTime() - 60_000),
           blockedAt: null,
           blockedReason: null,
@@ -777,6 +778,7 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
           id: "t1",
           ownerRef: "vendhub-ops",
           skill: "parts-audit",
+          status: "in_progress",
           claimedAt: new Date(now.getTime() - 60_000),
           blockedAt: null,
           blockedReason: null,
@@ -795,6 +797,72 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
     assert.match(view.agents[1]?.reason ?? "", /ещё не запускался/);
   });
 
+  it("ПОРУЧЕННАЯ ЗАДАЧА В ОЧЕРЕДИ НАЗВАНА ЧИСЛОМ, а не спрятана в «молчит» (ревью Ф-1)", async () => {
+    // На проде так лежит «Навык parts-audit: запуск из deck» от 05.09: `todo`,
+    // без claim и затыка, под `AGENTS_TASKS_PAUSED=1`. Ни одно правило
+    // состояния её не видит — плитка говорила «молчит: последний прогон —
+    // выполнено», пока агент ждёт снятия паузы.
+    const now = new Date("2026-09-06T09:00:00.000Z");
+    const очередь = (paused: { tasks: boolean; schedules: boolean }) =>
+      new AgentsService(
+        statusDb({
+          agents: [card()],
+          tasks: [
+            {
+              id: "t1",
+              ownerRef: "vendhub-ops",
+              skill: "parts-audit",
+              source: "skills-deck",
+              status: "todo",
+              claimedAt: null,
+              blockedAt: null,
+              blockedReason: null,
+            },
+          ],
+          runs: [
+            {
+              agent_name: "vendhub-ops",
+              started_at: new Date(now.getTime() - 7_200_000),
+              outcome: "executed",
+              skip_reason: null,
+              reason: "сделано",
+            },
+          ],
+        }).db,
+        noTasks,
+        systemStub(paused),
+        noRuns,
+      ).statuses({ now });
+
+    // Под паузой и без неё — одно и то же число: задача ждёт в обоих случаях
+    // (без паузы — ближайшего опроса worker'а), и это правда обоих экранов.
+    for (const paused of [{ tasks: true, schedules: false }, { tasks: false, schedules: false }]) {
+      const view = await очередь(paused);
+      assert.equal(view.agents[0]?.queuedAssigned, 1, `tasks=${paused.tasks}: очередь обязана быть названа числом`);
+      // Состояние от ожидания не меняется: ждать — не работать.
+      assert.equal(view.agents[0]?.state, "idle");
+      assert.match(view.agents[0]?.reason ?? "", /последний прогон/);
+      assert.equal(view.agents[0]?.taskId, undefined, "ожидающая задача claim'а не имеет");
+    }
+  });
+
+  it("пустая очередь — ключа нет, а не «в очереди 0»; cron-задачи в очередь не попадают (Ф-1)", async () => {
+    const now = new Date("2026-09-06T09:00:00.000Z");
+    const { db } = statusDb({ agents: [card()] });
+    const пусто = await new AgentsService(db, noTasks, systemStub({ tasks: true, schedules: false }), noRuns).statuses({ now });
+    assert.equal(пусто.agents[0]?.queuedAssigned, undefined);
+
+    // Предикат очереди — общий с рантаймом (`isAssignedTaskSql`): cron-задачи
+    // из него исключены, и пауза задач их не касается. Проверяем ЗАХВАТОМ
+    // WHERE: заглушка SQL не исполняет, и потерянный предикат остался бы зелёным.
+    let условие: unknown;
+    const второй = statusDb({ agents: [card()], onTaskWhere: (c) => (условие = c) });
+    await new AgentsService(второй.db, noTasks, systemStub({ tasks: true, schedules: false }), noRuns).statuses({ now });
+    const sql = new PgDialect().sqlToQuery(условие as Parameters<PgDialect["sqlToQuery"]>[0]).sql;
+    assert.match(sql, /"task"\."status" = \$\d/, "статус `todo` уходит в SQL");
+    assert.match(sql, /"task"\."source" is null or "task"\."source" <> \$\d/, "cron-задачи исключены предикатом очереди");
+  });
+
   it("оборванная cron-задача при паузе расписаний: сказано, что её никто не подхватит (M-1)", async () => {
     // `source` доезжает из выборки до чистой функции как `scheduled`: без него
     // строка обещала бы «можно взять заново» задаче, чью очередь держит тумблер.
@@ -807,6 +875,7 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
           ownerRef: "vendhub-ops",
           skill: "parts-audit",
           source: "agent-schedule",
+          status: "in_progress",
           // Старше лизы `TasksService.AGENT_RUN_LEASE_MS` (15 минут): claim протух.
           claimedAt: new Date(now.getTime() - 16 * 60_000),
           blockedAt: null,
@@ -821,9 +890,9 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
 
   it("рантайм ещё не подхватил тумблер: конфиг и снимок расходятся — `runtime.lagging` (Д-3)", async () => {
     // Вход A: владелец только что снял паузу задач. Конфиг говорит «работают»,
-    // а снимок рантайма пятиминутной давности — «на паузе»: worker до 10 минут
-    // ничего не возьмёт, и без этого флага экран рисовал бы спокойное «молчит»
-    // над всё ещё выключенной системой.
+    // а снимок рантайма пятиминутной давности — «на паузе»: worker до перечитки
+    // настроек (`AGENTS_SNAPSHOT_INTERVAL_MS`) ничего не возьмёт, и без этого
+    // флага экран рисовал бы спокойное «молчит» над выключенной системой.
     const now = new Date("2026-09-06T09:00:00.000Z");
     const снимокОт = new Date(now.getTime() - 5 * 60_000);
     const { db } = statusDb({ agents: [card()] });
@@ -879,7 +948,8 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
   });
 
   it("снимок протух — `stale`: что рантайм применил сейчас, неизвестно; отказ чтения снимка сетку не роняет", async () => {
-    // Порог — тот же, что у доски рутин и здоровья приложений (900 с).
+    // Порог — общая константа доски и здоровья (`STALE_AFTER_SEC`); здесь
+    // снимок двухчасовой, то есть протух при любом разумном пороге (ревью Ф-5).
     const now = new Date("2026-09-06T09:00:00.000Z");
     const { db } = statusDb({ agents: [card()] });
     const view = await new AgentsService(
@@ -992,7 +1062,9 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
   it("задача без исполнителя не приписывается никому", async () => {
     const { db } = statusDb({
       agents: [card()],
-      tasks: [{ id: "t1", ownerRef: null, skill: "parts-audit", claimedAt: new Date(), blockedAt: null, blockedReason: null }],
+      tasks: [
+        { id: "t1", ownerRef: null, skill: "parts-audit", status: "in_progress", claimedAt: new Date(), blockedAt: null, blockedReason: null },
+      ],
     });
     const view = await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: false }), noRuns).statuses();
     assert.equal(view.agents[0]?.state, "idle");

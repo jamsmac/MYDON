@@ -121,6 +121,28 @@ describe("Список агентов: занятость из /agents/status, �
     expect(screen.getByText("на паузе")).toBeInTheDocument();
   });
 
+  it("ожидающие поручения — числом в строке и в сводке паузы (ревью Ф-1)", async () => {
+    agentsStatus.mockImplementation(async () =>
+      ответ({
+        paused: { schedules: false, tasks: true },
+        runtime: рантайм({ paused: { schedules: false, tasks: true } }),
+        agents: [
+          состояние({ state: "idle", reason: "последний прогон — выполнено", queuedAssigned: 3 }),
+          состояние({ name: "globerent-scout", state: "idle", reason: "повода нет" }),
+        ],
+      }),
+    );
+    const { container } = render(await AgentsPage());
+    // Текст разбит на узлы (число и слово — отдельные выражения JSX), поэтому
+    // проверяем содержимое строки, а не единый текстовый узел.
+    const строки = [...container.querySelectorAll(".agr")].map((n) => n.textContent ?? "");
+    expect(строки.some((t) => /в очереди 3 порученные задачи/.test(t))).toBe(true);
+    expect(строки.some((t) => /в очереди/.test(t) && /повода нет/.test(t))).toBe(false);
+    expect(container.querySelector(".notice")).toHaveTextContent(
+      /Сейчас 3 задачи ждут снятия паузы/,
+    );
+  });
+
   it("состояние — словами сетки с причиной, паспорт — «включён в карточке» без класса ok", async () => {
     const { container } = render(await AgentsPage());
     expect(screen.getByText("работает")).toBeInTheDocument();

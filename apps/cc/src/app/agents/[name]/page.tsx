@@ -54,7 +54,11 @@ async function прочитать<T>(fn: () => Promise<T>): Promise<Прочит
     // (`HTTP 401 на /events`), у прочего — сообщение ошибки без служебного
     // префикса `Error:`, который владельцу ничего не говорит.
     const detail =
-      err instanceof CoreUnavailable ? err.detail : err instanceof Error ? err.message : String(err);
+      err instanceof CoreUnavailable
+        ? err.detail
+        : err instanceof Error
+          ? err.message
+          : String(err);
     return { value: null, error: detail };
   }
 }
@@ -99,9 +103,7 @@ async function trailOf(name: string): Promise<AuditEntry[]> {
   const строки = new Map<string, AuditEntry>();
   for (const e of свои) if (егоЗапись(e, name)) строки.set(e.id, e);
   for (const e of запуски) if (e.target?.startsWith(`${name}/`)) строки.set(e.id, e);
-  return [...строки.values()]
-    .sort((a, b) => b.ts.localeCompare(a.ts))
-    .slice(0, TRAIL_ROWS);
+  return [...строки.values()].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, TRAIL_ROWS);
 }
 
 /** Параметры хука одной строкой: имя хука уже стоит заголовком. */
@@ -176,7 +178,11 @@ function runHooks(agent: AgentCard): HookRow[] {
   // документированной проверке выката всегда отвечала «не доехало».
   return [
     ...hookRows(agent.hooks?.preRun ?? agent.hooks?.pre_run, "до прогона", KNOWN_HOOKS.preRun),
-    ...hookRows(agent.hooks?.postRun ?? agent.hooks?.post_run, "после прогона", KNOWN_HOOKS.postRun),
+    ...hookRows(
+      agent.hooks?.postRun ?? agent.hooks?.post_run,
+      "после прогона",
+      KNOWN_HOOKS.postRun,
+    ),
   ];
 }
 
@@ -264,12 +270,14 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
     // из ответа выбрасывался, и cron-агент при `AGENTS_SCHEDULES_PAUSED=1`
     // говорил на своей карточке «молчит · последний прогон — выполнено», ни
     // словом не упоминая, что плановые прогоны выключены НАСТРОЙКОЙ СИСТЕМЫ.
-    прочитать<{ row: AgentStatusRow | null; paused: AgentsStatus["paused"]; runtime: AgentsStatus["runtime"] }>(
-      async () => {
-        const { agents, paused, runtime } = await core.agentsStatus();
-        return { row: agents.find((a) => a.name === name) ?? null, paused, runtime };
-      },
-    ),
+    прочитать<{
+      row: AgentStatusRow | null;
+      paused: AgentsStatus["paused"];
+      runtime: AgentsStatus["runtime"];
+    }>(async () => {
+      const { agents, paused, runtime } = await core.agentsStatus();
+      return { row: agents.find((a) => a.name === name) ?? null, paused, runtime };
+    }),
     прочитать<SkillDeck>(() => core.skillDeck(name)),
     прочитать<AgentRun[]>(async () => (await core.agentRuns(name)).runs),
     прочитать<AgentMemoryEvent[]>(() => core.agentMemory(name)),
@@ -284,8 +292,7 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
   // перепроверки прода (корень 1) НЕ подменяет состояние: занятый под ней
   // работает, заблокированный — в затыке. Поэтому она отдельной строкой,
   // как в сетке, иначе карточка работающего агента молчала бы о тумблере.
-  const расписанияНаПаузе =
-    статус.value?.paused.schedules === true && agent.schedule.length > 0;
+  const расписанияНаПаузе = статус.value?.paused.schedules === true && agent.schedule.length > 0;
   const задачиНаПаузе = статус.value?.paused.tasks === true;
   const hooks = runHooks(agent);
   const порог = autonomyMaxOf(конфиг);
@@ -319,7 +326,23 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
               <div className="agled">
                 <span className={STATE_LED[состояние.state]}>{STATE_WORD[состояние.state]}</span>
               </div>
-              <div className="agr">{состояние.reason}</div>
+              <div className="agr">
+                {состояние.reason}
+                {/* Ожидающие поручения (ревью Ф-1): под паузой задач они лежат
+                    до её снятия, и «молчит» без этого числа читается как
+                    «делать нечего». */}
+                {состояние.queuedAssigned !== undefined && состояние.queuedAssigned > 0 && (
+                  <>
+                    {" · "}в очереди {состояние.queuedAssigned}{" "}
+                    {plural(
+                      состояние.queuedAssigned,
+                      "порученная задача",
+                      "порученные задачи",
+                      "порученных задач",
+                    )}
+                  </>
+                )}
+              </div>
             </>
           ) : (
             <div className="agr">
@@ -358,10 +381,12 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
           в сетке (круг починок, C-4). Без неё cron-агент на своей карточке
           писал «молчит · последний прогон — выполнено» и молчал о том, что
           плановые прогоны выключены настройкой системы, а не им самим. */}
-      {задачиНаПаузе && <TasksPausedNotice />}
+      {задачиНаПаузе && <TasksPausedNotice queued={состояние?.queuedAssigned ?? 0} />}
       {расписанияНаПаузе && <SchedulesPausedNotice />}
       {/* Рантайм ещё не подхватил тумблер (Д-3): те же слова, что в сетке. */}
-      {статус.value !== null && <RuntimeLagNotice paused={статус.value.paused} runtime={статус.value.runtime} />}
+      {статус.value !== null && (
+        <RuntimeLagNotice paused={статус.value.paused} runtime={статус.value.runtime} />
+      )}
 
       <section aria-labelledby="agent-skills">
         <div className="section-title" id="agent-skills">
@@ -372,8 +397,8 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
         ) : навыки.value.items.length === 0 ? (
           <div className="empty">
             <b>Каталог навыков пуст</b>
-            Каталог пишут сами агенты при старте — либо этот ещё не отчитывался, либо навыков у
-            него нет.
+            Каталог пишут сами агенты при старте — либо этот ещё не отчитывался, либо навыков у него
+            нет.
           </div>
         ) : (
           <div className="rows">

@@ -9,6 +9,7 @@ import {
 import { CoreDown } from "../../components/core-down";
 import { NewAgentForm } from "../../components/agent-new";
 import {
+  очередьПорученных,
   RuntimeLagNotice,
   SchedulesPausedNotice,
   STATE_LED,
@@ -104,7 +105,7 @@ export default async function Agents() {
       ) : (
         status !== null && (
           <>
-            {status.paused.tasks && <TasksPausedNotice />}
+            {status.paused.tasks && <TasksPausedNotice queued={очередьПорученных(status.agents)} />}
             {status.paused.schedules && <SchedulesPausedNotice />}
             <RuntimeLagNotice paused={status.paused} runtime={status.runtime} />
           </>
@@ -176,6 +177,18 @@ function AgentRow({
         {state !== null && (
           <small className="agr">
             {state.reason}
+            {/* Ожидающие поручения — тем же числом, что на плитке (ревью Ф-1). */}
+            {state.queuedAssigned !== undefined && state.queuedAssigned > 0 && (
+              <>
+                {" · "}в очереди {state.queuedAssigned}{" "}
+                {plural(
+                  state.queuedAssigned,
+                  "порученная задача",
+                  "порученные задачи",
+                  "порученных задач",
+                )}
+              </>
+            )}
             {state.since !== undefined && ` · ${runWhen(state.since, now)}`}
           </small>
         )}

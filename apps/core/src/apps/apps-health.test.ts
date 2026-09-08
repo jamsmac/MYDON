@@ -23,6 +23,7 @@ import {
   type OurvendSyncInput,
   type OutboxRowInput,
 } from "./apps-health";
+import { STALE_AFTER_SEC } from "../routines/board";
 
 const NOW = new Date("2026-09-06T09:00:00.000Z");
 const ЧАС = 3_600_000;
@@ -670,7 +671,7 @@ describe("Здоровье приложений: ledger моделей", () => {
 
 describe("Здоровье приложений: слой агентов по возрасту снимка (перепроверка прода, корень 2)", () => {
   it("снимка нет — «не оценить», а не «сломано»: слой мог ни разу не запуститься", () => {
-    const row = rowFromAgentsLayer(FACES.agents, { freshness: null, staleAfterSec: 900 });
+    const row = rowFromAgentsLayer(FACES.agents, { freshness: null, staleAfterSec: STALE_AFTER_SEC });
     assert.equal(row.state, "unknown");
     assert.match(row.summary, /ещё не отчитывались/);
     assert.match(row.detail ?? "", /mydon-agents/);
@@ -681,11 +682,11 @@ describe("Здоровье приложений: слой агентов по в
     const reportedAt = new Date(NOW.getTime() - 2 * ЧАС);
     const row = rowFromAgentsLayer(FACES.agents, {
       freshness: { ageSec: 7200, stale: true, reportedAt },
-      staleAfterSec: 900,
+      staleAfterSec: STALE_AFTER_SEC,
     });
     assert.equal(row.state, "bad");
     assert.match(row.summary, /не отчитывался 120 мин/);
-    assert.match(row.detail ?? "", /порог молчания 15 мин/);
+    assert.match(row.detail ?? "", new RegExp(`порог молчания ${STALE_AFTER_SEC / 60} мин`));
     assert.equal(row.at, reportedAt.toISOString());
   });
 
@@ -693,7 +694,7 @@ describe("Здоровье приложений: слой агентов по в
     const reportedAt = new Date(NOW.getTime() - 5 * 60_000);
     const row = rowFromAgentsLayer(FACES.agents, {
       freshness: { ageSec: 300, stale: false, reportedAt },
-      staleAfterSec: 900,
+      staleAfterSec: STALE_AFTER_SEC,
     });
     assert.equal(row.state, "ok");
     assert.match(row.summary, /отчитывался 5 мин назад/);
