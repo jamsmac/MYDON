@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { attachment } from "@mydon/db";
+import type { Domain } from "@mydon/shared";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { DB, type Db } from "../db/db.module";
 import { StorageService } from "./storage.service";
@@ -26,6 +27,12 @@ export interface AttachmentMeta {
   bytes: number | null;
   url: string;
   createdAt: string;
+  /** Человеческое имя артефакта («Дебиторка GLOBERENT за август»). У полевых фото пусто. */
+  title: string | null;
+  /** Направление бизнеса (перечень `domainEnum`). Пусто — вложение вне направления. */
+  domain: string | null;
+  /** Метки: `["bot"]` у документов из Telegram; `[]` у полевого контура и старых строк. */
+  tags: string[];
 }
 
 /**
@@ -60,12 +67,21 @@ const IMAGE_EXT: Record<string, string> = {
 export const INLINE_IMAGE_MIMES: ReadonlySet<string> = new Set(Object.keys(IMAGE_EXT));
 
 /**
- * Что ещё принимаем к чеку и документу: только PDF. Бот и панель кладут в
- * вложения фотографии (`kind=photo`), чек с телефона — тоже фото; PDF нужен
- * счёту и акту, которые приходят файлом.
+ * Что ещё принимаем к чеку и документу: PDF и три формата Office.
+ *
+ * PDF нужен счёту и акту, которые приходят файлом. Office — это то, что
+ * производит `@mydon/documents` (xlsx | docx | pptx) и что бот с среза A3
+ * кладёт в архив ДО отправки в Telegram; без них письмо артефактов давало бы
+ * 400 на каждом отчёте. Отдаются они через `raw` всегда вложением
+ * (`Content-Disposition: attachment`, см. `isImageMime`), поэтому на origin
+ * панели не исполняются. `text/html` здесь НЕТ намеренно: заявленный верно
+ * HTML исполнился бы при прямом переходе, и `nosniff` этому не мешает.
  */
 const DOC_EXT: Record<string, string> = {
   "application/pdf": ".pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
 };
 
 /**
@@ -80,6 +96,18 @@ function allowedExt(kind: string, mimetype: string): string | undefined {
   return kind === "photo" ? IMAGE_EXT[mime] : (IMAGE_EXT[mime] ?? DOC_EXT[mime]);
 }
 
+/**
+ * Теги из jsonb — только строки.
+ *
+ * Колонка хранит произвольный JSON, и строка, записанная мимо `upload()`
+ * (ручной SQL, импорт), не должна ронять список вложений целиком: чужеродные
+ * элементы отбрасываем, а не бросаем. Одна дверь для всех читателей —
+ * `GET /artifacts` (срез A3) читает теги через неё же.
+ */
+export function tagsOf(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((t): t is string => typeof t === "string") : [];
+}
+
 @Injectable()
 export class AttachmentsService {
   constructor(
@@ -87,7 +115,14 @@ export class AttachmentsService {
     private readonly storage: StorageService,
   ) {}
 
-  /** Загрузить файл, привязать к записи. Тип файла проверяем по белому списку. */
+  /**
+   * Загрузить файл, привязать к записи. Тип файла проверяем по белому списку.
+   *
+   * `title`/`domain`/`tags` — срез A3: у документа, сделанного ботом, есть имя,
+   * направление и метки; у полевого фото их нет, и прежние вызывающие их не
+   * шлют — тогда в строку идут null / null / []. Договор длины и перечня
+   * стоит на DTO (`UploadDto`), здесь значения уже чистые.
+   */
   async upload(
     input: {
       ownerType: string;
@@ -95,6 +130,9 @@ export class AttachmentsService {
       kind?: string;
       createdBy?: string;
       stage?: AttachmentStage;
+      title?: string;
+      domain?: Domain;
+      tags?: string[];
     },
     file: UploadedFile | undefined,
   ): Promise<AttachmentMeta> {
@@ -122,6 +160,9 @@ export class AttachmentsService {
         bytes: file.size,
         createdBy: input.createdBy ?? "owner",
         stage: input.stage ?? null,
+        title: input.title ?? null,
+        domain: input.domain ?? null,
+        tags: input.tags ?? [],
       })
       .returning();
     return this.toMeta(row);
@@ -191,6 +232,9 @@ export class AttachmentsService {
       bytes: row.bytes,
       url: await this.storage.url(row.id, row.storageKey),
       createdAt: row.createdAt.toISOString(),
+      title: row.title,
+      domain: row.domain,
+      tags: tagsOf(row.tags),
     };
   }
 }

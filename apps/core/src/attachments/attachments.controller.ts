@@ -13,7 +13,19 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength } from "class-validator";
+import { domainEnum } from "@mydon/db";
+import type { Domain } from "@mydon/shared";
+import { Transform } from "class-transformer";
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from "class-validator";
 import { Public } from "../common/public.decorator";
 import {
   ATTACHMENT_STAGES,
@@ -33,6 +45,47 @@ import {
 export function isImageMime(mime: string | null): boolean {
   if (mime === null) return false;
   return INLINE_IMAGE_MIMES.has(mime.toLowerCase().split(";")[0].trim());
+}
+
+/**
+ * Предел названия артефакта. Одно число: зажим на входе и договор
+ * `@MaxLength` — как `STOCK_COUNTS_PRODUCT_MAX` у поиска остатков.
+ */
+export const ATTACHMENT_TITLE_MAX = 120;
+/** Сколько тегов принимаем на одно вложение. */
+export const ATTACHMENT_TAGS_MAX = 20;
+/** Длина одного тега. */
+export const ATTACHMENT_TAG_MAX = 64;
+
+/**
+ * Название артефакта: ЗАЖИМ, А НЕ ОТКАЗ.
+ *
+ * Бот берёт название из summary документа, а summary модель пишет длиной в
+ * абзац. Отвергать запрос за длину — терять файл, стоивший вызова модели с
+ * исполнением кода; полный текст и так остаётся в caption сообщения Telegram
+ * (спека A3 §6 п. 4). Режем по code point, а не `slice` по UTF-16: `slice`
+ * разрубил бы эмодзи пополам и оставил бы в БД битую суррогатную половину.
+ * Пустое после обрезки — как отсутствующее (в строку пойдёт null). Не строку
+ * возвращаем как есть — её отвергнет `@IsString`, а не проглотит зажим.
+ */
+export function clampAttachmentTitle(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const cut = Array.from(value.trim()).slice(0, ATTACHMENT_TITLE_MAX).join("").trimEnd();
+  return cut.length === 0 ? undefined : cut;
+}
+
+/**
+ * Теги из multipart — к массиву до валидации.
+ *
+ * Одно поле `tags` multer отдаёт строкой, повторённое — массивом; без
+ * приведения один тег и два тега проходили бы `@IsArray` по-разному. Пустые
+ * и пробельные теги выбрасываем. Не-массив и не-строку возвращаем как есть —
+ * их отвергнет `@IsArray`/`@IsString`, а не молчаливая нормализация.
+ */
+export function normalizeAttachmentTags(value: unknown): unknown {
+  const list = typeof value === "string" ? [value] : value;
+  if (!Array.isArray(list)) return list;
+  return list.map((t) => (typeof t === "string" ? t.trim() : t)).filter((t) => t !== "");
 }
 
 /** Куда привязать файл и что это. */
@@ -59,6 +112,40 @@ export class UploadDto {
   /** В какой момент снято. Незнакомое значение отвергаем здесь, а не в БД. */
   @IsOptional() @IsIn([...ATTACHMENT_STAGES])
   stage?: AttachmentStage;
+
+  /**
+   * Человеческое имя артефакта (срез A3). Зажимается `clampAttachmentTitle`;
+   * `@MaxLength` после зажима сработать не может, но фиксирует границу
+   * договором для любого другого клиента.
+   */
+  @IsOptional()
+  @Transform(({ value }) => clampAttachmentTitle(value))
+  @IsString()
+  @MaxLength(ATTACHMENT_TITLE_MAX)
+  title?: string;
+
+  /**
+   * Направление бизнеса — тот же перечень, что у `money_flow.domain`.
+   * Сверяем со значениями `domainEnum`, а не со свободной строкой: колонка —
+   * pg-enum, и чужое значение упало бы уже в БД как 500, а не 400. Пустая
+   * строка из формы — это «не указано», а не ошибка.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === "" ? undefined : value))
+  @IsIn([...domainEnum.enumValues])
+  domain?: Domain;
+
+  /**
+   * Метки («bot», «report», …). В multipart — повторённое поле `tags`;
+   * `normalizeAttachmentTags` приводит строку к массиву до `@IsArray`.
+   */
+  @IsOptional()
+  @Transform(({ value }) => normalizeAttachmentTags(value))
+  @IsArray()
+  @ArrayMaxSize(ATTACHMENT_TAGS_MAX)
+  @IsString({ each: true })
+  @MaxLength(ATTACHMENT_TAG_MAX, { each: true })
+  tags?: string[];
 }
 
 /** Вложения: фото номенклатуры, чеки. Файл — в хранилище, метаданные — в БД. */
