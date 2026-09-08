@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentCard, AgentsStatus, AgentStatusRow } from "../../lib/core";
+import { весаЛамп, правилаВеса, стилиПанели } from "../../test/css";
 
 // `page.tsx` тянет клиент Core, а тот первой строкой импортирует пакет
 // `server-only`, которого вне RSC не существует.
@@ -263,5 +264,64 @@ describe("Список агентов: занятость из /agents/status, �
     });
     render(await AgentsPage());
     expect(screen.getByText(/Core недоступен|ECONNREFUSED/)).toBeInTheDocument();
+  });
+});
+
+/*
+ * ТРЕТЬЯ ПОВЕРХНОСТЬ ЗАНЯТОСТИ — ПОД СТОРОЖЕМ ВЕСА (ревью слияния, I-1).
+ *
+ * Дефект родился ИМЕННО СЛИЯНИЕМ: у среза A2 правила веса не было вовсе, а у
+ * Д1 в этом списке стоял паспорт (`CARD_WORD`), не занятость. Комбинация
+ * «занятость на `/agents`» + «вес через `.agled`» появилась только вместе — и
+ * ни один сторож её не видел: позитивный ассерт стоял один и только по сетке
+ * (`components/agent-grid.test.tsx`), а `test/state-weight.test.tsx` негативный,
+ * и эта страница проходила его ТРИВИАЛЬНО. Итог: «затык» отличался здесь одним
+ * цветом `--err` — тем самым отличием, которого нет на монохромном экране и
+ * при дальтонизме, то есть ровно тем, из-за чего Р-Д1-4 и появилось.
+ *
+ * Ассерт ПОЗИТИВНЫЙ и по РАЗМЕТКЕ, а не по наличию правила в CSS: правило
+ * `.agled .led.blocked` в файле есть и без обёртки — проверять надо, что
+ * селектор ДОСТАЁТ до слова.
+ */
+describe("Вес «затыка» в списке агентов: третья поверхность оси (I-1)", () => {
+  it("«затык» попадает хотя бы в одно правило веса ламп", async () => {
+    agentsStatus.mockImplementation(async () => ({
+      ...ответ(),
+      agents: [состояние({ state: "blocked", reason: "затык на задаче: нет доступа к OurVend" })],
+    }));
+    render(await AgentsPage());
+    const затык = screen.getByText("затык");
+    expect(
+      весаЛамп(стилиПанели)
+        .map((r) => r.селектор)
+        .filter((sel) => затык.matches(sel)),
+      "ни одно правило веса не достаёт до «затыка» в списке — потерян контейнер `.agled`",
+    ).not.toHaveLength(0);
+  });
+
+  it("остальные три состояния в списке весом НЕ отличаются", async () => {
+    // Обратная сторона того же правила: контейнер общий, а вес — только у
+    // поломки. `closest`, а не `matches`: `font-weight` наследуется от предка.
+    agentsStatus.mockImplementation(async () => ({
+      ...ответ(),
+      agents: [
+        состояние({ name: "vendhub-ops", state: "working" }),
+        состояние({ name: "globerent-scout", state: "idle", reason: "последний прогон — выполнено" }),
+      ],
+    }));
+    agents.mockImplementation(async () => [
+      card(),
+      card({ id: "a2", name: "globerent-scout", business: "globerent" }),
+    ]);
+    render(await AgentsPage());
+    for (const слово of ["работает", "молчит"]) {
+      const элемент = screen.getByText(слово);
+      for (const { селектор, запись } of правилаВеса(стилиПанели)) {
+        expect(
+          элемент.closest(селектор),
+          `правило «${селектор}» (${запись}) утяжеляет «${слово}» — это не поломка`,
+        ).toBeNull();
+      }
+    }
   });
 });
