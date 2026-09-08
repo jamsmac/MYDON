@@ -169,6 +169,13 @@ services:
       SERVICE_TOKEN: ${SERVICE_TOKEN:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      # Ссылка «файл в архиве» (срез A3) — НУЖНА и здесь, а не только в
+      # production: после флипа бот продолжает писать «файл в архиве, вот
+      # ссылка», и без переменной ссылка сломалась бы ровно в тот момент,
+      # когда владелец разбирается с аварией. В `allowedProdOnly` сторожа
+      # паритета переменную НЕ вносить: это не осознанное расхождение, а
+      # пользовательская ссылка, а standby существует ради пользователей.
+      CC_PUBLIC_URL: ${CC_PUBLIC_URL:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MYDON_ASSISTANT_MODEL: ${MYDON_ASSISTANT_MODEL:-}
