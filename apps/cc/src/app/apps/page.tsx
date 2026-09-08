@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { ConsoleTheme } from "../../components/console-theme";
 import { CoreDown } from "../../components/core-down";
 import {
   core,
@@ -33,8 +32,8 @@ export const dynamic = "force-dynamic";
  * состояния СВОЙ вопрос о времени, и одна колонка на все три врала бы дважды —
  * разбор в `времяСостояния`.
  *
- * Тёмная тема: это системный экран агентского слоя (§4 правил дизайна), как
- * `/crons`, `/flows` и `/skills`, а не бизнес-экран.
+ * Тёмная тема — не отсюда: `/apps` числится в `CONSOLE_ROUTES` (`lib/theme.ts`),
+ * атрибут ставят прокси (`proxy.ts`, первый кадр) и `ThemeSync` (SPA-переход).
  */
 
 /**
@@ -96,7 +95,6 @@ export default async function AppsPage() {
 
   return (
     <>
-      <ConsoleTheme />
       <div className="page-head">
         <h1>Приложения</h1>
         <p className="lead">

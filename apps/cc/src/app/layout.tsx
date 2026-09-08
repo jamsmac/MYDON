@@ -1,12 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import localFont from "next/font/local";
+import { cookies, headers } from "next/headers";
 import { core } from "../lib/core";
+import { CONSOLE_HEADER, THEME_BG, THEME_COOKIE, THEME_HEADER, isThemeChoice, type ThemeChoice } from "../lib/theme";
 import { Sidebar, TabBar } from "../components/nav";
 import { FloatingChat } from "../components/floating-chat";
 import { CommandPalette } from "../components/command-palette";
 import { HeaderActions } from "../components/header-actions";
 import { Background } from "../components/bg/background";
+import { ThemeSync } from "../components/theme-sync";
 import "./globals.css";
 
 // Шрифты фирменные (ТЗ) — ЛОКАЛЬНЫЕ ФАЙЛЫ, а не `next/font/google`.
@@ -64,16 +67,45 @@ export const metadata: Metadata = {
   description: "Единый контур управления направлениями",
 };
 
-export const viewport: Viewport = {
-  // Цвет строки браузера следует теме, а не зашит тёмным: раньше на светлой
-  // панели телефон продолжал рисовать тёмно-синюю шапку.
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f4f4ee" },
-    { media: "(prefers-color-scheme: dark)", color: "#111712" },
-  ],
-  width: "device-width",
-  initialScale: 1,
-};
+/**
+ * Тема и область запроса — из заголовков, которые проставил `src/proxy.ts`
+ * (правило — `lib/theme.ts`, одно на сервер и клиент).
+ *
+ * Заголовка нет (прокси не отработал, адрес вне его matcher) — «системная» и
+ * «не консоль»: разметка без атрибутов, как до среза. Первый кадр тогда
+ * системный, а клиентский `ThemeSync` поправит его после гидрации — хуже, чем
+ * штамп, но не ошибка.
+ */
+async function requestTheme(): Promise<{ theme: ThemeChoice | null; isConsole: boolean }> {
+  const h = await headers();
+  const theme = h.get(THEME_HEADER);
+  return {
+    theme: isThemeChoice(theme) ? theme : null,
+    isConsole: h.get(CONSOLE_HEADER) === "1",
+  };
+}
+
+/**
+ * Цвет строки браузера — по ФАКТИЧЕСКОЙ теме, а не только по системной
+ * (Р-Д2-5): при штампе `dark` на системно-светлом телефоне статический
+ * `viewport` рисовал светлую шапку над тёмной консолью. Функция вместо
+ * объекта: статический `viewport` и `generateViewport` в одном сегменте вместе
+ * не экспортируются. Без штампа — прежняя пара по медиавыражению.
+ */
+export async function generateViewport(): Promise<Viewport> {
+  const { theme } = await requestTheme();
+  return {
+    themeColor:
+      theme === null
+        ? [
+            { media: "(prefers-color-scheme: light)", color: THEME_BG.light },
+            { media: "(prefers-color-scheme: dark)", color: THEME_BG.dark },
+          ]
+        : THEME_BG[theme],
+    width: "device-width",
+    initialScale: 1,
+  };
+}
 
 /** Счётчик в меню не должен ронять всю панель, если Core прилёг. */
 async function pendingCount(): Promise<number> {
@@ -101,14 +133,42 @@ async function queueCount(): Promise<number> {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   // «Входящие» = решения агентов + карточки реестра на утверждение. Один счётчик
   // на объединённый вход.
-  const [pending, queue] = await Promise.all([pendingCount(), queueCount()]);
+  const [pending, queue, { theme, isConsole }] = await Promise.all([
+    pendingCount(),
+    queueCount(),
+    requestTheme(),
+  ]);
   const inbox = pending + queue;
 
+  // Выбор темы для переключателя — из КУКИ, не из заголовка `x-mydon-theme`:
+  // заголовок несёт фактическую тему (на /apps без куки это «dark»), а
+  // переключатель показывает ВЫБОР — «как в системе» там законно. Кука —
+  // единственный носитель выбора; чужое значение считаем отсутствием выбора,
+  // ровно как `themeFor` в прокси (`src/proxy.ts`) — той же дверью
+  // `isThemeChoice`, а не копией предиката: две копии «что считается темой»
+  // разъехались бы на первом же новом значении.
+  const rawTheme = (await cookies()).get(THEME_COOKIE)?.value;
+  const themeChoice: ThemeChoice | "system" = isThemeChoice(rawTheme) ? rawTheme : "system";
+
+  // Тема — АТРИБУТОМ В РАЗМЕТКЕ, до любого скрипта (Р-Д2-1): прежний ручной
+  // штамп темы ставил её из `useEffect` на каждой странице, и первый кадр
+  // консоли был светлым.
+  // `undefined` — атрибута нет вовсе, работает `prefers-color-scheme`.
+  // `suppressHydrationWarning`: клиентский `ThemeSync` вправе поменять атрибут
+  // раньше, чем React сверит разметку, — это ожидаемое расхождение, не дефект.
+  // `data-console` на `.app` — область, а не тема: точечная сетка холста
+  // командного центра включается по нему и только в тёмной теме.
   return (
-    <html lang="ru" className={`${golosDisplay.variable} ${golosBody.variable} ${mono.variable}`}>
+    <html
+      lang="ru"
+      className={`${golosDisplay.variable} ${golosBody.variable} ${mono.variable}`}
+      data-theme={theme ?? undefined}
+      suppressHydrationWarning
+    >
       <body>
         <Background />
-        <div className="app">
+        <ThemeSync />
+        <div className="app" data-console={isConsole ? "true" : undefined}>
           <header className="hdr">
             <svg className="logo" viewBox="0 0 24 24" aria-hidden>
               <path d="M4 20 12 4l8 16-8-5z" fill="#1A6BFF" />
@@ -116,7 +176,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <h1>MYDON</h1>
             <span className="sub">· командный центр</span>
             <span className="sp" />
-            <HeaderActions pendingCount={inbox} />
+            <HeaderActions pendingCount={inbox} themeChoice={themeChoice} />
           </header>
 
           <div className="body">

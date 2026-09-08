@@ -1,5 +1,4 @@
 import { BrainGraph } from "../../components/brain-graph";
-import { ConsoleTheme } from "../../components/console-theme";
 import { CoreDown } from "../../components/core-down";
 import { core, CoreUnavailable, type DocsGraph } from "../../lib/core";
 import { plural, when } from "../../lib/format";
@@ -13,8 +12,8 @@ export const dynamic = "force-dynamic";
  * агентов: что с чем связано — какой роутер держит направление, чей это навык
  * и каким инструментом он лезет наружу.
  *
- * Тёмная тема: «Мозг» — агентский слой (§4 правил дизайна), как `/skills` и
- * `/agents`, а не бизнес-экран.
+ * Тёмная тема — не отсюда: `/brain` числится в `CONSOLE_ROUTES` (`lib/theme.ts`),
+ * атрибут ставят прокси (`proxy.ts`, первый кадр) и `ThemeSync` (SPA-переход).
  */
 export default async function BrainPage({
   searchParams,
@@ -36,7 +35,6 @@ export default async function BrainPage({
 
   return (
     <>
-      <ConsoleTheme />
       <div className="page-head">
         <h1>Мозг</h1>
         <p className="lead">
