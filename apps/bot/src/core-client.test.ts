@@ -396,3 +396,73 @@ describe("Формы аналитики приходят из @mydon/shared", ()
     assert.equal(обратно, общая);
   });
 });
+
+// ── Срез A3, задача 3: контракт uploadDocument для задачи 4 ─────────────────
+
+describe("uploadDocument: документ бота (title/domain/tags) — multipart, как uploadPhoto", () => {
+  it("шлёт kind=doc и все три поля артефакта одной multipart-формой", async () => {
+    const { calls } = стубFetchТело(201, { id: "att1", url: "/attachments/att1/raw" });
+    const client = new CoreClient("http://core", 10_000, "tok");
+    const res = await client.uploadDocument({
+      ownerType: "person",
+      ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+      bytes: Buffer.from("pdf-bytes"),
+      mime: "application/pdf",
+      filename: "report.pdf",
+      createdBy: "bot:tg:1",
+      // Полный текст summary — обрезку до 120 символов делает Core на входе
+      // (§6.4 спеки), вызывающему клипать заранее не нужно.
+      title: "Дебиторка GLOBERENT за август",
+      domain: "globerent",
+      tags: ["bot"],
+    });
+    assert.deepEqual(res, { id: "att1", url: "/attachments/att1/raw" });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://core/attachments");
+    const form = calls[0].init?.body as FormData;
+    assert.equal(form.get("ownerType"), "person");
+    assert.equal(form.get("ownerId"), "3f2504e0-4f89-11d3-9a0c-0305e82c3301");
+    assert.equal(form.get("kind"), "doc");
+    assert.equal(form.get("createdBy"), "bot:tg:1");
+    assert.equal(form.get("title"), "Дебиторка GLOBERENT за август");
+    assert.equal(form.get("domain"), "globerent");
+    assert.deepEqual(form.getAll("tags"), ["bot"]);
+    const file = form.get("file") as File;
+    assert.equal(file.name, "report.pdf");
+    assert.equal(file.type, "application/pdf");
+  });
+
+  it("без title/domain/tags поля не отправляются вовсе — старый вызывающий не появился бы", async () => {
+    const { calls } = стубFetchТело(201, { id: "att2", url: "/attachments/att2/raw" });
+    const client = new CoreClient("http://core", 10_000, "tok");
+    await client.uploadDocument({
+      ownerType: "task",
+      ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+      bytes: Buffer.from("x"),
+      mime: "application/pdf",
+      filename: "f.pdf",
+      createdBy: "bot:tg:1",
+    });
+    const form = calls[0].init?.body as FormData;
+    assert.equal(form.has("title"), false, "пустой title не должен уйти пустой строкой");
+    assert.equal(form.has("domain"), false);
+    assert.equal(form.has("tags"), false);
+  });
+
+  it("Core ответил не ok → бросает ошибку с кодом ответа, как uploadPhoto", async () => {
+    стубFetchТело(500, { message: "boom" });
+    const client = new CoreClient("http://core", 10_000, "tok");
+    await assert.rejects(
+      () =>
+        client.uploadDocument({
+          ownerType: "person",
+          ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+          bytes: Buffer.from("x"),
+          mime: "application/pdf",
+          filename: "f.pdf",
+          createdBy: "bot:tg:1",
+        }),
+      /Core ответил 500/,
+    );
+  });
+});

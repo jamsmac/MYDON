@@ -153,10 +153,11 @@ export interface MaintenanceDueRow {
 }
 
 /**
- * Таймаут загрузки фото. Отдельный от общего: 10 секунд достаточно для JSON,
- * но не для мегабайтного снимка с точки на 3G.
+ * Таймаут загрузки файла (фото, документ бота). Отдельный от общего:
+ * 10 секунд достаточно для JSON, но не для мегабайтного файла с точки на 3G
+ * или сгенерированного отчёта.
  */
-const PHOTO_TIMEOUT_MS = 60_000;
+const UPLOAD_TIMEOUT_MS = 60_000;
 
 /**
  * Расхождение при пересчёте склада (§5.4): было → стало. delta<0 — недостача
@@ -1597,7 +1598,51 @@ export class CoreClient {
       // Свой таймаут, а не общий: 10 секунд хватает JSON-запросу, но не
       // мегабайтной фотографии с точки на 3G. По общему таймауту загрузка
       // срывалась бы ровно там, где она особенно нужна.
-      signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS),
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      headers: this.serviceToken ? { "x-service-token": this.serviceToken } : {},
+      body: form,
+    });
+    if (!res.ok) throw new Error(`Core ответил ${res.status} на /attachments`);
+    return (await res.json()) as { id: string; url: string };
+  }
+
+  /**
+   * Загрузить документ, сгенерированный ботом (`@mydon/documents`: xlsx |
+   * docx | pptx | pdf), и заодно завести артефакт — срез A3.
+   *
+   * Контракт для вызывающего: `title` передаётся ПОЛНЫМ текстом (например,
+   * `GeneratedDocument.summary`) — обрезку до 120 символов делает Core на
+   * входе (ловушка спеки §6.4), вызывающему клипать заранее не нужно; полный
+   * текст для подписи Telegram-сообщения остаётся у вызывающего как есть.
+   * `title`/`domain`/`tags` необязательны и, если не заданы, в форму вообще
+   * не попадают — Core тогда пишет null/null/[] ровно как для полевых фото.
+   *
+   * multipart, поэтому свой fetch с тем же service-token — как у `uploadPhoto`.
+   */
+  async uploadDocument(input: {
+    ownerType: string;
+    ownerId: string;
+    bytes: Buffer;
+    mime: string;
+    filename: string;
+    createdBy: string;
+    title?: string;
+    domain?: Domain;
+    tags?: string[];
+  }): Promise<{ id: string; url: string }> {
+    const form = new FormData();
+    form.append("ownerType", input.ownerType);
+    form.append("ownerId", input.ownerId);
+    form.append("kind", "doc");
+    form.append("createdBy", input.createdBy);
+    if (input.title) form.append("title", input.title);
+    if (input.domain) form.append("domain", input.domain);
+    for (const tag of input.tags ?? []) form.append("tags", tag);
+    const blob = new Blob([new Uint8Array(input.bytes)], { type: input.mime });
+    form.append("file", blob, input.filename);
+    const res = await fetch(`${this.baseUrl}/attachments`, {
+      method: "POST",
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       headers: this.serviceToken ? { "x-service-token": this.serviceToken } : {},
       body: form,
     });
