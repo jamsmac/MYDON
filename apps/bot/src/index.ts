@@ -26,6 +26,7 @@ import { deliverWeeklyDigest } from "./weekly-delivery";
 import { buildDigest, digestKey } from "./staff-digest";
 import { CoreClient, type PersonRow } from "./core-client";
 import { handleMessage, parseApprovalCallback, type HandlerDeps } from "./handler";
+import { доставитьДокумент } from "./document-archive";
 import { Notifier } from "./notifier";
 import { parseAllowlist, RateLimiter, isAllowed } from "./security/access";
 import { Conversations } from "./conversation";
@@ -77,6 +78,10 @@ async function main(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN ?? "";
   const allowlist = parseAllowlist(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
   const coreUrl = process.env.CORE_API_URL ?? "http://127.0.0.1:3001";
+  // Публичный адрес панели — для строки «файл в архиве: <ссылка>» (срез A3).
+  // Пусто → ссылка будет путём `/artifacts?…`: место названо, хоть и не
+  // кликается. Хвостовой «/» срезаем, чтобы не клеить `//artifacts`.
+  const panelUrl = (process.env.CC_PUBLIC_URL ?? "").trim().replace(/\/+$/, "");
   const serviceToken = process.env.SERVICE_TOKEN ?? "";
   // «Второй пояс» владельца (R-P5-2). Пусто (по умолчанию) → бот шлёт только
   // service-token, поведение РОВНО как сегодня (merge-safe). Задан → бот
@@ -1017,16 +1022,22 @@ async function main(): Promise<void> {
           }
           // Файл идёт отдельным сообщением: у документа своя доставка,
           // и она не должна мешать тексту, если сорвётся.
+          //
+          // СНАЧАЛА архив, ПОТОМ Telegram (срез A3): документ стоил вызова
+          // модели с исполнением кода, а до этого жил секунды. Порядок и
+          // тексты — в document-archive.ts, здесь только провода.
           if (reply.document) {
-            try {
-              await tg.sendDocument(chatId, reply.document.filename, reply.document.content);
-            } catch (err) {
-              console.error("Файл не отправлен:", err);
-              await tg.sendMessage(
-                chatId,
-                "Файл получился, но отправить не вышло. Повтори запрос.",
-              );
-            }
+            await доставитьДокумент(
+              {
+                resolveOwner: () => personOf(chatId),
+                save: (input) => deps.core.uploadDocument(input),
+                sendDocument: (filename, content) => tg.sendDocument(chatId, filename, content),
+                sendMessage: (text) => tg.sendMessage(chatId, text),
+                panelUrl,
+                log: (message, error) => console.error(`${message}:`, error),
+              },
+              reply.document,
+            );
           }
         }
       } else {

@@ -208,6 +208,8 @@ services:
       SERVICE_TOKEN: ${SERVICE_TOKEN:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      # Ссылка «файл в архиве» (срез A3). Пусто → путь без хоста.
+      CC_PUBLIC_URL: ${CC_PUBLIC_URL:-}
       # LLM-слой помощника (FR-4): подписка Claude и/или API-ключ.
       # Пусто и то и другое → бот работает по правилам.
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
