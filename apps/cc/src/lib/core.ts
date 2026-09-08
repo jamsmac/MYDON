@@ -1355,6 +1355,8 @@ export interface AgentsRuntime {
   stale: boolean;
   paused: { schedules: boolean; tasks: boolean } | null;
   lagging: boolean;
+  /** Снимок не ПРОЧИТАЛСЯ (отказ базы), а не «рантайм не отчитывался»: сверять нечем (ревью M-2). */
+  readFailed: boolean;
 }
 
 export interface AgentsStatus {

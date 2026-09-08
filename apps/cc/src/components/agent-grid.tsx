@@ -262,6 +262,16 @@ export function RuntimeLagNotice({
   paused: { schedules: boolean; tasks: boolean };
   runtime: AgentsRuntime;
 }) {
+  // Отказ ЧТЕНИЯ снимка — не «рантайм не отчитывался» (ревью M-2): молчать
+  // здесь значило бы выдать неизвестное за «сходится». Причина — в журнале Core.
+  if (runtime.readFailed) {
+    return (
+      <div className="notice">
+        <b>Сверка с рантаймом недоступна: снимок расписаний не прочитался</b>
+        Применил ли слой агентов тумблеры выше — неизвестно; причина отказа записана в журнал Core.
+      </div>
+    );
+  }
   if (!runtime.lagging || runtime.paused === null) return null;
   const слово = (on: boolean): string => (on ? "на паузе" : "работают");
   const применено = runtime.paused;

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
 import { Cron } from "croner";
-import { TZ } from "@mydon/shared";
+import { AGENTS_SNAPSHOT_INTERVAL_MS, TZ } from "@mydon/shared";
 import { coachPosture } from "./coach";
 import { runCoffeeMonitor } from "./coffee-monitor";
 import { runMaintenanceMonitor } from "./maintenance-monitor";
@@ -705,15 +705,17 @@ async function main(): Promise<void> {
       }
       if (changed || schedulesPauseFlipped || llmCronFlipped) reconcileSchedules();
       // Ничего не поменялось — расписания перестраивать незачем, но снимок
-      // обязан уйти всё равно: доска считает его протухшим через 15 минут
-      // (STALE_AFTER_SEC = 900), и в устойчивом состоянии (ни правок карточек,
-      // ни смены тумблеров) панель вечно показывала бы «агенты не отчитывались
-      // N мин». Тик раз в 10 минут — это и есть heartbeat, он укладывается в
-      // окно. Записывать нечего только выше, при `loaded === null`: Core
-      // недоступен, и там снимок ОБЯЗАН стареть — это и есть сигнал «связи нет».
+      // обязан уйти всё равно: Core считает его протухшим через
+      // `AGENTS_SNAPSHOT_MISS_LIMIT` периодов (`STALE_AFTER_SEC` в доске рутин и
+      // здоровье приложений), и в устойчивом состоянии (ни правок карточек, ни
+      // смены тумблеров) панель вечно показывала бы «агенты не отчитывались
+      // N мин». Тик раз в `AGENTS_SNAPSHOT_INTERVAL_MS` — это и есть heartbeat,
+      // период — общая константа с Core (`@mydon/shared`), а не своё число.
+      // Записывать нечего только выше, при `loaded === null`: Core недоступен,
+      // и там снимок ОБЯЗАН стареть — это и есть сигнал «связи нет».
       else queueScheduleSnapshot();
     })();
-  }, 10 * 60_000).unref();
+  }, AGENTS_SNAPSHOT_INTERVAL_MS).unref();
 
   reconcileSchedules();
 

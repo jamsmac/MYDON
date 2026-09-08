@@ -764,11 +764,11 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
     assert.equal(scout?.lastRun, undefined, "прогонов не было — ключа нет, а не пустышка");
   });
 
-  it("системная пауза задач не гасит живой claim: занятый работает, свободный — на паузе (перепроверка прода, корень 1)", async () => {
+  it("системная пауза задач не трогает состояния: занятый работает, свободный молчит, тумблер — в шапке (корень 1, ревью C-1)", async () => {
     // Продовая конфигурация: tasks=1, schedules=0. Пауза задач останавливает
     // только новые claim'ы порученных задач, cron-задачи идут — и агент с
-    // живым claim РАБОТАЕТ. Прежняя редакция Р-2 рисовала здесь два
-    // одинаковых «на паузе» над работающим агентом.
+    // живым claim РАБОТАЕТ, а свободный «молчит» как без тумблера. Прежняя
+    // редакция Р-2 рисовала здесь два одинаковых «на паузе».
     const now = new Date("2026-09-06T09:00:00.000Z");
     const { db } = statusDb({
       agents: [card(), card({ name: "globerent-scout" })],
@@ -787,13 +787,36 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
     assert.deepEqual(view.paused, { schedules: false, tasks: true });
     assert.deepEqual(
       view.agents.map((a) => a.state),
-      ["working", "paused"],
-      "тумблер — настройка системы, живой claim — факт: первый работает, второму сказать нечего",
+      ["working", "idle"],
+      "тумблер — настройка системы в шапке (`paused.tasks`), состояние от него не зависит",
     );
     assert.match(view.agents[0]?.reason ?? "", /parts-audit/);
     assert.equal(view.agents[0]?.taskId, "t1");
-    assert.match(view.agents[1]?.reason ?? "", /настройка системы, а не агента/);
-    assert.match(view.agents[1]?.reason ?? "", /cron-прогоны этой паузой не остановлены/);
+    assert.match(view.agents[1]?.reason ?? "", /ещё не запускался/);
+  });
+
+  it("оборванная cron-задача при паузе расписаний: сказано, что её никто не подхватит (M-1)", async () => {
+    // `source` доезжает из выборки до чистой функции как `scheduled`: без него
+    // строка обещала бы «можно взять заново» задаче, чью очередь держит тумблер.
+    const now = new Date("2026-09-06T09:00:00.000Z");
+    const { db } = statusDb({
+      agents: [card()],
+      tasks: [
+        {
+          id: "t1",
+          ownerRef: "vendhub-ops",
+          skill: "parts-audit",
+          source: "agent-schedule",
+          // Старше лизы `TasksService.AGENT_RUN_LEASE_MS` (15 минут): claim протух.
+          claimedAt: new Date(now.getTime() - 16 * 60_000),
+          blockedAt: null,
+          blockedReason: null,
+        },
+      ],
+    });
+    const view = await new AgentsService(db, noTasks, systemStub({ tasks: false, schedules: true }), noRuns).statuses({ now });
+    assert.equal(view.agents[0]?.state, "idle");
+    assert.match(view.agents[0]?.reason ?? "", /cron-задачу никто не возьмёт, пока расписания на паузе/);
   });
 
   it("рантайм ещё не подхватил тумблер: конфиг и снимок расходятся — `runtime.lagging` (Д-3)", async () => {
@@ -817,6 +840,7 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
       stale: false,
       paused: { schedules: false, tasks: true },
       lagging: true,
+      readFailed: false,
     });
     // Вход B: поставил паузу — рантайм ещё claim'ит. Расхождение то же.
     const второй = statusDb({ agents: [card()] });
@@ -844,7 +868,14 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
 
     const второй = statusDb({ agents: [card()] });
     const безСнимка = await new AgentsService(второй.db, noTasks, systemStub({ tasks: true, schedules: false }), noRuns).statuses({ now });
-    assert.deepEqual(безСнимка.runtime, { reportedAt: null, ageSec: null, stale: false, paused: null, lagging: false });
+    assert.deepEqual(безСнимка.runtime, {
+      reportedAt: null,
+      ageSec: null,
+      stale: false,
+      paused: null,
+      lagging: false,
+      readFailed: false,
+    });
   });
 
   it("снимок протух — `stale`: что рантайм применил сейчас, неизвестно; отказ чтения снимка сетку не роняет", async () => {
@@ -866,22 +897,25 @@ describe("Состояние агентов для панели (R-A2-1)", () =>
     const view2 = await new AgentsService(второй.db, noTasks, systemStub({ tasks: false, schedules: false }), упал).statuses({ now });
     assert.equal(view2.agents.length, 1, "состояние агентов собрано, хотя снимок не прочитался");
     assert.equal(view2.runtime.paused, null);
+    // Отказ чтения отличим от «рантайм не отчитывался» (ревью M-2).
+    assert.equal(view2.runtime.readFailed, true);
+    assert.equal(view.runtime.readFailed, false);
   });
 
   it("отсутствие записи о паузе — это «пауза»: дефолт тумблера равен 1", async () => {
     // ОТКАЗ В СТОРОНУ ПАУЗЫ. Дефолт обоих тумблеров в config-spec — «1», и
     // выключатель всего парка обязан ломаться в «выключено»: пустой ответ
-    // настроек (сбой чтения, чужой набор ключей) не должен рисовать «молчит»
-    // (будто задачи можно поручать) там, где задачи стоят. Занятости это
-    // правило не касается — живой claim остаётся работой (тест выше), поэтому
-    // агент здесь свободен: у него ни задач, ни прогонов.
+    // настроек (сбой чтения, чужой набор ключей) не должен снимать с шапки
+    // строку «задачи на паузе» там, где задачи стоят. Состояний агентов это
+    // не касается (ревью C-1): тумблер — свойство системы, не агента.
     const now = new Date("2026-09-06T09:00:00.000Z");
     const { db } = statusDb({ agents: [card()] });
     const пусто = { effective: async () => [] } as never;
     const view = await new AgentsService(db, noTasks, пусто, noRuns).statuses({ now });
     assert.deepEqual(view.paused, { schedules: true, tasks: true });
-    assert.equal(view.agents[0]?.state, "paused");
-    assert.match(view.agents[0]?.reason ?? "", /настройка системы, а не агента/);
+    // Состояние от тумблера не зависит (ревью C-1): свободный агент «молчит».
+    assert.equal(view.agents[0]?.state, "idle");
+    assert.match(view.agents[0]?.reason ?? "", /ещё не запускался/);
 
     // Только явный «0» означает «работаем»: значение с опечаткой — тоже пауза.
     const мусор = {

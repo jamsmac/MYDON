@@ -263,7 +263,7 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     const слой = найти(ответ.internal, FACES.agents.key);
     assert.equal(слой.state, "bad");
     assert.match(слой.summary, /слой агентов не отчитывался 120 мин/);
-    assert.match(слой.detail ?? "", /порог молчания 15 мин/);
+    assert.match(слой.detail ?? "", new RegExp(`порог молчания ${STALE_AFTER_SEC / 60} мин`));
     // Бот — отдельный процесс со своим heartbeat; модели зовут и бот, и
     // панель, и документы: от слоя агентов эти строки не зависят.
     assert.equal(найти(ответ.outside, FACES.bot.key).state, "ok");

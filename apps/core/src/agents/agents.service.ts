@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { agent, agentRun, agentSkillCatalog, auditLog, task } from "@mydon/db";
@@ -13,6 +14,7 @@ import { snapshotFreshness } from "../routines/board";
 import { RunsService } from "../routines/runs.service";
 import { settingValue } from "../system/settings";
 import { SystemService } from "../system/system.service";
+import { AGENT_SCHEDULE_SOURCE } from "../tasks/agent-schedule";
 import { TasksService, type ModelEffort } from "../tasks/tasks.service";
 import {
   computeAgentState,
@@ -112,6 +114,12 @@ export interface AgentsRuntimeView {
   paused: { schedules: boolean; tasks: boolean } | null;
   /** Конфиг и снимок расходятся хотя бы по одному тумблеру: рантайм ещё не подхватил правку. */
   lagging: boolean;
+  /**
+   * Снимок не ПРОЧИТАЛСЯ (отказ базы), а не «рантайм не отчитывался» (ревью
+   * M-2): у первого причина в журнале Core, у второго — в контейнере агентов,
+   * и панель обязана различать их словами, а не молчать про «сходится».
+   */
+  readFailed: boolean;
 }
 
 export interface AgentsStatusView {
@@ -234,6 +242,8 @@ export interface UpsertAgentInput {
  */
 @Injectable()
 export class AgentsService {
+  private readonly logger = new Logger(AgentsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     /** Запуск навыка — обычная задача агенту, а не отдельный путь исполнения (R-SD-2). */
@@ -429,8 +439,16 @@ export class AgentsService {
       this.lastRunPerAgent(),
       this.system.effective(),
       // Снимок — второстепенный сигнал: его отказ не должен ронять состояние
-      // всей сетки, а «снимка нет» уже честно называют `/crons` и `/apps`.
-      this.runs.snapshot().catch(() => null),
+      // всей сетки. Но отказ ЧТЕНИЯ — не «снимка нет» (ревью M-2): первый
+      // уходит в ответ флагом и в журнал причиной, второй — честное «рантайм
+      // не отчитывался».
+      this.runs.snapshot().then(
+        (value) => ({ ok: true as const, value }),
+        (e: unknown) => {
+          this.logger.warn(`снимок расписаний не прочитан: ${e instanceof Error ? e.message : String(e)}`);
+          return { ok: false as const };
+        },
+      ),
     ]);
     // `value` — действующее значение тумблера; поле `effective` есть только у
     // источника учёта, у пауз его нет (прецедент — `BoardService.board`).
@@ -500,6 +518,7 @@ export class AgentsService {
         id: task.id,
         ownerRef: task.ownerRef,
         skill: task.agentSkill,
+        source: task.source,
         claimedAt: task.agentRunClaimedAt,
         blockedAt: task.agentExecutionBlockedAt,
         blockedReason: task.agentExecutionBlockedReason,
@@ -523,6 +542,9 @@ export class AgentsService {
       list.push({
         id: row.id,
         skill: row.skill,
+        // Кто подхватит оборванную задачу — очередь расписаний или worker
+        // порученных: то же различие, что у `isAssignedTaskSql()` (M-1).
+        scheduled: row.source === AGENT_SCHEDULE_SOURCE,
         claimedAt: row.claimedAt,
         blockedAt: row.blockedAt,
         blockedReason: row.blockedReason,
@@ -887,10 +909,13 @@ export class AgentsService {
  */
 function сверкаСРантаймом(
   paused: { schedules: boolean; tasks: boolean },
-  снимок: Awaited<ReturnType<RunsService["snapshot"]>>,
+  чтение: { ok: true; value: Awaited<ReturnType<RunsService["snapshot"]>> } | { ok: false },
   now: Date,
 ): AgentsRuntimeView {
-  if (снимок === null) return { reportedAt: null, ageSec: null, stale: false, paused: null, lagging: false };
+  const нет = { reportedAt: null, ageSec: null, stale: false, paused: null, lagging: false };
+  if (!чтение.ok) return { ...нет, readFailed: true };
+  const снимок = чтение.value;
+  if (снимок === null) return { ...нет, readFailed: false };
   const свежесть = snapshotFreshness(снимок.updatedAt, now);
   const применено = { schedules: снимок.payload.paused.schedules, tasks: снимок.payload.paused.tasks };
   return {
@@ -899,5 +924,6 @@ function сверкаСРантаймом(
     stale: свежесть.stale,
     paused: применено,
     lagging: применено.schedules !== paused.schedules || применено.tasks !== paused.tasks,
+    readFailed: false,
   };
 }

@@ -58,6 +58,7 @@ const рантайм = (over: Partial<AgentsStatus["runtime"]> = {}): AgentsStat
   stale: false,
   paused: { schedules: false, tasks: false },
   lagging: false,
+  readFailed: false,
   ...over,
 });
 

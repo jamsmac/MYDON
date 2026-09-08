@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { AGENTS_SNAPSHOT_INTERVAL_MS, AGENTS_SNAPSHOT_MISS_LIMIT } from "@mydon/shared";
 import { STALE_AFTER_SEC, computeBoard, nextOccurrences, snapshotFreshness, type BoardInput } from "./board";
 
 const now = new Date("2026-09-06T03:10:00.000Z"); // 08:10 Ташкент, суббота
@@ -159,7 +160,20 @@ describe("computeBoard (R-R-3)", () => {
     assert.equal(flood.upcoming24h.length, 200);
   });
 
-  it("снимок: возраст и stale > 900 с; без снимка — null и пустые задания", () => {
+  it("порог прощает два пропущенных тика, третий подряд — молчание (ревью I-3)", () => {
+    // Формула та же, что у heartbeat бота: интервал × лимит пропусков, обе
+    // константы общие с рантаймом. Один редеплой Core в момент тика больше не
+    // красит слой в «сломано» на пять минут.
+    const тик = AGENTS_SNAPSHOT_INTERVAL_MS / 1000;
+    assert.equal(STALE_AFTER_SEC, тик * AGENTS_SNAPSHOT_MISS_LIMIT);
+    assert.ok(AGENTS_SNAPSHOT_MISS_LIMIT >= 3, "меньше трёх периодов — один пропущенный тик снова ложная авария");
+    const дваПропуска = new Date(now.getTime() - (2 * тик + 30) * 1000);
+    assert.equal(snapshotFreshness(дваПропуска, now).stale, false, "два пропущенных тика прощаются");
+    const триПропуска = new Date(now.getTime() - (3 * тик + 1) * 1000);
+    assert.equal(snapshotFreshness(триПропуска, now).stale, true);
+  });
+
+  it("снимок: возраст и stale за порогом; без снимка — null и пустые задания", () => {
     const b = computeBoard(input);
     assert.equal(b.snapshot?.ageSec, 300);
     assert.equal(b.snapshot?.stale, false);

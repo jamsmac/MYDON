@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { TZ } from "@mydon/shared";
+import { AGENTS_SNAPSHOT_INTERVAL_MS, AGENTS_SNAPSHOT_MISS_LIMIT, TZ } from "@mydon/shared";
 import type { ScheduleSnapshot } from "./runs.service";
 
 /**
@@ -50,7 +50,14 @@ export interface BoardInput {
   lastRuns: LastRunLite[];
 }
 
-export const STALE_AFTER_SEC = 900;
+/**
+ * Порог молчания слоя агентов: `AGENTS_SNAPSHOT_MISS_LIMIT` периодов снимка —
+ * та же формула, что у heartbeat бота (`интервал × лимит пропусков`), и обе
+ * константы общие с рантаймом (`@mydon/shared`). Раньше здесь стояло голое
+ * 900 при тике 600 с (ревью I-3): один пропущенный тик — Core на редеплое в
+ * момент тика — давал пять минут «Слой агентов — сломано» и восемь «не оценить».
+ */
+export const STALE_AFTER_SEC = (AGENTS_SNAPSHOT_INTERVAL_MS / 1000) * AGENTS_SNAPSHOT_MISS_LIMIT;
 export const UPCOMING_LIMIT = 200;
 const DAY_MS = 86_400_000;
 

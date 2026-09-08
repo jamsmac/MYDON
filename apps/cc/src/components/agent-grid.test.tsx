@@ -122,6 +122,26 @@ describe("Сетка агентов: системная пауза", () => {
   });
 });
 
+describe("Сетка агентов: поломка не прячется за системной паузой (ревью C-1b)", () => {
+  it("skipped/llm_failed под AGENTS_TASKS_PAUSED=1 — «молчит» с полосой внимания, а не серая «на паузе»", () => {
+    // Core больше не даёт `paused` по тумблеру: такой агент приходит `idle`
+    // с прогоном, и полоса внимания у него та же, что без тумблера.
+    const сломан = row({
+      name: "solution-scout",
+      state: "idle",
+      reason: "последний прогон пропущен — модель не ответила",
+      since: "2026-09-06T07:00:00.000Z",
+      lastRun: { at: "2026-09-06T07:00:00.000Z", outcome: "skipped", skipReason: "llm_failed", reason: "модель не ответила" },
+    });
+    render(<AgentGrid rows={[сломан]} paused={{ schedules: false, tasks: true }} now={NOW} />);
+    const плитка = screen.getByText("solution-scout").closest(".agtile");
+    expect(плитка).toHaveAttribute("data-attention", "true");
+    expect(плитка).toHaveAttribute("data-state", "idle");
+    // Давность прогона осталась на плитке — под тумблером она раньше исчезала.
+    expect(плитка?.querySelector(".agw")).not.toBeNull();
+  });
+});
+
 describe("Сетка агентов: рантайм ещё не подхватил тумблер (Д-3)", () => {
   const снимок = (over: Partial<AgentsRuntime> = {}): AgentsRuntime => ({
     reportedAt: "2026-09-06T08:55:00.000Z",
@@ -129,7 +149,20 @@ describe("Сетка агентов: рантайм ещё не подхвати
     stale: false,
     paused: { schedules: false, tasks: false },
     lagging: false,
+    readFailed: false,
     ...over,
+  });
+
+  it("снимок не прочитался — строка об этом, а не молчание «сходится» (M-2)", () => {
+    const { container } = render(
+      <AgentGrid
+        rows={обычныйДень}
+        paused={безПаузы}
+        runtime={снимок({ reportedAt: null, ageSec: null, paused: null, readFailed: true })}
+        now={NOW}
+      />,
+    );
+    expect(container.querySelector(".notice")).toHaveTextContent(/снимок расписаний не прочитался/);
   });
 
   it("владелец снял паузу задач, рантайм ещё на ней — строка называет расхождение и давность снимка", () => {
