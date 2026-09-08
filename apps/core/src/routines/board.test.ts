@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { computeBoard, nextOccurrences, type BoardInput } from "./board";
+import {
+  AGENTS_SNAPSHOT_INTERVAL_MS,
+  AGENTS_SNAPSHOT_MAX_SILENCE_SEC,
+  AGENTS_SNAPSHOT_MISS_LIMIT,
+} from "@mydon/shared";
+import { STALE_AFTER_SEC, computeBoard, nextOccurrences, snapshotFreshness, type BoardInput } from "./board";
 
 const now = new Date("2026-09-06T03:10:00.000Z"); // 08:10 Ташкент, суббота
 const snapshot = {
@@ -159,7 +164,28 @@ describe("computeBoard (R-R-3)", () => {
     assert.equal(flood.upcoming24h.length, 200);
   });
 
-  it("снимок: возраст и stale > 900 с; без снимка — null и пустые задания", () => {
+  it("порог прощает два пропущенных тика, третий подряд — молчание (ревью I-3)", () => {
+    // Формула та же, что у heartbeat бота: интервал × лимит пропусков, обе
+    // константы общие с рантаймом. Один редеплой Core в момент тика больше не
+    // красит слой в «сломано» на пять минут.
+    const тик = AGENTS_SNAPSHOT_INTERVAL_MS / 1000;
+    assert.equal(STALE_AFTER_SEC, тик * AGENTS_SNAPSHOT_MISS_LIMIT);
+    assert.ok(AGENTS_SNAPSHOT_MISS_LIMIT >= 3, "меньше трёх периодов — один пропущенный тик снова ложная авария");
+    // ВЕРХНЯЯ ГРАНИЦА ТОЖЕ ПИНИТСЯ (ревью Ф-4): раньше сюда проходил любой
+    // лимит — `MISS_LIMIT = 10` (100 минут тишины) не ронял ни одного теста, а
+    // это полтора часа молча пропущенных cron-срабатываний под зелёным экраном.
+    assert.ok(
+      STALE_AFTER_SEC <= AGENTS_SNAPSHOT_MAX_SILENCE_SEC,
+      `окно молчания ${STALE_AFTER_SEC} с больше допустимых ${AGENTS_SNAPSHOT_MAX_SILENCE_SEC} с: ` +
+        "мёртвый рантайм пропускает срабатывания молча, и узнавать об этом позже нельзя",
+    );
+    const дваПропуска = new Date(now.getTime() - (2 * тик + 30) * 1000);
+    assert.equal(snapshotFreshness(дваПропуска, now).stale, false, "два пропущенных тика прощаются");
+    const триПропуска = new Date(now.getTime() - (3 * тик + 1) * 1000);
+    assert.equal(snapshotFreshness(триПропуска, now).stale, true);
+  });
+
+  it("снимок: возраст и stale за порогом; без снимка — null и пустые задания", () => {
     const b = computeBoard(input);
     assert.equal(b.snapshot?.ageSec, 300);
     assert.equal(b.snapshot?.stale, false);
@@ -168,6 +194,24 @@ describe("computeBoard (R-R-3)", () => {
     const none = computeBoard({ ...input, snapshot: null });
     assert.equal(none.snapshot, null);
     assert.equal(none.jobs.length, 0);
+  });
+});
+
+describe("snapshotFreshness — одно правило на доску и здоровье приложений", () => {
+  it("ровно на пороге снимок ещё свежий, секундой старше — протух; момент отчёта возвращается как есть", () => {
+    // Порог — ИМПОРТИРОВАННАЯ константа, а не число: здоровье приложений
+    // (`apps-health.service.ts`) судит о слое агентов той же функцией, и
+    // второй порог где-то ещё разошёлся бы с этим молча.
+    const наПороге = new Date(now.getTime() - STALE_AFTER_SEC * 1000);
+    assert.deepEqual(snapshotFreshness(наПороге, now), { ageSec: STALE_AFTER_SEC, stale: false, reportedAt: наПороге });
+    const старше = new Date(now.getTime() - (STALE_AFTER_SEC + 1) * 1000);
+    assert.equal(snapshotFreshness(старше, now).stale, true);
+    // Часы разъехались (снимок «из будущего») — возраст ноль, а не отрицательный.
+    assert.equal(snapshotFreshness(new Date(now.getTime() + 60_000), now).ageSec, 0);
+    // Доска считает тем же правилом: подмена числа в одном месте роняет оба.
+    const b = computeBoard({ ...input, snapshot: { ...input.snapshot!, updatedAt: старше } });
+    assert.equal(b.snapshot?.stale, true);
+    assert.equal(b.snapshot?.ageSec, STALE_AFTER_SEC + 1);
   });
 });
 

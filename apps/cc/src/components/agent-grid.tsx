@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { isSkipReason, type SkipReason } from "@mydon/shared";
-import type { AgentState, AgentStatusRow } from "../lib/core";
+import { AGENTS_SNAPSHOT_INTERVAL_MS, isSkipReason, type SkipReason } from "@mydon/shared";
+import type { AgentsRuntime, AgentState, AgentStatusRow } from "../lib/core";
 import { runWhen } from "../lib/crons";
+import { plural } from "../lib/format";
 import { Av8 } from "./av8";
 
 /**
@@ -72,6 +73,12 @@ function молчитИзЗаПоломки(row: AgentStatusRow): boolean {
   // Только у молчания: у «работает» и «затыка» свой вес и своя причина, и
   // полоса без объяснения в тексте плитки была бы шумом.
   if (row.state !== "idle") return false;
+  // ОБОРВАННЫЙ CLAIM — НЕ ЭТОТ СЛУЧАЙ (ревью Ф-5). У такого `idle` причина
+  // говорит про истёкший lease и судьбу задачи, а `lastRun` описывает ПРОШЛЫЙ
+  // заход: полоса внимания вставала над текстом, который её не объясняет, —
+  // ровно то, чего этот комментарий не хочет. Различаем по данным: у молчания
+  // из журнала задачи нет, у оборванного claim `taskId` заполнен.
+  if (row.taskId !== undefined) return false;
   const run = row.lastRun;
   if (run === undefined || run === null) return false;
   if (run.outcome === "failed") return true;
@@ -79,8 +86,14 @@ function молчитИзЗаПоломки(row: AgentStatusRow): boolean {
   return isSkipReason(run.skipReason) && ПОЛОМКА.includes(run.skipReason);
 }
 
-/** Сводка заголовка: только ненулевое — «затыков 0» не вопрос владельца. */
-function сводка(rows: readonly AgentStatusRow[]): string {
+/**
+ * Сводка заголовка: только ненулевое — «затыков 0» не вопрос владельца.
+ *
+ * ЭКСПОРТИРУЕТСЯ ради списка `/agents` (перепроверка прода, Д-2): тот
+ * печатал «Работают N из M» по паспортному статусу, и одна сводка на два
+ * экрана — единственный способ, чтобы они не спорили о числе работающих.
+ */
+export function stateSummary(rows: readonly AgentStatusRow[]): string {
   const счёт = (state: AgentState): number => rows.filter((r) => r.state === state).length;
   const working = счёт("working");
   const blocked = счёт("blocked");
@@ -99,11 +112,14 @@ function сводка(rows: readonly AgentStatusRow[]): string {
 export function AgentGrid({
   rows,
   paused,
+  runtime,
   now,
   error,
 }: {
   rows: readonly AgentStatusRow[];
   paused: { schedules: boolean; tasks: boolean };
+  /** Сверка намерения с рантаймом (Д-3); нет — когда состояние не прочиталось. */
+  runtime?: AgentsRuntime;
   /**
    * Момент, от которого считается давность состояния (`row.since`).
    *
@@ -129,7 +145,9 @@ export function AgentGrid({
     <div className="sect" style={{ marginTop: 16 }}>
       <div className="sect-h">
         <h3 className="h2">Агенты</h3>
-        {error === undefined && rows.length > 0 && <span className="hint">{сводка(rows)}</span>}
+        {error === undefined && rows.length > 0 && (
+          <span className="hint">{stateSummary(rows)}</span>
+        )}
         <span className="sp" />
         <Link href="/agents" className="go">
           все агенты →
@@ -151,7 +169,12 @@ export function AgentGrid({
           .
         </div>
       ) : (
-        <GridBody rows={rows} paused={paused} now={now} />
+        <GridBody
+          rows={rows}
+          paused={paused}
+          now={now}
+          {...(runtime !== undefined ? { runtime } : {})}
+        />
       )}
     </div>
   );
@@ -161,19 +184,23 @@ export function AgentGrid({
 function GridBody({
   rows,
   paused,
+  runtime,
   now,
 }: {
   rows: readonly AgentStatusRow[];
   paused: { schedules: boolean; tasks: boolean };
+  runtime?: AgentsRuntime;
   now: Date;
 }) {
   return (
     <>
-      {/* Р-2: пока настройка включена, ни один агент не возьмёт задачу. Без
-          этой строки экран показал бы двенадцать спокойных плиток там, где
-          выключена система, — и владелец искал бы поломку в агентах. */}
-      {paused.tasks && <TasksPausedNotice />}
+      {/* Пауза задач — ОТДЕЛЬНОЙ СТРОКОЙ, а не состоянием плиток (перепроверка
+          прода, корень 1): она останавливает только новые claim'ы порученных
+          задач, cron-прогоны идут, и агент с живым claim работает. Без этой
+          строки владелец не узнал бы, почему порученная задача лежит в очереди. */}
+      {paused.tasks && <TasksPausedNotice queued={очередьПорученных(rows)} />}
       {paused.schedules && <SchedulesPausedNotice />}
+      {runtime !== undefined && <RuntimeLagNotice paused={paused} runtime={runtime} />}
 
       {rows.length === 0 ? (
         <div className="empty">
@@ -199,17 +226,99 @@ function GridBody({
  * обязана называться на обеих поверхностях одними словами и указывать один и
  * тот же ключ окружения. Второй текст разошёлся бы с первым, и владелец пошёл
  * бы чинить в разные места.
+ *
+ * ТЕКСТ — ПО ФАКТУ РАНТАЙМА (перепроверка прода, корень 1). Прежний говорил
+ * «ни один из них не возьмёт задачу», а рантайм гейтит очереди разными
+ * тумблерами: этот останавливает только НОВЫЕ claim'ы порученных задач, уже
+ * начатая задача завершается, а cron-задачи идут — их выключает
+ * `AGENTS_SCHEDULES_PAUSED`. Поэтому строка стоит рядом с плитками, а не
+ * подменяет их состояние: работающий под этой паузой агент работает.
  */
-export function TasksPausedNotice() {
+export function TasksPausedNotice({ queued }: { queued?: number }) {
   return (
     <div className="notice">
-      <b>Задачи агентов на паузе</b>
+      <b>Назначенные задачи агентов на паузе</b>
       Это настройка системы (<span className="mono">AGENTS_TASKS_PAUSED=1</span>), а не состояние
-      агентов: пока она включена, ни один из них не возьмёт задачу. Снять — в{" "}
+      агентов: новые порученные задачи никто не возьмёт, уже начатая — завершится, а прогоны по
+      cron-расписанию идут (их выключает <span className="mono">AGENTS_SCHEDULES_PAUSED</span>).
+      {/* Числом, а не общим предупреждением (ревью Ф-1): «кто-то чего-то не
+          возьмёт» и «три поручения лежат с 5 сентября» — разные поводы. */}
+      {queued !== undefined && queued > 0 && (
+        <>
+          {" "}
+          Сейчас {queued} {plural(queued, "задача", "задачи", "задач")}{" "}
+          {plural(queued, "ждёт", "ждут", "ждут")} снятия паузы.
+        </>
+      )}{" "}
+      Снять — в{" "}
       <Link href="/system" className="go">
         Системе
       </Link>
       .
+    </div>
+  );
+}
+
+/** Сколько порученных задач ждёт по всему парку: числа считает Core, панель складывает. */
+export function очередьПорученных(rows: readonly AgentStatusRow[]): number {
+  return rows.reduce((сумма, r) => сумма + (r.queuedAssigned ?? 0), 0);
+}
+
+/**
+ * Рантайм ещё не подхватил тумблер (перепроверка прода, Д-3).
+ *
+ * Сетка читает НАМЕРЕНИЕ — тумблеры из конфига в ту же секунду, а слой агентов
+ * перечитывает настройки своим тиком (`AGENTS_SNAPSHOT_INTERVAL_MS`). Владелец
+ * снял паузу → в ту же секунду плитки «молчит», а worker до перечитки ничего
+ * не берёт: спокойный экран над всё ещё выключенной системой. Поставил паузу →
+ * «на паузе» над worker'ом, который ещё claim'ит. Об этом знал только `/system`
+ * («применится в течение N минут»); теперь — и сетка, и карточка, и список.
+ * Ничего не рисует, пока конфиг и снимок сходятся: строка, которая есть
+ * всегда, перестаёт что-либо значить.
+ */
+export function RuntimeLagNotice({
+  paused,
+  runtime,
+}: {
+  paused: { schedules: boolean; tasks: boolean };
+  runtime: AgentsRuntime;
+}) {
+  // Отказ ЧТЕНИЯ снимка — не «рантайм не отчитывался» (ревью M-2): молчать
+  // здесь значило бы выдать неизвестное за «сходится». Причина — в журнале Core.
+  if (runtime.readFailed) {
+    return (
+      <div className="notice">
+        <b>Сверка с рантаймом недоступна: снимок расписаний не прочитался</b>
+        {/* Называем тумблеры по именам, а не «выше» (ревью Ф-5): при обоих
+            выключенных строк выше нет вовсе, и ссылка висела бы в воздухе. */}
+        Применил ли слой агентов <span className="mono">AGENTS_TASKS_PAUSED</span> и{" "}
+        <span className="mono">AGENTS_SCHEDULES_PAUSED</span> — неизвестно; причина отказа записана
+        в журнал Core.
+      </div>
+    );
+  }
+  if (!runtime.lagging || runtime.paused === null) return null;
+  const слово = (on: boolean): string => (on ? "на паузе" : "работают");
+  const применено = runtime.paused;
+  const разница = [
+    применено.tasks !== paused.tasks
+      ? `назначенные задачи: в настройке ${слово(paused.tasks)}, у рантайма ещё ${слово(применено.tasks)}`
+      : null,
+    применено.schedules !== paused.schedules
+      ? `расписания: в настройке ${слово(paused.schedules)}, у рантайма ещё ${слово(применено.schedules)}`
+      : null,
+  ].filter((ч): ч is string => ч !== null);
+  const мин = runtime.ageSec !== null ? Math.round(runtime.ageSec / 60) : null;
+  return (
+    <div className="notice">
+      <b>
+        {runtime.stale
+          ? `Рантайм агентов не отчитывался ${мин ?? "?"} мин — что он применил сейчас, неизвестно`
+          : `Рантайм агентов ещё не подхватил настройку (снимок ${мин ?? "?"} мин назад)`}
+      </b>
+      {разница.join("; ")}. Слой агентов перечитывает настройки раз в{" "}
+      {AGENTS_SNAPSHOT_INTERVAL_MS / 60_000} мин; состояния выше — по настройке, а worker до
+      перечитки работает по-старому.
     </div>
   );
 }
@@ -257,6 +366,19 @@ function AgentTile({ row, now }: { row: AgentStatusRow; now: Date }) {
         </div>
         <div className="agr">
           {row.reason}
+          {/* Ожидающие поручения — рядом с причиной (ревью Ф-1): состояние
+              «молчит» без этого числа читалось бы как «делать нечего». */}
+          {row.queuedAssigned !== undefined && row.queuedAssigned > 0 && (
+            <>
+              {" · "}в очереди {row.queuedAssigned}{" "}
+              {plural(
+                row.queuedAssigned,
+                "порученная задача",
+                "порученные задачи",
+                "порученных задач",
+              )}
+            </>
+          )}
           {/* `since` отсутствует, когда его честно нет (агент ни разу не
               запускался, системная пауза): выдумывать «неизвестно когда»
               не надо — об этом уже сказала причина. */}

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
+import { AGENTS_SNAPSHOT_INTERVAL_MS } from "@mydon/shared";
 import { saveSystemConfig } from "../app/system/actions";
 
 /**
@@ -33,7 +34,7 @@ const TOGGLES = [
  * «Сохранено» без срока владелец прочитал бы как «уже выключено» — и пошёл бы
  * искать поломку, увидев следующий запуск по расписанию.
  */
-const APPLIED = "Сохранено · применится в течение 10 минут (агенты перечитывают настройки).";
+const APPLIED = `Сохранено · применится в течение ${AGENTS_SNAPSHOT_INTERVAL_MS / 60_000} мин (агенты перечитывают настройки).`;
 
 function Toggle({ item, paused }: { item: (typeof TOGGLES)[number]; paused: boolean }) {
   const router = useRouter();
@@ -85,7 +86,10 @@ function Toggle({ item, paused }: { item: (typeof TOGGLES)[number]; paused: bool
       </div>
       <small className="hint">{item.help}</small>
       {msg && (
-        <small className={msg.kind === "ok" ? "hint" : "err-text"} style={{ display: "block", marginTop: 6 }}>
+        <small
+          className={msg.kind === "ok" ? "hint" : "err-text"}
+          style={{ display: "block", marginTop: 6 }}
+        >
           {msg.text}
         </small>
       )}

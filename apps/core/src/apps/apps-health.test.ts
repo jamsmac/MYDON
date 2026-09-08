@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   FACES,
+  LAYER_DEPENDENCY,
+  rowFromAgentsLayer,
   rowFromHeartbeat,
   rowFromLlm,
   rowFromMonitor,
   rowFromOurvendAccounting,
   rowFromOurvendSync,
   rowFromOutbox,
+  rowFromSilentLayer,
   OUTBOX_STUCK_MS,
   splitSections,
   unavailableRow,
@@ -20,6 +23,7 @@ import {
   type OurvendSyncInput,
   type OutboxRowInput,
 } from "./apps-health";
+import { STALE_AFTER_SEC } from "../routines/board";
 
 const NOW = new Date("2026-09-06T09:00:00.000Z");
 const ЧАС = 3_600_000;
@@ -197,6 +201,32 @@ describe("Здоровье приложений: OurVend", () => {
     assert.equal(row.state, "bad");
     assert.match(row.summary, /12/);
     assert.match(row.summary, /подряд/);
+  });
+
+  it("МОНИТОР СБОРА УПАЛ ДО ЗАПИСИ В ЖУРНАЛ СБОРА — «сломано», а не «данные свежие» (Д-1)", () => {
+    // `startVendingSync()` бросил (Core на редеплое): в `agent_run` — failed,
+    // в `vending_sync_run` строки нет, `failedStreak = 0`, застой под порогом.
+    // До правки строка была зелёной и цитировала «последний прогон — сбой».
+    const at = new Date(NOW.getTime() - 30 * 60_000);
+    const r = rowFromOurvendSync(FACES.ourvendSync, сбор({
+      lastRun: { at, outcome: "failed", reason: "[ourvend:sync] fetch failed" },
+      health: { ...ЗДОРОВЬЕ_СБОРА, failedStreak: 0, staleHoursRaw: 3, staleHoursShown: 3 },
+    }));
+    assert.equal(r.state, "bad");
+    assert.match(r.summary, /последний прогон упал/);
+    assert.match(r.detail ?? "", /fetch failed/, "причина прогона процитирована");
+    assert.equal(r.at, at.toISOString(), "момент — падение, а не прошлый успех");
+    // Серия и застой — диагнозы точнее, и падение прогона их не перекрывает.
+    const серия = rowFromOurvendSync(FACES.ourvendSync, сбор({
+      lastRun: { at, outcome: "failed", reason: "[ourvend:sync] fetch failed" },
+      health: { ...ЗДОРОВЬЕ_СБОРА, failedStreak: 2 },
+    }));
+    assert.match(серия.summary, /отказов подряд 2/);
+    // Тот же вход, но прогон прошёл — «упал» не выдумывается.
+    const прошёл = rowFromOurvendSync(FACES.ourvendSync, сбор({
+      health: { ...ЗДОРОВЬЕ_СБОРА, failedStreak: 0, staleHoursRaw: 3, staleHoursShown: 3 },
+    }));
+    assert.equal(прошёл.state, "ok");
   });
 
   it("застой сравнивается с порогом по СЫРЫМ часам, а не по округлённому для показа полю", () => {
@@ -639,6 +669,50 @@ describe("Здоровье приложений: ledger моделей", () => {
   });
 });
 
+describe("Здоровье приложений: слой агентов по возрасту снимка (перепроверка прода, корень 2)", () => {
+  it("снимка нет — «не оценить», а не «сломано»: слой мог ни разу не запуститься", () => {
+    const row = rowFromAgentsLayer(FACES.agents, { freshness: null, staleAfterSec: STALE_AFTER_SEC });
+    assert.equal(row.state, "unknown");
+    assert.match(row.summary, /ещё не отчитывались/);
+    assert.match(row.detail ?? "", /mydon-agents/);
+    assert.equal(row.at, undefined);
+  });
+
+  it("снимок протух — «сломано» с давностью в минутах и порогом", () => {
+    const reportedAt = new Date(NOW.getTime() - 2 * ЧАС);
+    const row = rowFromAgentsLayer(FACES.agents, {
+      freshness: { ageSec: 7200, stale: true, reportedAt },
+      staleAfterSec: STALE_AFTER_SEC,
+    });
+    assert.equal(row.state, "bad");
+    assert.match(row.summary, /не отчитывался 120 мин/);
+    assert.match(row.detail ?? "", new RegExp(`порог молчания ${STALE_AFTER_SEC / 60} мин`));
+    assert.equal(row.at, reportedAt.toISOString());
+  });
+
+  it("снимок свежий — «в порядке» с давностью", () => {
+    const reportedAt = new Date(NOW.getTime() - 5 * 60_000);
+    const row = rowFromAgentsLayer(FACES.agents, {
+      freshness: { ageSec: 300, stale: false, reportedAt },
+      staleAfterSec: STALE_AFTER_SEC,
+    });
+    assert.equal(row.state, "ok");
+    assert.match(row.summary, /отчитывался 5 мин назад/);
+    assert.equal(row.at, reportedAt.toISOString());
+  });
+
+  it("строка над молчащим слоем — «не оценить» тем же словом, что чип на /crons, и с причиной зависимости", () => {
+    const reportedAt = new Date(NOW.getTime() - 45 * 60_000);
+    const row = rowFromSilentLayer(FACES.notion, { ageSec: 2700, reportedAt }, LAYER_DEPENDENCY.outbox);
+    assert.equal(row.state, "unknown");
+    assert.match(row.summary, /слой агентов не отчитывался 45 мин/);
+    assert.match(row.detail ?? "", /диспетчер доставок живёт в слое агентов/);
+    assert.match(row.detail ?? "", /mydon-agents/);
+    assert.equal(row.at, reportedAt.toISOString());
+    assert.equal(row.href, FACES.notion.href, "ссылка — на экран строки, не на слой");
+  });
+});
+
 describe("Здоровье приложений: разделы «снаружи» и «внутренние мониторы» (Р-3)", () => {
   it("внутренний монитор не попадает в раздел «снаружи»", () => {
     const rows = [
@@ -659,6 +733,12 @@ describe("Здоровье приложений: разделы «снаружи
       FACES.maintenance.key,
       FACES.globerent.key,
     ]);
+  });
+
+  it("строка слоя агентов — во «внутренних»: связи с чужой системой у неё нет", () => {
+    const { outside, internal } = splitSections([строка("ok", FACES.agents.key), строка("ok", FACES.bot.key)]);
+    assert.deepEqual(outside.map((r) => r.key), [FACES.bot.key]);
+    assert.deepEqual(internal.map((r) => r.key), [FACES.agents.key]);
   });
 
   it("незнакомый монитор уезжает во «внутренние»: связи с чужой системой ему не приписываем", () => {
