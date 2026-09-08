@@ -22,6 +22,11 @@ export interface ReportPlan {
   data: unknown;
   /** Что сказать владельцу, если строить нечего. */
   emptyReason?: string;
+  /**
+   * Направление, о котором отчёт: с ним документ ляжет в архив (срез A3) и
+   * найдётся на /artifacts «всё по VendHub». Нет у сквозных отчётов (задачи).
+   */
+  domain?: Domain;
 }
 
 const today = (): string => new Date().toLocaleDateString("ru-RU");
@@ -56,6 +61,7 @@ export async function planReport(req: ReportRequest, core: CoreClient): Promise<
   return {
     kind: req.format,
     filename: `Дебиторка ${label} ${today()}`,
+    domain,
     instruction:
       `Сделай отчёт по просроченной дебиторке направления ${label} на ${today()}. ` +
       "Колонки: дата, сумма, валюта, статус. Отсортируй от самых старых долгов. " +

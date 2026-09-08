@@ -288,6 +288,42 @@ describe("Доступ к боту", () => {
     assert.equal(seen?.requestKey, "telegram:update:987655");
   });
 
+  it("направление плана доезжает до документа — иначе архив (срез A3) не узнает домена", async () => {
+    const core = {
+      ...coreStub,
+      obligations: async () => ({
+        totals: [{ status: "overdue", count: 1 }],
+        overdue: [{ id: "o1", amount: "100" }],
+        overdueTotal: 1,
+        overdueTruncated: false,
+      }),
+      // Непустой список задач обязателен: на пустом plan.emptyReason вернул бы
+      // текст без документа, и проверка «домена нет» прошла бы впустую.
+      myTasks: async () => [{ id: "t1", title: "Забрать бункеры", status: "todo" }],
+    } as unknown as HandlerDeps["core"];
+    const deps: HandlerDeps = {
+      core,
+      allowlist: parseAllowlist("111"),
+      limiter: new RateLimiter(),
+      buildDocument: async () => ({
+        filename: "Дебиторка GLOBERENT 08.09.2026.xlsx",
+        content: Buffer.from("x"),
+        summary: "готово",
+      }),
+    };
+
+    // Дебиторка без уточнения — GLOBERENT: домен обязан доехать до Reply,
+    // иначе документ ляжет в архив без направления и не найдётся фильтром.
+    const дебиторка = await handleMessage(111, "excel по долгам", deps, 1_000, 987_657);
+    assert.equal(дебиторка?.document?.domain, "globerent");
+
+    // Задачи — сквозной отчёт: домена нет, и выдумывать его нельзя. Документ
+    // при этом обязан быть — иначе проверка ничего не проверяет.
+    const задачи = await handleMessage(111, "отчёт в word по задачам", deps, 1_000, 987_658);
+    assert.ok(задачи?.document, "отчёт по задачам должен вернуть файл");
+    assert.equal(задачи.document.domain, undefined);
+  });
+
   it("ledger недоступен — документ не маскируется ошибкой Core", async () => {
     const core = {
       ...coreStub,
