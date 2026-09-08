@@ -24,7 +24,12 @@ await run(
   `insert into attachment (id, owner_type, owner_id, kind, storage_key, mime, bytes, created_by)
    values ('${ФОТО}', 'entity', '${OWNER}', 'photo', 'k/a389.jpg', 'image/jpeg', 100, 'staff:1')`,
 );
-assert.deepEqual(await колонки(), [], "на 0088 новых колонок ещё нет");
+// Копия массива, а не сам результат: в режиме CHECKS_DATABASE_URL сюда приходит
+// сырой результат драйвера postgres-js — `class Result extends Array`, — а
+// deepEqual из node:assert/strict сравнивает ещё и ПРОТОТИПЫ, поэтому пустой
+// Result не равен []. Соседние сценарии этого не ловят: они сравнивают с []
+// выдачу drizzle-СЕРВИСА, то есть обычный массив.
+assert.deepEqual([...(await колонки())], [], "на 0088 новых колонок ещё нет");
 
 await applyMigrations();
 
@@ -88,7 +93,7 @@ await run(
   `DELETE FROM "drizzle"."__drizzle_migrations"
     WHERE "created_at" = (select max("created_at") from "drizzle"."__drizzle_migrations")`,
 );
-assert.deepEqual(await колонки(), [], "после отката колонок быть не должно");
+assert.deepEqual([...(await колонки())], [], "после отката колонок быть не должно");
 const [n] = await run(`select count(*)::int as n from attachment`);
 assert.equal(n.n, 2, "откат не удаляет строк — файлы остаются");
 
