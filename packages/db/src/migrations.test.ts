@@ -361,9 +361,21 @@ describe("Цепочка миграций: файл ↔ журнал (сторо
       "title/domain обязаны быть nullable — иначе старым фото нужен бэкфилл выдумкой",
     );
     assert.doesNotMatch(операторы, /CREATE TYPE/, "enum domain есть с 0000 — второй CREATE TYPE уронит миграцию");
+    // NULLS FIRST, а не LAST: у DESC в PostgreSQL умолчание — NULLS FIRST,
+    // и ORDER BY витрины (`desc(createdAt), desc(id)` в artifacts.service.ts)
+    // даёт именно его. С NULLS LAST пути сортировки не совпадали, планировщик
+    // брал из индекса одно равенство по kind и сортировал заново: замер на
+    // 50 000 строках — top-N heapsort и 859 буферов против 5 (см. отчёт круга
+    // починок 1). Форма индекса — обязательство ОДНОГО автора, иначе каждый
+    // будущий читатель таблицы обязан писать ORDER BY … DESC NULLS LAST.
     assert.match(
       sql,
-      /CREATE INDEX IF NOT EXISTS "attachment_kind_created_idx" ON "attachment" USING btree \("kind","created_at" DESC NULLS LAST\);/,
+      /CREATE INDEX IF NOT EXISTS "attachment_kind_created_idx" ON "attachment" USING btree \("kind","created_at" DESC NULLS FIRST\);/,
+    );
+    assert.doesNotMatch(
+      sql,
+      /"created_at" DESC NULLS LAST/,
+      "NULLS LAST возвращает расхождение с ORDER BY витрины — половина индекса снова мертва",
     );
     // Мигратор drizzle применяет файл ВНУТРИ транзакции (pg-core/dialect.js:
     // session.transaction), CONCURRENTLY там запрещён: оператор упал бы и

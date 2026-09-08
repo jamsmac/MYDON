@@ -14,6 +14,16 @@
 -- nullable, tags получает '[]' через DEFAULT — бэкфилла нет, UPDATE нет. Default
 -- постоянный, поэтому ADD COLUMN … DEFAULT — правка каталога, без перезаписи таблицы.
 --
+-- Почему в индексе NULLS FIRST, а не LAST. Это не про NULL в данных
+-- (created_at — NOT NULL с 0000), а про совпадение ПУТЕЙ СОРТИРОВКИ: у DESC в
+-- PostgreSQL умолчание — NULLS FIRST, и ORDER BY витрины (`desc(createdAt),
+-- desc(id)` в apps/core/src/artifacts/artifacts.service.ts) даёт именно его.
+-- С NULLS LAST планировщик брал из индекса ОДНО равенство по kind и сортировал
+-- заново; замер на 50 000 строках (PostgreSQL 15.14 и pglite 17.5) — Bitmap
+-- Heap Scan + top-N heapsort, 859 буферов, против Index Scan + Incremental Sort
+-- и 5 буферов. Обязательство держит один автор индекса, а не каждый будущий
+-- читатель таблицы, которому иначе пришлось бы помнить про NULLS LAST.
+--
 -- Почему НЕ `CREATE INDEX CONCURRENTLY`. Мигратор drizzle (migrate.ts →
 -- drizzle-orm/pg-core/dialect.js) применяет ВСЕ ожидающие файлы внутри одной
 -- транзакции, а CONCURRENTLY в транзакции запрещён — оператор упал бы и
@@ -41,4 +51,4 @@
 ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "title" text;--> statement-breakpoint
 ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "domain" "domain";--> statement-breakpoint
 ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "tags" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "attachment_kind_created_idx" ON "attachment" USING btree ("kind","created_at" DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS "attachment_kind_created_idx" ON "attachment" USING btree ("kind","created_at" DESC NULLS FIRST);

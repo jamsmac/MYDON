@@ -69,19 +69,22 @@ await assert.rejects(
 const [док] = await run(`select title, domain, tags::text as tags from attachment where id = '${ДОК}'`);
 assert.deepEqual([док.title, док.domain, док.tags], ["Дебиторка GLOBERENT за август", "globerent", '["bot"]']);
 
-// Индекс есть, не уникальный, по (kind, created_at DESC).
+// Индекс есть, не уникальный, по (kind, created_at DESC NULLS FIRST).
 const [idx] = await run(
   `select indexdef from pg_indexes where tablename = 'attachment' and indexname = 'attachment_kind_created_idx'`,
 );
 assert.ok(idx, "индекса attachment_kind_created_idx нет");
-// NULLS LAST не выпадает из вывода: для DESC-колонки в Postgres умолчание —
-// NULLS FIRST, поэтому pg_get_indexdef() всегда печатает явную NULLS LAST,
-// которую задаёт .desc() в schema.ts (реальный SQL проверен и на pglite, и
-// на postgres:17 — брифовая версия регэкспа без "NULLS LAST" не совпадает
-// ни с одним из движков).
+// Порядок NULL в выводе НЕ ПЕЧАТАЕТСЯ, и это признак верной формы: для
+// DESC-колонки умолчание — NULLS FIRST, а pg_get_indexdef() опускает то, что
+// и так по умолчанию. То есть «created_at DESC» без хвоста = NULLS FIRST =
+// путь сортировки витрины (`desc(createdAt), desc(id)`). Прежняя форма с
+// .desc() без .nullsFirst() печаталась как «DESC NULLS LAST» — и половина
+// индекса была мертва: планировщик брал равенство по kind и сортировал
+// заново. Измерено 08.09.2026 на pglite 17.5 и PostgreSQL 15.14 — вывод
+// одинаковый на обоих движках.
 assert.match(
   idx.indexdef,
-  /^CREATE INDEX attachment_kind_created_idx ON public\.attachment USING btree \(kind, created_at DESC NULLS LAST\)$/,
+  /^CREATE INDEX attachment_kind_created_idx ON public\.attachment USING btree \(kind, created_at DESC\)$/,
 );
 
 // Откат — ровно операторы из заголовка миграции 0089.

@@ -1198,9 +1198,19 @@ export const attachment = pgTable(
     // Витрина /artifacts: «последние артефакты такого рода». До среза A3 был
     // только (owner_type, owner_id) — запрос по kind шёл бы полным сканом по
     // таблице с фото полевого контура. `.desc()` на колонке, а не `desc()`
-    // из drizzle-orm: так генератор пишет "created_at" DESC NULLS LAST, и
+    // из drizzle-orm: так генератор пишет порядок в саму колонку индекса, и
     // снапшот хранит колонку, а не выражение.
-    index("attachment_kind_created_idx").on(t.kind, t.createdAt.desc()),
+    //
+    // `.nullsFirst()` — НЕ про NULL в данных (created_at NOT NULL с 0000), а
+    // про совпадение путей сортировки: у `DESC` в PostgreSQL умолчание —
+    // NULLS FIRST, и ORDER BY витрины (`desc(createdAt), desc(id)` в
+    // artifacts.service.ts) даёт именно его. Индекс с NULLS LAST планировщик
+    // берёт только на равенство по kind, а сортировать обязан заново: замер на
+    // 50 000 строках (PostgreSQL 15.14 и pglite 17.5) — Bitmap Heap Scan +
+    // top-N heapsort, 859 буферов против 5 у Index Scan + Incremental Sort.
+    // Обязательство держит ОДИН автор индекса, а не каждый будущий читатель
+    // таблицы, которому иначе пришлось бы писать ORDER BY … DESC NULLS LAST.
+    index("attachment_kind_created_idx").on(t.kind, t.createdAt.desc().nullsFirst()),
   ],
 );
 
