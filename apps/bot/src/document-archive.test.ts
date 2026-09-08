@@ -89,7 +89,9 @@ describe("Архив документов бота (срез A3, Р-A3-1/Р-A3-2
     assert.deepEqual(запись.bytes, ФАЙЛ.content);
     assert.deepEqual(запись.tags, ["bot"]);
     assert.equal(запись.domain, "globerent");
-    assert.equal(запись.createdBy, "owner");
+    // Аудитное поле обязано говорить, КТО попросил: отчёт может запросить любой
+    // из заведённых людей, и «owner» про запрос сотрудника было бы ложью.
+    assert.equal(запись.createdBy, `person:${ВЛАДЕЛЕЦ.id}`);
     assert.deepEqual(st.отправлено, [{ filename: ФАЙЛ.filename, bytes: ФАЙЛ.content.length }]);
     assert.deepEqual(st.сообщения, []);
     assert.deepEqual(итог, { savedId: "a1", sent: true });

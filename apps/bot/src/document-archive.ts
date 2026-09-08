@@ -172,9 +172,10 @@ export async function доставитьДокумент(
         bytes: doc.content,
         tags: ["bot"],
         ...(doc.domain ? { domain: doc.domain } : {}),
-        // «owner», а не `person:<id>`: кто именно попросил, уже сказано в
-        // ownerId, а витрина печатает автора словом («владелец»).
-        createdBy: "owner",
+        // `person:<id>`, как в остальных записях бота: отчёт может попросить
+        // любой из заведённых людей, и «owner» про запрос сотрудника было бы
+        // ложью в аудитном поле. Читаемость — забота витрины, не хранения.
+        createdBy: `person:${хозяин.owner.id}`,
       });
       savedId = saved.id;
     } catch (error) {
