@@ -365,6 +365,73 @@ describe("Состояние агента словами (R-A2-1, решения
     assert.equal(чисто.reason, "агент выключен в карточке (статус paused)");
   });
 
+  it("ВЫКЛЮЧЕННАЯ КАРТОЧКА: цитируется САМЫЙ СВЕЖИЙ затык, прежние сосчитаны (круг починок 1, находка 3)", () => {
+    // Правило 4 получило хвост и цитату от того же `blocked`, что правила 2/3/5,
+    // но на ЭТОЙ поверхности не проверялось ничего: мутация «выкинуть счётчик
+    // прежних только у правила 4» и подмена `latest` на `earliest` в цитате
+    // проходили зелёными. Регресс молчал бы в CI — а на экране агент со снятой
+    // карточкой и тремя затыками показывал бы один и терял бы остальные.
+    const давно = new Date(NOW.getTime() - 7 * 86_400_000);
+    const недавно = new Date(NOW.getTime() - 30_000);
+    const середина = new Date(NOW.getTime() - 3_600_000);
+    const вердикт = computeAgentState(
+      input({
+        passportStatus: "paused",
+        claimedTasks: [
+          task({ id: "старый", skill: "old-skill", claimedAt: null, blockedAt: давно, blockedReason: "старая причина" }),
+          task({ id: "средний", skill: "mid-skill", claimedAt: null, blockedAt: середина, blockedReason: "средняя причина" }),
+          task({ id: "свежий", skill: "new-skill", claimedAt: null, blockedAt: недавно, blockedReason: "свежая причина" }),
+        ],
+      }),
+    );
+    assert.equal(вердикт.state, "paused");
+    // Цитата, ссылка и навык — от САМОГО СВЕЖЕГО затыка: он описывает, где
+    // агент сейчас, а старый — история.
+    assert.match(вердикт.reason, /свежая причина/);
+    assert.match(вердикт.reason, /навык «new-skill»/);
+    assert.equal(вердикт.taskId, "свежий");
+    assert.equal(вердикт.skill, "new-skill");
+    assert.doesNotMatch(вердикт.reason, /старая причина|средняя причина/, "старые причины в цитату не едут");
+    // Прежние неразобранные НЕ ПРОПАЛИ — счётчиком, той же фразой, что у
+    // правил 2/3/5: три затыка, процитирован один, прежних два.
+    assert.match(вердикт.reason, /прежних затыков не разобрано ещё: 2/);
+    // При одном затыке счётчика нет: строка, которая есть всегда, не значит ничего.
+    const один = computeAgentState(
+      input({
+        passportStatus: "paused",
+        claimedTasks: [task({ claimedAt: null, blockedAt: недавно, blockedReason: "свежая причина" })],
+      }),
+    );
+    assert.doesNotMatch(один.reason, /прежних затыков/);
+  });
+
+  it("ОБОРВАННЫЙ CLAIM — ПО САМОМУ РАННЕМУ протухшему claim (круг починок 1, находка 4)", () => {
+    // `earliest` не тронут потому, что нужен ДВУМ правилам: длительности живой
+    // работы (правило 3, закреплено выше) и оборванному claim'у (правило 6).
+    // Второе не проверял никто: флип полярности внутри `earliest` ронял ровно
+    // один тест. «С каких пор» обязано быть самым ранним и здесь — иначе
+    // давность скачет между запросами при нескольких протухших задачах.
+    const рано = new Date(NOW.getTime() - LEASE_MS - 3_600_000);
+    const поздно = new Date(NOW.getTime() - LEASE_MS - 60_000);
+    const вердикт = computeAgentState(
+      input({
+        claimedTasks: [
+          task({ id: "поздний", skill: "late", scheduled: false, claimedAt: поздно }),
+          task({ id: "ранний", skill: "early", scheduled: true, claimedAt: рано }),
+        ],
+      }),
+    );
+    assert.equal(вердикт.state, "idle");
+    assert.deepEqual(вердикт.since, рано, "давность оборванного claim — от самой ранней отметки");
+    assert.equal(вердикт.taskId, "ранний");
+    assert.equal(вердикт.skill, "early");
+    // И СУДЬБА названа по ЭТОЙ задаче: у ранней `scheduled: true` — её
+    // подхватит опрос расписаний, у поздней фраза была бы про «взять заново».
+    assert.match(вердикт.reason, /навык «early»/);
+    assert.match(вердикт.reason, /cron-задачу подхватит следующий опрос расписаний/);
+    assert.doesNotMatch(вердикт.reason, /можно взять заново/);
+  });
+
   it("порядок правил закреплён целиком: оба тумблера и выключенная карточка не отменяют живой claim", () => {
     const работа = computeAgentState(
       input({ passportStatus: "active", paused: { tasks: true, schedules: true }, claimedTasks: [task()] }),

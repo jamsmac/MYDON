@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { Logger } from "@nestjs/common";
 import type { LlmLedgerMonitoring, OurvendHealth } from "@mydon/shared";
 import { STALE_AFTER_SEC } from "../routines/board";
 import { AppsHealthService } from "./apps-health.service";
@@ -177,6 +178,13 @@ interface Мир {
    * `попытка()` его не отличить от «ещё считаем».
    */
   висит?: { снимок?: boolean; ourvend?: boolean; ledger?: boolean };
+  /**
+   * Своё обещание вместо отчёта OurVend: тест сам решает, когда и чем оно
+   * кончится. Нужно для ПОЗДНЕГО отказа — источник молчал дольше таймаута, а
+   * потом упал; это ровно тот сценарий, ради которого таймаут и заведён, и
+   * его причина обязана попасть в журнал.
+   */
+  ourvendОбещанием?: () => Promise<never>;
 }
 
 /** Обещание, которое не исполнится: так выглядит источник, переставший отвечать. */
@@ -236,7 +244,9 @@ function зависимости(м: Мир): [Db, Runs, Ourvend, Llm, Events] {
   } as unknown as Runs;
   const ourvend = {
     health: () =>
-      м.висит?.ourvend === true
+      м.ourvendОбещанием !== undefined
+        ? м.ourvendОбещанием()
+        : м.висит?.ourvend === true
         ? НАВСЕГДА()
         : м.отказ?.ourvend !== undefined
           ? Promise.reject(new Error(м.отказ.ourvend))
@@ -442,6 +452,97 @@ describe("Сборка здоровья приложений (R-A2-2, решен
     assert.equal(слой.checksKnown, false);
     // Журнал прогонов прочитан — тик монитора известен и здесь.
     assert.equal(найти(ответ.outside, FACES.fx.key).lastCheckedAt, new Date(NOW.getTime() - ЧАС).toISOString());
+  });
+
+  it("ПОЗДНИЙ ОТКАЗ ЗАБРОШЕННОГО ЧТЕНИЯ ПИШЕТ ПРИЧИНУ В ЖУРНАЛ (круг починок 1, находка 7)", async () => {
+    // Источник, который стабильно отвечает 9–10 с и ПОТОМ падает, — ровно тот
+    // случай, ради которого таймаут и заведён. Без своего `.catch()` в журнале
+    // оставалось бы только «ответа нет за 200 мс», а сообщение драйвера не
+    // писалось бы никогда: диагностика мотивирующего сценария стала бы беднее
+    // прежней, когда `попытка()` ждала до конца и причину знала.
+    let уронить!: (e: unknown) => void;
+    const позже = new Promise<never>((_, reject) => {
+      уронить = reject;
+    });
+    const записи: string[] = [];
+    const прежнийWarn = Logger.prototype.warn;
+    let ответ: Awaited<ReturnType<AppsHealthService["health"]>>;
+    try {
+      Logger.prototype.warn = function (...args: unknown[]) {
+        записи.push(args.map((a) => String(a)).join(" "));
+      } as unknown as typeof Logger.prototype.warn;
+      ответ = await быстраяСлужба({ ourvendОбещанием: () => позже }).health(NOW);
+      // Строка уже собрана и уже сказала правду про таймаут; теперь источник
+      // отвечает отказом — с текстом драйвера, который несёт хост и порт.
+      уронить(new Error("connect ETIMEDOUT 10.0.0.5:5432"));
+      // Обработчик отказа — микрозадача; `setImmediate` даёт ей отработать.
+      await new Promise((готово) => setImmediate(готово));
+    } finally {
+      Logger.prototype.warn = прежнийWarn;
+    }
+    const позднее = записи.filter((з) => /после таймаута/.test(з));
+    assert.equal(позднее.length, 1, `причина позднего отказа в журнале: ${JSON.stringify(записи)}`);
+    assert.match(позднее[0] ?? "", /отчёт OurVend/);
+    assert.match(позднее[0] ?? "", /connect ETIMEDOUT 10\.0\.0\.5:5432/);
+    // Про сам таймаут запись тоже есть — одна, а не вместо.
+    assert.equal(записи.filter((з) => /ответа нет за/.test(з)).length, 1);
+    // НАРУЖУ ПРИЧИНА НЕ ЕДЕТ: строка панели говорит про таймаут, а сообщение
+    // драйвера с хостом и портом остаётся в журнале Core.
+    const сбор = найти(ответ.outside, FACES.ourvendSync.key);
+    assert.match(сбор.detail ?? "", /источник не ответил за 0,2 с/);
+    assert.doesNotMatch(сбор.detail ?? "", /ETIMEDOUT|10\.0\.0\.5/);
+  });
+
+  it("РАННИЙ ОТКАЗ НЕ ПИШЕТСЯ ДВАЖДЫ: причина одна, и она не про таймаут (находка 7)", async () => {
+    // Обратная половина: обработчик навешен ДО гонки, поэтому на раннем отказе
+    // он отработает первым — и обязан промолчать, иначе одно событие попало бы
+    // в журнал двумя записями.
+    const записи: string[] = [];
+    const прежнийWarn = Logger.prototype.warn;
+    try {
+      Logger.prototype.warn = function (...args: unknown[]) {
+        записи.push(args.map((a) => String(a)).join(" "));
+      } as unknown as typeof Logger.prototype.warn;
+      await быстраяСлужба({ отказ: { ourvend: "донор недоступен" } }).health(NOW);
+      await new Promise((готово) => setImmediate(готово));
+    } finally {
+      Logger.prototype.warn = прежнийWarn;
+    }
+    assert.deepEqual(записи, ["отчёт OurVend не прочитан: донор недоступен"]);
+  });
+
+  it("ТАЙМЕРЫ ГАСЯТСЯ ПОСЛЕ ОТВЕТА: висящих не остаётся (круг починок 1, находка 6)", async () => {
+    // Без `clearTimeout` все тесты файла зелёные, а длительность прыгает с
+    // 0,6 до 5,6 с: шесть живых пятисекундных таймеров держат событийный цикл.
+    // То есть на проде утечка, а CI сказал бы только «набор стал медленнее» —
+    // и это не то сообщение, по которому кто-то пойдёт чинить.
+    //
+    // СЧИТАЕМ ЖИВЫЕ ТАЙМЕРЫ, А НЕ ДЛИТЕЛЬНОСТЬ: ассерт на время прогона был бы
+    // тем же «набор стал медленнее», только с порогом, который однажды
+    // сработает на загруженной машине.
+    const setOrig = globalThis.setTimeout;
+    const clearOrig = globalThis.clearTimeout;
+    const живые = new Set<unknown>();
+    let создано = 0;
+    try {
+      globalThis.setTimeout = ((fn: (...a: unknown[]) => void, ms?: number, ...a: unknown[]) => {
+        const id = setOrig(fn, ms, ...a);
+        создано += 1;
+        живые.add(id);
+        return id;
+      }) as unknown as typeof setTimeout;
+      globalThis.clearTimeout = ((id?: unknown) => {
+        живые.delete(id);
+        return clearOrig(id as Parameters<typeof clearTimeout>[0]);
+      }) as unknown as typeof clearTimeout;
+      await сервис().health(NOW);
+    } finally {
+      globalThis.setTimeout = setOrig;
+      globalThis.clearTimeout = clearOrig;
+    }
+    // Не вакуумно: таймеры вообще заводились (снятие гонки целиком обнулит это).
+    assert.ok(создано > 0, "гонки с таймаутом нет вовсе — тогда и гасить нечего");
+    assert.equal(живые.size, 0, `после ответа осталось висящих таймеров: ${живые.size} из ${создано}`);
   });
 
   it("монитор с именем лица слоя не даёт ВТОРОЙ строки с тем же ключом (M-8)", async () => {
