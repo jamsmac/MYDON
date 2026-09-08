@@ -14,10 +14,16 @@ import { СВЕТЛАЯ, ТЁМНАЯ_ВЫБРАННАЯ, ТЁМНАЯ_СИСТ�
  * элементе `html`, либо нет.
  *
  * Заголовки глушатся так же, как в `lib/owner.test.ts`: вне запроса
- * `next/headers` ничего не отдаёт.
+ * `next/headers` ничего не отдаёт. `cookies()` (Задача 3) сторожит не этот
+ * файл — он же `header-actions.test.tsx`, — здесь достаточно заглушки без
+ * куки: пропс `themeChoice` в этом наборе не проверяется, `HeaderActions`
+ * замокан целиком.
  */
 const mocks = vi.hoisted(() => ({ get: vi.fn<(name: string) => string | null>() }));
-vi.mock("next/headers", () => ({ headers: async () => ({ get: mocks.get }) }));
+vi.mock("next/headers", () => ({
+  headers: async () => ({ get: mocks.get }),
+  cookies: async () => ({ get: () => undefined }),
+}));
 // Шрифты — файлы через `next/font/local`; вне сборки Next загрузчика нет.
 vi.mock("next/font/local", () => ({ default: () => ({ variable: "font" }) }));
 // Счётчики меню ходят в Core; здесь проверяется штамп темы, а не Core.

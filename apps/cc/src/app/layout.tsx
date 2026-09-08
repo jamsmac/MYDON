@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import localFont from "next/font/local";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { core } from "../lib/core";
-import { CONSOLE_HEADER, THEME_BG, THEME_HEADER, isThemeChoice, type ThemeChoice } from "../lib/theme";
+import { CONSOLE_HEADER, THEME_BG, THEME_COOKIE, THEME_HEADER, isThemeChoice, type ThemeChoice } from "../lib/theme";
 import { Sidebar, TabBar } from "../components/nav";
 import { FloatingChat } from "../components/floating-chat";
 import { CommandPalette } from "../components/command-palette";
@@ -140,6 +140,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   ]);
   const inbox = pending + queue;
 
+  // Выбор темы для переключателя — из КУКИ, не из заголовка `x-mydon-theme`:
+  // заголовок несёт фактическую тему (на /apps без куки это «dark»), а
+  // переключатель показывает ВЫБОР — «как в системе» там законно. Кука —
+  // единственный носитель выбора; чужое значение считаем отсутствием выбора,
+  // ровно как `themeFor` в middleware.
+  const rawTheme = (await cookies()).get(THEME_COOKIE)?.value;
+  const themeChoice: ThemeChoice | "system" = rawTheme === "light" || rawTheme === "dark" ? rawTheme : "system";
+
   // Тема — АТРИБУТОМ В РАЗМЕТКЕ, до любого скрипта (Р-Д2-1): прежний ручной
   // штамп темы ставил её из `useEffect` на каждой странице, и первый кадр
   // консоли был светлым.
@@ -166,7 +174,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <h1>MYDON</h1>
             <span className="sub">· командный центр</span>
             <span className="sp" />
-            <HeaderActions pendingCount={inbox} />
+            <HeaderActions pendingCount={inbox} themeChoice={themeChoice} />
           </header>
 
           <div className="body">

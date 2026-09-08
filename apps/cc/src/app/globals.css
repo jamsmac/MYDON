@@ -265,6 +265,29 @@ h1, h2, h3 { font-family: var(--fh); letter-spacing: -0.01em; margin: 0; }
 }
 .iconbtn.on { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
 
+/* Переключатель темы — родной <select>, а не три чипа рядом. Арифметика
+   390px: полезных 362px; лого 26 + «MYDON» ≈62 + три кнопки по 34 +
+   6 промежутков по 10 = 250, контролу остаётся ~112. Три слова чипами
+   («как в системе» · «светлая» · «тёмная») — ~255px, «MYDON» ушёл бы в
+   многоточие. Свёрнутый select — одно слово текущего состояния, ~103px без
+   родной стрелки (`appearance: none`); развёрнутый — все три. Цвета только
+   токенами — контрол обязан читаться в ОБЕИХ темах; раскрытый список красит
+   браузер по `color-scheme` корня. Новых токенов нет. */
+.hdr .theme-sw {
+  height: 34px; flex: 0 0 auto; padding: 0 8px; appearance: none;
+  border: 1px solid var(--line); border-radius: var(--r-s); background: var(--surf); color: var(--tx-2);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.hdr .theme-sw:hover, .hdr .theme-sw:focus-visible { color: var(--tx); border-color: var(--accent-line); }
+.hdr .theme-sw:disabled { opacity: 0.55; cursor: default; }
+/* Отказ action: выбор остаётся в контроле (§7), «повторить» — роль кнопки
+   отправки формы, потому что select не шлёт change на уже выбранное. На
+   телефоне длинное сообщение режется многоточием, полный текст — в title. */
+.hdr .theme-retry {
+  background: none; border: 0; padding: 0; font-size: 12px; cursor: pointer; text-decoration: underline;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 .body { flex: 1; display: flex; min-height: 0; }
 .side { display: none; }
 .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px 14px calc(var(--bar) + 28px); }
