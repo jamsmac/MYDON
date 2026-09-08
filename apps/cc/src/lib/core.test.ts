@@ -185,4 +185,50 @@ describe("Состояние агентов и здоровье приложен
     await (await сТокеном()).artifacts();
     expect(вызовы[0]).toMatch(/\/artifacts$/);
   });
+
+  /**
+   * Срез A3, вторая половина закрытия `attachment` (ловушка спеки §6 п. 3).
+   * `AttachmentsController` в Core закрыт классовым `ReadTokenGuard` целиком:
+   * витрина печатает список id, а `GET /attachments` отдавал метаданные, где
+   * `url` — пресайнед-ссылка S3 на байты. Панель — главный читатель этих
+   * дверей, и без токена полевой контур (галерея карточки, очередь
+   * утверждения, картинка в `<img>`) получил бы 401 вместо фото.
+   */
+  it("attachments и attachmentsBatch несут x-service-token (галерея карточки и очередь)", async () => {
+    const заголовки = stubHeaders();
+    const клиент = await сТокеном();
+    await клиент.attachments("entity", "e1");
+    await клиент.attachmentsBatch("entity", ["e1", "e2"]);
+    expect(заголовки).toHaveLength(2);
+    expect(заголовки[0]?.["x-service-token"], "галерея карточки без токена = 401").toBe(
+      "secret-token",
+    );
+    expect(заголовки[1]?.["x-service-token"], "очередь утверждения без токена = 401").toBe(
+      "secret-token",
+    );
+  });
+
+  it("coreBytes несёт x-service-token — иначе прокси картинки отдаёт 502 вместо файла", async () => {
+    // Единственный путь байтов вложения в браузер владельца: прокси панели
+    // `/api/attachments/:id/raw` → `coreBytes` → `GET /attachments/:id/raw`.
+    // Тем же `coreBytes` качается docx договора.
+    const вызовы: { url: string; headers: Record<string, string> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        вызовы.push({ url: String(url), headers: (init?.headers as Record<string, string>) ?? {} });
+        return {
+          ok: true,
+          arrayBuffer: async () => new ArrayBuffer(3),
+          headers: { get: () => "image/jpeg" },
+        } as unknown as Response;
+      }),
+    );
+    vi.stubEnv("SERVICE_TOKEN", "secret-token");
+    vi.resetModules();
+    const { coreBytes } = await import("./core");
+    const ответ = await coreBytes("/attachments/att-1/raw");
+    expect(вызовы[0]?.headers["x-service-token"]).toBe("secret-token");
+    expect(ответ.contentType).toBe("image/jpeg");
+  });
 });

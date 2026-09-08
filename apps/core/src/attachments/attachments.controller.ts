@@ -10,6 +10,7 @@ import {
   Query,
   Res,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -26,7 +27,7 @@ import {
   Matches,
   MaxLength,
 } from "class-validator";
-import { Public } from "../common/public.decorator";
+import { ReadTokenGuard } from "../common/read-token.guard";
 import {
   ATTACHMENT_STAGES,
   AttachmentsService,
@@ -148,8 +149,38 @@ export class UploadDto {
   tags?: string[];
 }
 
-/** Вложения: фото номенклатуры, чеки. Файл — в хранилище, метаданные — в БД. */
+/**
+ * Вложения: фото номенклатуры, чеки, документы агентов. Файл — в хранилище,
+ * метаданные — в БД.
+ *
+ * ТОКЕН ОБЯЗАТЕЛЕН И НА ЧТЕНИЕ (ловушка спеки A3 §6 п. 3, проверена по коду).
+ * Глобальный `ServiceTokenGuard` пропускает GET/HEAD/OPTIONS, и до среза A3 все
+ * четыре читающих маршрута отдавали содержимое архива любому, кто дотянулся до
+ * сети Core. Срез A3 сделал это материально хуже: витрина `/artifacts` печатает
+ * СПИСОК id, владельцев и названий, а названия документов бота — тот же
+ * пересказ работы агентов по делам владельца («Дебиторка GLOBERENT за
+ * август»), ради которого закрыты `/routines/runs`, `/agents/status` и сам
+ * `GET /artifacts`.
+ *
+ * Guard на КЛАССЕ, а не на одном `raw`, потому что дверь и стена — не одно и
+ * то же, а на этой таблице их четыре. Закрыть только `raw` было бы театром:
+ * `GET /attachments?ownerType=person&ownerId=…` отдаёт метаданные, где `url` —
+ * это ПРЕСАЙНЕД-ССЫЛКА S3 на час (`storage.service.ts`), то есть сами байты в
+ * обход закрытого `raw`; а `ownerId` человека берётся из бестокенного
+ * `GET /people`. `meta` и `batch` — те же названия и те же ссылки. Проверка на
+ * «перебор UUID v4 невозможен» этого не отменяет: перебирать и не нужно, id
+ * выдаются списком.
+ *
+ * Кто ходит сюда и потому обязан носить токен: панель
+ * (`apps/cc/src/lib/core.ts` — `attachments`, `attachmentsBatch` через
+ * `getWithToken`, и `coreBytes` для прокси `/api/attachments/:id/raw`) и бот
+ * (`apps/bot/src/core-client.ts` — `request()` и загрузка ставят токен всегда).
+ * Полевой контур — фото и чеки на проде — виден через прокси панели, и он
+ * ломается ровно тогда, когда токен перестаёт ехать: сторож этой пары —
+ * `apps/cc/src/app/api/attachments/[id]/raw/route.token.test.ts`.
+ */
 @Controller("attachments")
+@UseGuards(ReadTokenGuard)
 export class AttachmentsController {
   constructor(private readonly attachments: AttachmentsService) {}
 
@@ -187,7 +218,9 @@ export class AttachmentsController {
 
   /**
    * Отдать сам файл — для локального хранилища (у S3 ссылка presigned, и панель
-   * ходит прямо в него). Открыт на чтение: панель кладёт это в `<img>`.
+   * ходит прямо в него). ЗА ТОКЕНОМ, как весь контроллер: в `<img>` браузера
+   * это попадает не напрямую, а через прокси панели
+   * (`apps/cc/src/app/api/attachments/[id]/raw/route.ts`), который токен несёт.
    *
    * `nosniff` — всегда: браузеру нельзя угадывать тип по содержимому, иначе
    * файл, принятый как картинка, исполнился бы как HTML на origin панели. Всё,
@@ -196,7 +229,6 @@ export class AttachmentsController {
    * исполняемым типом (легаси до белого списка) уйдёт inline, скрипты в ней
    * при прямом переходе не выполнятся; показу в `<img>` заголовок не мешает.
    */
-  @Public()
   @Get(":id/raw")
   async raw(@Param("id", ParseUUIDPipe) id: string, @Res() res: Response) {
     const { bytes, mime } = await this.attachments.raw(id);

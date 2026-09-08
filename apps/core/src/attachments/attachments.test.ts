@@ -1,12 +1,17 @@
+// Метаданные Nest (`__guards__`, IS_PUBLIC) существуют только при загруженном
+// reflect-metadata: без него ассерты про гарды прошли бы на `undefined`.
+import "reflect-metadata";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import { domainEnum } from "@mydon/db";
 import { DOMAINS } from "@mydon/shared";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
+import { IS_PUBLIC } from "../common/public.decorator";
+import { ReadTokenGuard } from "../common/read-token.guard";
 import {
   ATTACHMENT_TAGS_MAX,
   ATTACHMENT_TAG_MAX,
@@ -15,6 +20,7 @@ import {
   UploadDto,
   isImageMime,
 } from "./attachments.controller";
+import { AttachmentsModule } from "./attachments.module";
 import { AttachmentsService, tagsOf } from "./attachments.service";
 import { StorageService } from "./storage.service";
 
@@ -463,5 +469,65 @@ describe("Документ: файлы @mydon/documents проходят бел�
     const { service, written } = uploadHarness();
     await assert.rejects(() => service.upload(upload("doc"), file("text/html")), /Недопустимый тип файла/);
     assert.deepEqual(written, []);
+  });
+});
+
+// ── Срез A3, ловушка спеки §6 п. 3: вложения закрыты токеном и на чтение ─────
+
+describe("Читающие двери вложений — за сервисным токеном (ловушка спеки A3 §6 п. 3)", () => {
+  const prev = process.env.SERVICE_TOKEN;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.SERVICE_TOKEN;
+    else process.env.SERVICE_TOKEN = prev;
+  });
+
+  const ctx = (headers: Record<string, string> = {}) =>
+    ({
+      switchToHttp: () => ({ getRequest: () => ({ method: "GET", headers }) }),
+      getHandler: () => (): void => undefined,
+      getClass: () => class {},
+    }) as unknown as Parameters<ReadTokenGuard["canActivate"]>[0];
+
+  it("guard навешен на КОНТРОЛЛЕР: закрыты и raw, и список, и batch, и meta", () => {
+    // На маршруте guard был бы забыт следующим `@Get`: витрина `/artifacts`
+    // печатает id и владельцев пачкой, и любая новая читающая дверь над
+    // `attachment` открывает тот же архив.
+    const guards: unknown = Reflect.getMetadata("__guards__", AttachmentsController);
+    assert.ok(
+      Array.isArray(guards) && guards.includes(ReadTokenGuard),
+      "нет @UseGuards(ReadTokenGuard) на AttachmentsController",
+    );
+  });
+
+  it("на raw больше нет @Public(): пометка «намеренно открыт» была бы ложью", () => {
+    for (const цель of [
+      AttachmentsController,
+      AttachmentsController.prototype.raw,
+      AttachmentsController.prototype.list,
+      AttachmentsController.prototype.batch,
+      AttachmentsController.prototype.meta,
+    ]) {
+      assert.equal(
+        Reflect.getMetadata(IS_PUBLIC, цель),
+        undefined,
+        "@Public() на вложениях: глобальный guard и так пропускает GET, а пометка врёт про открытость",
+      );
+    }
+  });
+
+  it("guard — провайдер модуля: иначе Nest создаёт его вслепую", () => {
+    const providers: unknown = Reflect.getMetadata("providers", AttachmentsModule);
+    assert.ok(
+      Array.isArray(providers) && providers.includes(ReadTokenGuard),
+      "ReadTokenGuard не в providers AttachmentsModule",
+    );
+  });
+
+  it("анонимный GET raw отклоняется, верный токен проходит", () => {
+    process.env.SERVICE_TOKEN = "secret";
+    assert.throws(() => new ReadTokenGuard().canActivate(ctx()), /токен/);
+    assert.throws(() => new ReadTokenGuard().canActivate(ctx({ "x-service-token": "wrong" })), /токен/);
+    assert.equal(new ReadTokenGuard().canActivate(ctx({ "x-service-token": "secret" })), true);
+    assert.equal(new ReadTokenGuard().canActivate(ctx({ authorization: "Bearer secret" })), true);
   });
 });

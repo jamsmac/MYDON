@@ -2461,13 +2461,25 @@ export interface Attachment {
  * Core наружу не смотрит, а `<img>` в браузере ходит на панель — поэтому байты
  * идут через неё же, как и выгрузки. Отдаём тело и тип, а стримингом займётся
  * маршрут.
+ *
+ * С СЕРВИСНЫМ ТОКЕНОМ (срез A3): `AttachmentsController` закрыт классовым
+ * `ReadTokenGuard` — до среза `GET /attachments/:id/raw` отдавал файл по id
+ * вообще без проверки, а витрина `/artifacts` сделала перебор ненужным, печатая
+ * список id. Без заголовка Core ответил бы 401, и прокси отдал бы в `<img>`
+ * текст ошибки вместо фото: сторож пары —
+ * `app/api/attachments/[id]/raw/route.token.test.ts`. Заголовки берём там же,
+ * где мутации (`coreWriteHeaders`), — токен подставляется в одном месте панели.
  */
 export async function coreBytes(
   path: string,
 ): Promise<{ body: ArrayBuffer; contentType: string | null }> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+    res = await fetch(`${BASE}${path}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+      headers: coreWriteHeaders(false),
+    });
   } catch (err) {
     throw new CoreUnavailable(err instanceof Error ? err.message : String(err));
   }
@@ -3511,20 +3523,28 @@ export const core = {
   contractorsAll: () => get<Entity[]>(`/entities?type=contractor&limit=${MAX_FIND_LIMIT}`),
   entity: (id: string) => get<Entity>(`/entities/${id}`),
   createEntity: (input: Record<string, unknown>) => send<Entity>("/entities", "POST", input),
-  /** Вложения записи (фото номенклатуры, чеки) — для галереи карточки. */
+  /**
+   * Вложения записи (фото номенклатуры, чеки) — для галереи карточки.
+   *
+   * С ТОКЕНОМ (срез A3): весь `AttachmentsController` закрыт `ReadTokenGuard`.
+   * Отдавать этот список без токена было нельзя не только из-за названий
+   * артефактов: в `url` строки у S3-хранилища лежит ПРЕСАЙНЕД-ссылка на час,
+   * то есть сами байты в обход закрытого `raw`.
+   */
   attachments: (ownerType: string, ownerId: string) =>
-    get<Attachment[]>(
+    getWithToken<Attachment[]>(
       `/attachments?ownerType=${encodeURIComponent(ownerType)}&ownerId=${encodeURIComponent(ownerId)}`,
     ),
   /**
    * Вложения многих записей одним запросом — для очереди утверждения: пачка
    * черновиков показывается сразу с фото, без похода в хранилище по одному.
-   * Пустой набор ходить незачем — отдаём пустую карту сразу.
+   * Пустой набор ходить незачем — отдаём пустую карту сразу. Токен — по той же
+   * причине, что у `attachments`.
    */
   attachmentsBatch: (ownerType: string, ids: string[]) =>
     ids.length === 0
       ? Promise.resolve<Record<string, Attachment[]>>({})
-      : get<Record<string, Attachment[]>>(
+      : getWithToken<Record<string, Attachment[]>>(
           `/attachments/batch?ownerType=${encodeURIComponent(ownerType)}&ids=${encodeURIComponent(ids.join(","))}`,
         ),
   entityDrafts: (id: string) => get<EntityDraft[]>(`/entities/${id}/drafts`),
