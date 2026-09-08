@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { AGENT_BREAKDOWN_LED } from "../lib/state";
 import {
   СВЕТЛАЯ,
   ТЁМНАЯ_СИСТЕМНАЯ,
+  ТЁМНАЯ_ВЫБРАННАЯ,
   контраст,
   палитраБлока,
   последнееПравило,
@@ -254,43 +255,110 @@ describe("rules.md §4.3: колоночность 1/2/3", () => {
   });
 });
 
-describe("rules.md §9: долг Д2 помечен, а не починен наполовину", () => {
-  const долг = правилаОдной.slice(правилаОдной.indexOf("## 9. Долг среза Д2"));
+describe("rules.md §4: механизм темы описан по факту (Р-Д2-8)", () => {
+  // Шапка §4 — от заголовка до первого подраздела: сюда срез Д2 положил
+  // механизм темы, здесь же стоит ссылка на модуль маршрутов.
+  const шапка4 = правилаОдной.slice(правилаОдной.indexOf("## 4. "), правилаОдной.indexOf("### 4.1."));
 
-  it("секция долга есть", () => {
-    expect(правила).toContain("## 9. Долг среза Д2");
-  });
-
-  /*
-   * ДОЛГ МАРШРУТНОГО СПИСКА ЗАКРЫТ СРЕЗОМ Д2 — И СТОРОЖ РАЗВЁРНУТ, А НЕ СНЯТ.
-   *
-   * До Д2 здесь стояло обратное требование: §9 обязан ПЕРЕЧИСЛИТЬ расхождения
-   * (`/mydon`, `/agents`, `/apps`, `/artifacts`, `/docs`), потому что список
-   * маршрутов врал, и честная пометка была лучше правки наполовину. Теперь
-   * список — данные в одном модуле, §4 сверяется с ним тестом дрейфа, и
-   * прежнее требование заставляло бы §9 ДЕРЖАТЬ снятое утверждение.
-   *
-   * Поэтому снятие требования недопустимо, а разворот — обязателен: §9 не
-   * имеет права снова объявлять список разошедшимся, и обязан называть, ГДЕ
-   * теперь живёт механизм. Иначе следующий автор прочтёт закрытый долг как
-   * открытый и «починит» то, что уже стоит.
-   *
-   * Факт про `/artifacts` («маршрута нет вовсе, это срез A3») не потерян — он
-   * переехал в докблок `CONSOLE_ROUTES` (`apps/cc/src/lib/theme.ts`), то есть
-   * туда, где его прочтёт тот, кто список правит. В этом и был смысл среза.
-   */
-  it("долг маршрутного списка закрыт: §9 не объявляет его открытым и называет механизм", () => {
-    expect(долг, "§9 снова объявляет маршрутный список разошедшимся с реальностью").not.toContain(
-      "Маршрутный список §4 разошёлся с реальностью.** Тёмную тему",
-    );
-    for (const факт of ["CONSOLE_ROUTES", "apps/cc/src/lib/theme.ts", "apps/cc/src/proxy.ts"]) {
-      expect(долг, `в §9 не назван механизм: ${факт}`).toContain(факт);
+  it("маршруты — ссылкой на модуль под устойчивым маркером, и маркер один", () => {
+    // Сам абзац против `CONSOLE_ROUTES` сверяет тест дрейфа рядом с модулем
+    // (задача 2); здесь — только что маркер на месте и не размножился, иначе
+    // тому тесту нечего вырезать.
+    expect(правила, "маркер <!-- CONSOLE_ROUTES --> пропал из rules.md").toContain("<!-- CONSOLE_ROUTES -->");
+    expect(правила.split("<!-- CONSOLE_ROUTES -->").length - 1, "маркер обязан стоять ровно один раз").toBe(1);
+    for (const факт of ["`CONSOLE_ROUTES`", "`apps/cc/src/lib/theme.ts`", "isConsoleRoute"]) {
+      expect(шапка4, `§4 не называет ${факт}`).toContain(факт);
     }
   });
 
-  it("назван долг primitives.md по классам досок M/R", () => {
-    expect(долг).toContain("primitives.md");
-    expect(долг).toContain(".crons-table");
+  it("первый кадр держит сервер: прокси, заголовки, атрибуты в разметке", () => {
+    for (const факт of [
+      "apps/cc/src/proxy.ts",
+      "x-mydon-theme",
+      "x-mydon-console",
+      "headers()",
+      "suppressHydrationWarning",
+      'data-console="true"',
+      "generateViewport",
+      "themeFor",
+    ]) {
+      expect(шапка4, `§4 не знает факта «${факт}»`).toContain(факт);
+    }
+  });
+
+  it("навигацию держит клиент: ThemeSync в корневом layout, а не штамп на странице", () => {
+    for (const факт of ["ThemeSync", "apps/cc/src/components/theme-sync.tsx", "usePathname()"]) {
+      expect(шапка4, `§4 не знает факта «${факт}»`).toContain(факт);
+    }
+  });
+
+  it("выбор пользователя — кука с параметрами, переключатель — словами", () => {
+    for (const факт of [
+      "mydon_theme",
+      "SameSite=Lax",
+      "Path=/",
+      "setTheme",
+      "apps/cc/src/app/theme/actions.ts",
+      "header-actions.tsx",
+      "«как в системе» / «светлая» / «тёмная»",
+    ]) {
+      expect(шапка4, `§4 не знает факта «${факт}»`).toContain(факт);
+    }
+  });
+
+  it("color-scheme объявлен трижды, сетка — только на холсте и не в панели", () => {
+    for (const факт of [
+      "color-scheme",
+      "ОБЕИХ тёмных ветках",
+      '.app[data-console="true"]',
+      "radial-gradient",
+      "24px",
+      "1px",
+      "`.panel`/`.card`",
+      "mydon_bg",
+    ]) {
+      expect(шапка4, `§4 не знает факта «${факт}»`).toContain(факт);
+    }
+  });
+});
+
+/*
+ * ПРИЗРАКИ СРЕЗА Д2. Клиентский штамп темы и маршрут, которого нет, жили в
+ * навыке дольше, чем в коде; после среза любое их упоминание — снова ложь про
+ * код. `/artifacts` появится в модуле маршрутов (A3), а не в прозе навыка.
+ */
+describe("призраки среза Д2 из навыка ушли", () => {
+  it("ConsoleTheme не упоминается ни в одном файле навыка", () => {
+    for (const файл of ["rules.md", "primitives.md", "checklist.md", "tokens.md", "SKILL.md"] as const) {
+      expect(читать(НАВЫК, файл), `${файл} всё ещё знает ConsoleTheme`).not.toContain("ConsoleTheme");
+    }
+  });
+
+  it("маршрута-призрака /artifacts в правилах нет", () => {
+    expect(правилаОдной).not.toContain("/artifacts");
+  });
+});
+
+describe("rules.md §9: после Д2 остались только незакрытые долги", () => {
+  const долг = правилаОдной.slice(правилаОдной.indexOf("## 9. Долги после среза Д2"));
+
+  it("секция долга есть и названа по факту, а не наперёд", () => {
+    expect(правила).toContain("## 9. Долги после среза Д2");
+    expect(правила, "заголовок «Долг среза Д2» ушёл вместе с закрытыми пунктами").not.toContain(
+      "## 9. Долг среза Д2",
+    );
+  });
+
+  it("закрытые долги из §9 ушли: маршрутный список, штамп темы, сетка, инвентарь", () => {
+    // Каждый из четырёх закрыт срезом Д2; оставшись в §9, он учил бы автора
+    // нового экрана ставить тему штампом и искать примитив «глазами».
+    for (const призрак of [
+      "разошёлся с реальностью",
+      "Точечной сетки на холсте, которую требует §4, в коде нет",
+      "`primitives.md` не описывает",
+    ]) {
+      expect(долг, `в §9 остался закрытый долг: ${призрак}`).not.toContain(призрак);
+    }
   });
 
   it("одно слово на двух осях записано долгом, а не выдано за порядок", () => {
@@ -323,9 +391,79 @@ describe("primitives.md перестал числить существующие
     expect(примитивы).toContain("`.aggrid`");
   });
 
-  it("раздел «чего нет» больше не требует заводить `.led` заново", () => {
-    const хвост = примитивы.slice(примитивы.indexOf("## Чего нет"));
+  it("раздел «чего нет» больше не требует заводить `.led` заново и не отсылает искать доски глазами", () => {
+    const хвост = склеить(примитивы.slice(примитивы.indexOf("## Чего нет")));
     expect(хвост).toContain("больше НЕ в этом списке");
+    expect(хвост, "хвост снова числит доски A2/M/R неописанными").not.toContain("Ещё не описаны здесь классы досок");
+    expect(хвост, "хвост снова ссылается на закрытый долг §9").not.toContain("§9");
+  });
+});
+
+describe("primitives.md знает доски волн A2/M/R", () => {
+  const склеенные = склеить(примитивы);
+
+  it("раздел досок есть, и в нём все семейства классов", () => {
+    expect(примитивы).toContain("## Доски агентского слоя");
+    for (const класс of [
+      "`.aggrid`",
+      "`.agtile`",
+      "`.aghead`",
+      "`.approw`",
+      "`.aw`",
+      "`.crons-table`",
+      "`.flight`",
+      "`.ph`",
+      "`.flows-layout`",
+      "`.flow-timeline`",
+      "`article.doc`",
+      "`.docs-layout`",
+      "`.panel.console`",
+    ]) {
+      expect(склеенные, `в primitives.md нет ${класс}`).toContain(класс);
+    }
+  });
+
+  it("у каждой доски названо место в коде", () => {
+    for (const файл of [
+      "components/agent-grid.tsx",
+      "app/apps/page.tsx",
+      "app/crons/page.tsx",
+      "app/flows/page.tsx",
+      "components/flow-strip.tsx",
+      "app/docs/page.tsx",
+      "components/doc-view.tsx",
+      "components/brain-graph.tsx",
+    ]) {
+      expect(склеенные, `primitives.md не говорит, где стоит ${файл}`).toContain(файл);
+    }
+  });
+
+  it("модификаторы названы так, как они записаны в коде", () => {
+    for (const факт of [
+      'data-state="skip"',
+      "tr.is-paused",
+      ".flows-layout.reading",
+      ".docs-layout.reading",
+      '.approw[data-state="unknown"]',
+      'data-attention="true"',
+    ]) {
+      expect(склеенные, `primitives.md не знает модификатора ${факт}`).toContain(факт);
+    }
+  });
+});
+
+describe("checklist.md и tokens.md знают тему как механизм", () => {
+  it("чек-лист спрашивает про маршрут, три состояния переключателя и холст", () => {
+    for (const факт of ["CONSOLE_ROUTES", "как в системе", '.app[data-console="true"]']) {
+      expect(чеклист, `в чек-листе нет ${факт}`).toContain(факт);
+    }
+  });
+
+  it("tokens.md: themeColor следует фактической теме, а не только медиазапросу", () => {
+    const хвост = склеить(токены.slice(токены.indexOf("## Цвет строки браузера")));
+    for (const факт of ["generateViewport", "x-mydon-theme", "#f4f4ee", "#111712"]) {
+      expect(хвост, `tokens.md не знает ${факт}`).toContain(факт);
+    }
   });
 });
 
@@ -432,6 +570,80 @@ describe("навык не врёт про код", () => {
     expect(ступени).toContain("");
     expect(ступени).toContain("@media (min-width: 720px)");
     expect(ступени).toContain("@media (min-width: 1200px)");
+  });
+
+  it("color-scheme объявлен во всех трёх блоках темы — §4 и §8 не врут", () => {
+    const схема = (ветка: Ветка, ожидаемая: string): void => {
+      const блоки = правилаCss(стилиПанели).filter(
+        (r) =>
+          r.контекст === ветка.контекст && r.селектор === ветка.селектор && /color-scheme\s*:/.test(r.тело),
+      );
+      expect(блоки.length, `в блоке «${ветка.имя}» нет color-scheme`).toBeGreaterThanOrEqual(1);
+      expect(блоки.at(-1)?.тело ?? "", `в блоке «${ветка.имя}» color-scheme не ${ожидаемая}`).toMatch(
+        new RegExp(`color-scheme\\s*:\\s*${ожидаемая}\\b`),
+      );
+    };
+    схема(СВЕТЛАЯ, "light");
+    схема(ТЁМНАЯ_СИСТЕМНАЯ, "dark");
+    схема(ТЁМНАЯ_ВЫБРАННАЯ, "dark");
+  });
+
+  it("точечная сетка стоит на холсте командного центра, только в тёмной теме и не в панели", () => {
+    const сетки = правилаCss(стилиПанели).filter((r) => /radial-gradient/.test(r.тело));
+    const наХолсте = сетки.filter((r) => r.селектор.includes('.app[data-console="true"]'));
+    expect(наХолсте.length, 'в globals.css нет правила сетки на .app[data-console="true"]').toBeGreaterThanOrEqual(1);
+    for (const правило of наХолсте) {
+      expect(правило.тело, "шаг сетки — 24px, как печатает §4").toContain("24px");
+      expect(
+        `${правило.контекст} ${правило.селектор}`,
+        "сетка обязана быть заперта в тёмной теме — §4 обещает светлому миру холст без неё",
+      ).toMatch(/data-theme="dark"\]|prefers-color-scheme: dark/);
+    }
+    for (const r of сетки) {
+      expect(r.селектор, `сетка вложена в панель или карточку: ${r.селектор}`).not.toMatch(/\.panel|\.card/);
+    }
+  });
+
+  it("ручного штампа темы нет, а названные в §4 файлы механизма существуют", () => {
+    expect(
+      existsSync(path.join(КОРЕНЬ, "apps/cc/src/components/console-theme.tsx")),
+      "console-theme.tsx вернулся — §4 снова врёт про штамп на странице",
+    ).toBe(false);
+    for (const файл of [
+      "apps/cc/src/lib/theme.ts",
+      "apps/cc/src/proxy.ts",
+      "apps/cc/src/components/theme-sync.tsx",
+      "apps/cc/src/app/theme/actions.ts",
+      "apps/cc/src/components/header-actions.tsx",
+    ]) {
+      expect(existsSync(path.join(КОРЕНЬ, файл)), `§4 ссылается на ${файл}, а его нет`).toBe(true);
+    }
+  });
+
+  it("доски из primitives.md существуют в CSS теми же селекторами", () => {
+    for (const селектор of [
+      ".crons-table",
+      ".crons-table tr.is-paused td",
+      ".flight",
+      ".ph",
+      '.ph[data-state="skip"]',
+      ".flows-layout",
+      ".flows-layout.reading .flow-detail",
+      ".flow-timeline",
+      "article.doc",
+      ".approw",
+      '.approw[data-state="unknown"]',
+      ".aghead",
+      ".docs-layout",
+      ".docs-layout.reading .docs-body",
+      ".brain-card-head",
+    ]) {
+      телоПравила(селектор);
+    }
+    // Одно число гашения на все доски — навык это утверждает, CSS обязан держать.
+    expect(телоПравила(".crons-table tr.is-paused td")).toContain("0.55");
+    expect(телоПравила('.ph[data-state="skip"]')).toContain("0.55");
+    expect(телоПравила('.approw[data-state="unknown"]')).toContain("dashed");
   });
 });
 
