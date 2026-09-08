@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentCard, AgentRun, AgentStatusRow, AuditEntry, SkillDeckItem } from "../../../lib/core";
+import type { AgentCard, AgentRun, AgentsStatus, AgentStatusRow, AuditEntry, SkillDeckItem } from "../../../lib/core";
 import type { AutonomyMax } from "../../../components/agent-editor";
 
 // `page.tsx` тянет клиент Core, а тот первой строкой импортирует пакет
@@ -77,6 +77,17 @@ const состояние = (over: Partial<AgentStatusRow> = {}): AgentStatusRow 
   ...over,
 });
 
+/** Рантайм отчитался минуту назад и применил ровно то, что в конфиге. */
+const рантайм = (over: Partial<AgentsStatus["runtime"]> = {}): AgentsStatus["runtime"] => ({
+  reportedAt: "2026-09-06T07:59:00.000Z",
+  ageSec: 60,
+  stale: false,
+  paused: { schedules: false, tasks: false },
+  lagging: false,
+  readFailed: false,
+  ...over,
+});
+
 const навык = (over: Partial<SkillDeckItem> = {}): SkillDeckItem => ({
   agent: "vendhub-ops",
   skill: "monitor-stock",
@@ -141,6 +152,7 @@ beforeEach(() => {
     tz: "Asia/Tashkent",
     now: "2026-09-06T08:00:00.000Z",
     paused: { schedules: false, tasks: false },
+    runtime: рантайм(),
     agents: [состояние()],
   }));
   skillDeck.mockImplementation(async () => ({
@@ -188,6 +200,7 @@ describe("Карточка агента: шапка", () => {
       tz: "Asia/Tashkent",
       now: "2026-09-06T08:00:00.000Z",
       paused: { schedules: false, tasks: false },
+      runtime: рантайм(),
       agents: [],
     }));
     render(await screenFor());
@@ -214,6 +227,7 @@ describe("Карточка агента: системная пауза расп�
       tz: "Asia/Tashkent",
       now: "2026-09-06T08:00:00.000Z",
       paused: { schedules: true, tasks: false },
+      runtime: рантайм({ paused: { schedules: true, tasks: false } }),
       agents: [состояние({ state: "idle", reason: "последний прогон — выполнено" })],
     }));
   };
@@ -242,6 +256,59 @@ describe("Карточка агента: системная пауза расп�
     agentCard.mockImplementation(async () => ({ ...card(), schedule: [] }));
     const { container } = render(await screenFor());
     expect(container.querySelector(".notice")).toBeNull();
+  });
+
+  it("ожидающие поручения названы числом и в карточке, и в строке паузы (ревью Ф-1)", async () => {
+    agentsStatus.mockImplementation(async () => ({
+      tz: "Asia/Tashkent",
+      now: "2026-09-06T08:00:00.000Z",
+      paused: { schedules: false, tasks: true },
+      runtime: рантайм({ paused: { schedules: false, tasks: true } }),
+      agents: [
+        состояние({ state: "idle", reason: "последний прогон — выполнено", queuedAssigned: 1 }),
+      ],
+    }));
+    const { container } = render(await screenFor());
+    expect(container.querySelector(".agr")).toHaveTextContent(/в очереди 1 порученная задача/);
+    expect(container.querySelector(".notice")).toHaveTextContent(/Сейчас 1 задача ждёт снятия паузы/);
+  });
+
+  it("пауза ЗАДАЧ — отдельной строкой и у работающего агента (перепроверка прода, корень 1)", async () => {
+    // Раньше карточка полагалась на то, что вердикт при паузе задач — «на
+    // паузе» с той же формулировкой. Теперь занятый агент под паузой работает,
+    // и без своей строки карточка молчала бы о тумблере, который держит его
+    // порученные задачи в очереди.
+    agentsStatus.mockImplementation(async () => ({
+      tz: "Asia/Tashkent",
+      now: "2026-09-06T08:00:00.000Z",
+      paused: { schedules: false, tasks: true },
+      runtime: рантайм({ paused: { schedules: false, tasks: true } }),
+      agents: [состояние({ state: "working", reason: "выполняет задачу (навык «monitor-stock»)" })],
+    }));
+    const { container } = render(await screenFor());
+    expect(screen.getByText("работает")).toBeVisible();
+    const строка = container.querySelector(".notice");
+    expect(строка).not.toBeNull();
+    expect(строка).toHaveTextContent(/AGENTS_TASKS_PAUSED/);
+    // Те же слова, что в сетке на главной: одна настройка — один текст.
+    expect(строка).toHaveTextContent(/прогоны по cron-расписанию идут/);
+  });
+});
+
+describe("Карточка агента: рантайм ещё не подхватил тумблер (Д-3)", () => {
+  it("конфиг снял паузу, снимок рантайма ещё на ней — строка с расхождением", async () => {
+    agentsStatus.mockImplementation(async () => ({
+      tz: "Asia/Tashkent",
+      now: "2026-09-06T08:00:00.000Z",
+      paused: { schedules: false, tasks: false },
+      runtime: рантайм({ ageSec: 300, paused: { schedules: false, tasks: true }, lagging: true }),
+      agents: [состояние({ state: "idle", reason: "последний прогон — выполнено" })],
+    }));
+    const { container } = render(await screenFor());
+    const строка = container.querySelector(".notice");
+    expect(строка).not.toBeNull();
+    expect(строка).toHaveTextContent(/не подхватил настройку \(снимок 5 мин назад\)/);
+    expect(строка).toHaveTextContent(/назначенные задачи: в настройке работают, у рантайма ещё на паузе/);
   });
 });
 

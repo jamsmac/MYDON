@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { TZ } from "@mydon/shared";
+import { AGENTS_SNAPSHOT_INTERVAL_MS, AGENTS_SNAPSHOT_MISS_LIMIT, TZ } from "@mydon/shared";
 import type { ScheduleSnapshot } from "./runs.service";
 
 /**
@@ -50,9 +50,42 @@ export interface BoardInput {
   lastRuns: LastRunLite[];
 }
 
-export const STALE_AFTER_SEC = 900;
+/**
+ * Порог молчания слоя агентов: `AGENTS_SNAPSHOT_MISS_LIMIT` периодов снимка —
+ * та же формула, что у heartbeat бота (`интервал × лимит пропусков`), и обе
+ * константы общие с рантаймом (`@mydon/shared`). Голого числа здесь больше нет
+ * (ревью I-3): 900 при тике 600 с прощало НОЛЬ пропущенных тиков. Сверху окно
+ * пришпилено `AGENTS_SNAPSHOT_MAX_SILENCE_SEC` (ревью Ф-4): мёртвый рантайм
+ * молча пропускает срабатывания, и узнавать об этом позже 15 минут нельзя.
+ */
+export const STALE_AFTER_SEC = (AGENTS_SNAPSHOT_INTERVAL_MS / 1000) * AGENTS_SNAPSHOT_MISS_LIMIT;
 export const UPCOMING_LIMIT = 200;
 const DAY_MS = 86_400_000;
+
+/** Свежесть снимка расписаний: возраст, протух ли, и момент последнего отчёта слоя агентов. */
+export interface SnapshotFreshness {
+  ageSec: number;
+  stale: boolean;
+  reportedAt: Date;
+}
+
+/**
+ * Свежесть снимка — ОДНО правило на доску рутин и здоровье приложений
+ * (перепроверка прода 07.09.2026, корень 2).
+ *
+ * Снимок рантайм агентов переписывает каждым тиком опроса ИМЕННО как сигнал
+ * жизни (`apps/agents/src/index.ts`: «снимок ОБЯЗАН стареть — это и есть сигнал
+ * „связи нет“»), и «протух» здесь значит «слой агентов не отчитывался».
+ * Здоровье приложений (`apps/apps-health.service.ts`) до этой правки возраст
+ * снимка не читало вовсе и над мёртвым слоем держало `/apps` зелёным почти
+ * двое суток; свой порог там разошёлся бы с этим на первой правке, и `/crons`
+ * с `/apps` спорили бы, жив ли слой. Арифметика та же, что была у доски:
+ * округление до секунды, отрицательный возраст (часы разъехались) — ноль.
+ */
+export function snapshotFreshness(updatedAt: Date, now: Date): SnapshotFreshness {
+  const ageSec = Math.max(0, Math.round((now.getTime() - updatedAt.getTime()) / 1000));
+  return { ageSec, stale: ageSec > STALE_AFTER_SEC, reportedAt: updatedAt };
+}
 
 /**
  * Машинная причина отключения → фраза владельцу: что именно и где чинить.
@@ -170,11 +203,15 @@ export function computeBoard(input: BoardInput): CronBoard {
     return an < bn ? -1 : an > bn ? 1 : a.id.localeCompare(b.id);
   });
 
-  const ageSec = snap ? Math.max(0, Math.round((now.getTime() - snap.updatedAt.getTime()) / 1000)) : 0;
+  let snapshot: CronBoard["snapshot"] = null;
+  if (snap) {
+    const { ageSec, stale } = snapshotFreshness(snap.updatedAt, now);
+    snapshot = { generatedAt: snap.payload.generatedAt, ageSec, stale };
+  }
   return {
     tz: TZ,
     now: now.toISOString(),
-    snapshot: snap ? { generatedAt: snap.payload.generatedAt, ageSec, stale: ageSec > STALE_AFTER_SEC } : null,
+    snapshot,
     paused: input.paused,
     jobs,
     upcoming24h: upcoming.slice(0, UPCOMING_LIMIT),

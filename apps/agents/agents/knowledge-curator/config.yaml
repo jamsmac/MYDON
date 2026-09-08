@@ -9,7 +9,7 @@ non_goals:
   - НЕ трогает ROLE.md, config.yaml и код
 
 schedule:
-  - cron: "0 0 */7 * *"
+  - cron: "30 7 */7 * *" # было 00:00 — попадало в quiet_hours 23:00–07:00 (ревизия 07.09.2026)
     skill: kb-review
   - cron: "0 9 * * 1" # еженедельно, понедельник утром — дайджест идей из каналов
     skill: scan-ideas
@@ -28,6 +28,16 @@ skills:
   - kb-review
   - scan-ideas
   - assess-ideas
+
+# Хуки прогона (волна R). Правило расстановки — _template/config.yaml; проверяются только у active-агента
+# и только на cron-прогоне: ручной запуск с деки и задача с checkpoint идут мимо (preRunApplies, runner.ts).
+# source_fresh НЕ ставим: scan-ideas читает t.me вживую, журналируемого поставщика нет.
+# Ради этого окна kb-review сдвинут с 00:00 на 07:30 — иначе хук блокировал бы собственное расписание.
+hooks:
+  pre_run:
+    - kind: quiet_hours           # ночь по Ташкенту (правило и выбор окна — _template/config.yaml)
+      from: "23:00"
+      to: "07:00"
 
 # ВНИМАНИЕ (04.09.2026): поле рантаймом НЕ читается — модель задаёт LLM_MODEL/LLM_FALLBACK_MODELS,
 # усилие — `model-effort` во frontmatter llm-навыка. Оставлено как заметка о замысле.

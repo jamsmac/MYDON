@@ -38,15 +38,18 @@ autonomy_default: T1 # разведка: читает и докладывает,
 #       url: https://example.uz/tenders
 #     - name: Цены конкурента
 #       url: https://competitor.example/catalog
-web_sources: # заполнено ревизией 04.09.2026 — URL проверить при первом входе
+web_sources: # заполнено ревизией 04.09.2026; проверено curl 07.09.2026 — три источника ниже отвечают 200
   - name: Госзакупки и тендеры (xarid.uzex.uz)
     url: https://xarid.uzex.uz
   - name: Курсы ЦБ Узбекистана
     url: https://cbu.uz/ru/arkhiv-kursov-valyut/
   - name: HELI — новости производителя
     url: https://www.heli.com.cn
-  - name: Вторичный рынок погрузчиков (OLX)
-    url: https://olx.uz/list/q-вилочный-погрузчик/
+  # OLX «Вторичный рынок погрузчиков» (https://olx.uz/list/q-вилочный-погрузчик/) снят 07.09.2026:
+  # сайт отдаёт 403 любому запросу без браузера — кириллица, URL-encoded, латиница (q-forklift,
+  # q-pogruzchik), с www и без, даже корень olx.uz (curl с обычным UA). Это антибот, а не битая
+  # ссылка: read-sources получал бы «недоступен» каждый прогон. Вернуть можно только через
+  # провайдера с рендером/обходом антибота — это решение и деньги владельца, не правка URL.
 
 kb_pages:
   - shared/kb/globerent/heli-models.md
@@ -64,6 +67,17 @@ skills:
   - scan-strategy
   - deep-research # полное исследование по фреймворку (по запросу, не cron)
   - read-sources # чтение web_sources; исполняется кодом (ревизия 04.09.2026)
+
+# Хуки прогона (волна R). Правило расстановки — _template/config.yaml; проверяются только у active-агента
+# и только на cron-прогоне: ручной запуск с деки и задача с checkpoint идут мимо (preRunApplies, runner.ts).
+# source_fresh НЕ ставим (ревью 07.09): курсы из Core в apps/agents не читает никто — scan-fx по SKILL.md ходит
+# в cbu.uz напрямую, read-sources читает web_sources вживую. Хук на system/fx:refresh гейтил бы все 6 cron-навыков
+# (включая scan-tenders) монитором, который может быть выключен FX_REFRESH_CRON=off.
+hooks:
+  pre_run:
+    - kind: quiet_hours           # ночь по Ташкенту (правило и выбор окна — _template/config.yaml)
+      from: "23:00"
+      to: "07:00"
 
 # Все сканы требуют веб → claude -p (у него есть WebSearch/WebFetch). Ollama без веба.
 # ВНИМАНИЕ (04.09.2026): поле рантаймом НЕ читается — модель задаёт LLM_MODEL/LLM_FALLBACK_MODELS,

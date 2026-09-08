@@ -3470,6 +3470,10 @@ async function проверитьЛица() {
     if (json.tz !== "Asia/Tashkent" || typeof json.now !== "string" || !Array.isArray(json.agents)) {
       throw new Error(`форма ответа: ${text.slice(0, 200)}`);
     }
+    // Д-3: намерение против факта — рантайм перечитывает тумблеры раз в 10 минут.
+    if (typeof json.runtime?.lagging !== "boolean" || typeof json.runtime?.stale !== "boolean") {
+      throw new Error(`нет сверки с рантаймом (runtime): ${text.slice(0, 200)}`);
+    }
     return json;
   };
   const мой = (json) => {
@@ -3541,28 +3545,50 @@ async function проверитьЛица() {
     });
     if (!задача.r.ok) throw new Error(`создание задачи → ${задача.r.status}: ${задача.text.slice(0, 200)}`);
     задачаId = задача.json.id;
+    // Ф-1: пока задача в `todo` без claim, состояние обязано назвать очередь
+    // числом — ни одно правило вердикта такую задачу не видит, и без этого
+    // агент выглядел «молчит: последний прогон — пропущен».
+    const ждёт = мой(await состояние());
+    if (ждёт.queuedAssigned !== 1) {
+      throw new Error(`порученная задача в очереди не названа: queuedAssigned=${ждёт.queuedAssigned}`);
+    }
+    if (ждёт.state === "working") throw new Error("ожидание задачи занятостью не является");
     const захват = await jsonRequest("POST", `/tasks/${задача.json.id}/agent-run/claim`, { agentName: агент });
     if (!захват.r.ok || захват.json?.claimed !== true) {
       throw new Error(`claim → ${захват.r.status}: ${захват.text.slice(0, 200)}`);
     }
     const работает = мой(await состояние());
+    if (работает.queuedAssigned !== undefined) {
+      throw new Error(`после claim задача не должна считаться очередью: ${работает.queuedAssigned}`);
+    }
     if (работает.state !== "working" || работает.skill !== навык || работает.taskId !== задача.json.id) {
       throw new Error(`с живым claim: ${работает.state} — «${работает.reason}» (навык ${работает.skill})`);
     }
     if (!/faces-probe/.test(работает.reason)) throw new Error(`причина не называет навык: «${работает.reason}»`);
 
-    // Р-2: системная пауза перекрывает занятость. Проверяем НА РАБОТАЮЩЕМ
-    // агенте — на молчащем правило зеленело бы случайно.
+    // Перепроверка прода (корень 1): системная пауза задач НЕ гасит живой
+    // claim. Проверяем НА РАБОТАЮЩЕМ агенте: прежняя редакция Р-2 возвращала
+    // «на паузе» каждому агенту до проверки claim, и на проде (tasks=1,
+    // schedules=0) тринадцать серых плиток стояли над работающими cron-агентами.
     await записатьТумблер("AGENTS_TASKS_PAUSED", "1");
     const наПаузе = await состояние();
     if (наПаузе.paused.tasks !== true) throw new Error("тумблер паузы не доехал до шапки");
-    const заглушен = мой(наПаузе);
-    if (заглушен.state !== "paused" || !/настройка системы, а не агента/.test(заглушен.reason)) {
-      throw new Error(`при системной паузе: ${заглушен.state} — «${заглушен.reason}»`);
+    const занят = мой(наПаузе);
+    if (занят.state !== "working" || занят.taskId !== задача.json.id) {
+      throw new Error(`живой claim при системной паузе: ${занят.state} — «${занят.reason}», ждали working`);
     }
-    const работающие = наПаузе.agents.filter((a) => a.state === "working");
-    if (работающие.length > 0) {
-      throw new Error(`при выключенных задачах «работают» ${работающие.map((a) => a.name).join(", ")}`);
+    // А без занятости тумблер состояния НЕ меняет (ревью C-1): задача
+    // закрывается, и агент «молчит» со своим последним прогоном — как без
+    // паузы. Сама пауза видна только в шапке (`paused.tasks`).
+    const отменена = await jsonRequest("PATCH", `/tasks/${задача.json.id}`, { status: "cancelled", actor: "smoke" });
+    if (!отменена.r.ok) throw new Error(`отмена задачи → ${отменена.r.status}: ${отменена.text.slice(0, 200)}`);
+    задачаId = null;
+    const свободен = мой(await состояние());
+    if (свободен.state !== "idle" || !/повода нет/.test(свободен.reason)) {
+      throw new Error(`без занятости при системной паузе: ${свободен.state} — «${свободен.reason}», ждали idle по журналу`);
+    }
+    if (/настройка системы|на паузе/.test(свободен.reason)) {
+      throw new Error(`тумблер системы просочился в состояние агента: «${свободен.reason}»`);
     }
 
     // Архивация — ЧАСТЬ сценария, а не уборка: код ответа проверяем, как в
@@ -3854,6 +3880,39 @@ async function проверитьЗдоровьеПриложений() {
     if (!new RegExp(`${счёт.пропущено}`).test(доставка.summary)) {
       throw new Error(`число пропущенных не названо: «${доставка.summary}»`);
     }
+  }
+
+  // Перепроверка прода (корень 2): ВОЗРАСТ СНИМКА — СИГНАЛ ЖИЗНИ СЛОЯ АГЕНТОВ.
+  // Старим снимок тем же путём, что и настоящая смерть контейнера
+  // (`updated_at` перестаёт двигаться), старше порога доски (`STALE_AFTER_SEC`,
+  // три тика по 10 минут — два пропущенных прощаются, ревью I-3): все
+  // строки, чьё здоровье делает слой, обязаны стать «не оценить» с одной
+  // причиной, строка «Слой агентов» — «сломано», а бот (отдельный процесс)
+  // не меняется. До правки `/apps` держал «в порядке» над мёртвым слоем до
+  // второго пропущенного тика суточных мониторов. Возвращаем как было.
+  const живой_слой = строка(await здоровье(), "agents");
+  if (живой_слой.state !== "ok" || !/отчитывался/.test(живой_слой.summary)) {
+    throw new Error(`слой агентов при свежем снимке: ${живой_слой.state} — «${живой_слой.summary}»`);
+  }
+  const [снимокБыл] = await sql`select updated_at from agent_runtime_snapshot where key = 'schedules'`;
+  if (!снимокБыл) throw new Error("снимка расписаний нет в базе после PUT /routines/snapshot");
+  try {
+    await sql`update agent_runtime_snapshot set updated_at = now() - interval '2 hours' where key = 'schedules'`;
+    const молчание = await здоровье();
+    const слой = строка(молчание, "agents");
+    if (слой.state !== "bad" || !/не отчитывался 120 мин/.test(слой.summary)) {
+      throw new Error(`слой агентов при протухшем снимке: ${слой.state} — «${слой.summary}»`);
+    }
+    for (const key of ["ourvend:sync", "fx:refresh", "coffee:monitor", "maintenance:monitor", "notion"]) {
+      const r = строка(молчание, key);
+      if (r.state !== "unknown" || !/слой агентов не отчитывался 120 мин/.test(r.summary)) {
+        throw new Error(`${key} над молчащим слоем: ${r.state} — «${r.summary}», ждали «не оценить» с давностью`);
+      }
+    }
+    const бот = строка(молчание, "bot");
+    if (бот.state !== "ok") throw new Error(`бот от слоя агентов не зависит, а строка: ${бот.state} — «${бот.summary}»`);
+  } finally {
+    await sql`update agent_runtime_snapshot set updated_at = ${снимокБыл.updated_at} where key = 'schedules'`;
   }
 
   // Вставшая очередь: делаем ОДНУ существующую строку старой и `pending` —

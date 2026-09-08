@@ -21,6 +21,15 @@ kb_pages:
 skills:
   - business-brief
 
+# Хуки прогона (волна R). Правило расстановки — _template/config.yaml; проверяются только у active-агента
+# и только на cron-прогоне: ручной запуск с деки и задача с checkpoint идут мимо (preRunApplies, runner.ts).
+# source_fresh НЕ ставим: сводка строится из реестра GLOBERENT (внутренние данные; globerent:monitor читает только Core).
+hooks:
+  pre_run:
+    - kind: quiet_hours           # ночь по Ташкенту (правило и выбор окна — _template/config.yaml)
+      from: "23:00"
+      to: "07:00"
+
 # ВНИМАНИЕ (04.09.2026): поле рантаймом НЕ читается — модель задаёт LLM_MODEL/LLM_FALLBACK_MODELS,
 # усилие — `model-effort` во frontmatter llm-навыка. Оставлено как заметка о замысле.
 model_routing:

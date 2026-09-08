@@ -14,6 +14,7 @@ import {
   AGENT_STATE_WORD,
   CARD_CHIP,
   CARD_LED,
+  CARD_PASSPORT_WORD,
   CARD_PILL,
   CARD_WORD,
   HEALTH_LED,
@@ -43,6 +44,13 @@ const СЛОВА = [
   "не заведён",
   "в архиве",
   "работают",
+  // Слова ПАСПОРТА рядом с занятостью (`CARD_PASSPORT_WORD`, слияние с
+  // A2-fix): второй словарь той же оси, законный по причине в докблоке, — но
+  // дом у него тот же, и второго дома у НЕГО быть не должно тем более.
+  "включён в карточке",
+  "выключен в карточке (paused)",
+  "не введён в работу (draft)",
+  "выведен из работы (deprecated)",
 ] as const;
 
 /**
@@ -89,7 +97,10 @@ interface Потребитель {
 const ПОТРЕБИТЕЛИ: readonly Потребитель[] = [
   {
     файл: path.join("components", "agent-grid.tsx"),
-    берёт: ["AGENT_STATE_WORD", "ledЗанятости"],
+    // `PAUSE_WORD` — потому что сверка с рантаймом (`RuntimeLagNotice`, A2)
+    // называет ту же ось, что тумблеры `/system`: «в настройке на паузе, у
+    // рантайма ещё работают». Литералом эти слова были вторым домом оси.
+    берёт: ["AGENT_STATE_WORD", "ledЗанятости", "PAUSE_WORD"],
     оси: ["AGENT_STATE_LED"],
   },
   {
@@ -99,7 +110,13 @@ const ПОТРЕБИТЕЛИ: readonly Потребитель[] = [
   },
   { файл: path.join("app", "apps", "page.tsx"), берёт: ["HEALTH_WORD", "HEALTH_LED"] },
   { файл: path.join("components", "skills-deck.tsx"), берёт: ["CARD_WORD", "CARD_LED"] },
-  { файл: path.join("app", "agents", "page.tsx"), берёт: ["CARD_WORD", "CARD_PILL"] },
+  {
+    файл: path.join("app", "agents", "page.tsx"),
+    // Третья поверхность занятости (перепроверка прода, Д-2): состояние из
+    // `/agents/status` дверью с пятым значением, паспорт — словарём паспорта.
+    берёт: ["AGENT_STATE_WORD", "ledЗанятости", "CARD_PASSPORT_WORD"],
+    оси: ["AGENT_STATE_LED"],
+  },
   { файл: path.join("app", "team", "page.tsx"), берёт: ["CARD_WORD", "CARD_CHIP"] },
   { файл: path.join("components", "agent-editor.tsx"), берёт: ["CARD_WORD", "CARD_PILL"] },
   { файл: path.join("components", "pause-toggles.tsx"), берёт: ["PAUSE_WORD", "PAUSE_LED"] },
@@ -179,6 +196,7 @@ describe("Один словарь состояний на панель (срез
       ...Object.values(AGENT_STATE_WORD),
       ...Object.values(HEALTH_WORD),
       ...Object.values(CARD_WORD),
+      ...Object.values(CARD_PASSPORT_WORD),
       ...Object.values(PAUSE_WORD),
     ]);
     expect(отсортировано(объявленные)).toEqual([...СЛОВА].sort());
@@ -285,7 +303,7 @@ describe("Слово и лампа меняются одним движение�
     expect(AGENT_BREAKDOWN_LED).toBe("led run-led warn");
   });
 
-  it("пятую лампу знают ОБЕ поверхности занятости, а не только сетка (девятый круг)", () => {
+  it("пятую лампу знают ВСЕ поверхности занятости, а не только сетка (девятый круг)", () => {
     /*
      * ДЕФЕКТ БЫЛ В КАРТОЧКЕ, И ЕГО НЕ ВИДЕЛ НИ ОДИН СТОРОЖ. Признак поломки
      * жил в плитке (`agent-grid.tsx`), а шапка карточки агента брала лампу
@@ -298,6 +316,10 @@ describe("Слово и лампа меняются одним движение�
     for (const файл of [
       path.join("components", "agent-grid.tsx"),
       path.join("app", "agents", "[name]", "page.tsx"),
+      // Третья поверхность приехала с A2-fix: список `/agents` печатал
+      // занятость по ПАСПОРТУ, а теперь берёт её из `/agents/status` — и
+      // обязан знать про пятое значение так же, как две первые.
+      path.join("app", "agents", "page.tsx"),
     ]) {
       const код = текст(файл);
       expect(код, `${файл} берёт лампу занятости мимо двери с пятым значением`).toContain(
@@ -359,9 +381,18 @@ describe("Функция давности в панели одна (срез Д1
   });
 });
 
-/** Слово или класс как ЦЕЛЫЙ строковый литерал в любых кавычках. */
+/**
+ * Слово или класс как ЦЕЛЫЙ строковый литерал в любых кавычках.
+ *
+ * МЕТАСИМВОЛЫ ЭКРАНИРУЮТСЯ (слияние с A2-fix). Слова паспорта несут машинное
+ * значение в скобках («выключен в карточке (paused)»), и без экранирования
+ * `(paused)` становилось бы ГРУППОЙ: регексп искал бы строку без скобок, не
+ * находил её нигде — и сторож молча пропускал бы второй дом этих слов, а
+ * ассерт «дом настоящий» падал бы на самом словаре.
+ */
 function литерал(слово: string): RegExp {
-  return new RegExp(`(["'\`])${слово}\\1`);
+  const экранировано = слово.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(["'\`])${экранировано}\\1`);
 }
 
 /**

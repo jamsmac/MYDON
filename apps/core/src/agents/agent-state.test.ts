@@ -24,6 +24,7 @@ function task(over: Partial<ClaimedTaskLite> = {}): ClaimedTaskLite {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     skill: "parts-audit",
+    scheduled: false,
     claimedAt: new Date(NOW.getTime() - 60_000),
     blockedAt: null,
     blockedReason: null,
@@ -169,8 +170,8 @@ describe("Состояние агента словами (R-A2-1, решения
 
   it("на паузе по паспорту: причина называет статус карточки", () => {
     for (const status of ["paused", "draft", "deprecated"]) {
-      const verdict = computeAgentState(input({ passportStatus: status, claimedTasks: [task()] }));
-      assert.equal(verdict.state, "paused", `статус ${status} — не работа`);
+      const verdict = computeAgentState(input({ passportStatus: status }));
+      assert.equal(verdict.state, "paused", `статус ${status} без живой работы — не работа`);
       assert.match(verdict.reason, new RegExp(status), "иначе непонятно, что менять в карточке");
     }
     // Незнакомый статус тоже не работа: молчаливый `active` соврал бы.
@@ -179,14 +180,201 @@ describe("Состояние агента словами (R-A2-1, решения
     assert.match(чужой.reason, /sleeping/);
   });
 
-  it("системная пауза задач перекрывает даже агента с задачей в работе", () => {
-    // Р-2: при AGENTS_TASKS_PAUSED=1 задачу взять нельзя, поэтому «работает» —
-    // ложь. Поставь это правило ниже занятости — и экран покажет работающих
-    // агентов при выключенной системе.
-    const verdict = computeAgentState(input({ paused: { tasks: true, schedules: false }, claimedTasks: [task()] }));
-    assert.equal(verdict.state, "paused");
-    assert.match(verdict.reason, /настройка системы, а не агента/);
-    assert.match(verdict.reason, /задачи агентов на паузе/);
+  it("системная пауза задач НЕ гасит агента с живым claim: он работает (перепроверка прода, корень 1)", () => {
+    // Рантайм гейтит очереди разными тумблерами: пауза задач останавливает
+    // только новые claim'ы ПОРУЧЕННЫХ задач, а cron-задачи идут
+    // (`pollTaskQueue("scheduled", schedulesPaused)` против
+    // `pollTaskQueue("assigned", tasksPaused)`). Прежнее правило возвращало
+    // «на паузе» каждому агенту ДО проверки claim — и на проде (tasks=1,
+    // schedules=0) тринадцать серых плиток стояли над работающими агентами.
+    const сПаузой = computeAgentState(
+      input({ paused: { tasks: true, schedules: false }, claimedTasks: [task()] }),
+    );
+    const безПаузы = computeAgentState(
+      input({ paused: { tasks: false, schedules: false }, claimedTasks: [task()] }),
+    );
+    assert.equal(сПаузой.state, "working");
+    assert.match(сПаузой.reason, /parts-audit/);
+    assert.deepEqual(сПаузой, безПаузы, "живой claim — работа, что бы ни говорил тумблер");
+  });
+
+  it("системная пауза задач НЕ прячет затык: остановленная Core задача и упавший прогон — «затык»", () => {
+    // На проде cron-задача llm-навыка, остановленная Core (`skill_failed`,
+    // `execution_unknown`), пряталась за «на паузе» — самым спокойным
+    // состоянием плитки. Затык — поломка, которую надо разбирать; тумблер её
+    // не разбирает.
+    const blockedAt = new Date(NOW.getTime() - 3_600_000);
+    const остановлен = computeAgentState(
+      input({
+        paused: { tasks: true, schedules: false },
+        claimedTasks: [
+          task({ claimedAt: null, blockedAt, blockedReason: "skill_failed: ответ не по контракту, нужен owner retry" }),
+        ],
+      }),
+    );
+    assert.equal(остановлен.state, "blocked");
+    assert.match(остановлен.reason, /skill_failed/);
+    assert.deepEqual(остановлен.since, blockedAt);
+
+    const at = new Date(NOW.getTime() - 7_200_000);
+    const упал = computeAgentState(
+      input({
+        paused: { tasks: true, schedules: false },
+        lastRun: { at, outcome: "failed", skipReason: null, reason: "провайдер вернул 500" },
+      }),
+    );
+    assert.equal(упал.state, "blocked");
+    assert.match(упал.reason, /провайдер вернул 500/);
+  });
+
+  it("СИСТЕМНАЯ ПАУЗА ЗАДАЧ — НЕ СОСТОЯНИЕ: cron-агент между прогонами «молчит» с прогоном и давностью (ревью C-1)", () => {
+    // Первая починка оставила «на паузе» для свободного агента — и на проде
+    // cron-агент 23 часа 59 минут в сутки стоял серой плиткой без «последний
+    // прогон — выполнено · 2 ч назад», а «Ближайшие 24 ч» перечисляли его
+    // запуски. Тумблер — свойство системы, показанное своей строкой; вердикт
+    // от него не зависит байт в байт.
+    const at = new Date(NOW.getTime() - 7_200_000);
+    const прогоны = [
+      null,
+      { at, outcome: "executed", skipReason: null, reason: "сделано" },
+      { at, outcome: "skipped", skipReason: "no_signal", reason: "предлагать нечего" },
+    ];
+    for (const lastRun of прогоны) {
+      const сПаузой = computeAgentState(input({ paused: { tasks: true, schedules: true }, lastRun }));
+      const безПаузы = computeAgentState(input({ lastRun }));
+      assert.equal(сПаузой.state, "idle", `с прогоном ${lastRun?.outcome ?? "нет"} — молчит, не «на паузе»`);
+      assert.deepEqual(сПаузой, безПаузы, "вердикт от тумблеров зависеть не должен");
+      assert.doesNotMatch(сПаузой.reason, /настройка системы|на паузе/);
+      if (lastRun !== null) assert.deepEqual(сПаузой.since, at, "давность прогона осталась на плитке");
+    }
+  });
+
+  it("ПОЛОМКА НЕ ПРЯЧЕТСЯ ЗА ТУМБЛЕРОМ: skipped с llm_failed и подобными под паузой — «молчит» с той же причиной (C-1b)", () => {
+    // Реальные исходы runner'а: модель не ответила, ledger недоступен, исход
+    // неизвестен, хук запретил. Панель красит такое молчание полосой внимания
+    // только у `idle`; «на паузе» по тумблеру прятало бы поломку за самой
+    // спокойной плиткой.
+    const at = new Date(NOW.getTime() - 3_600_000);
+    for (const skipReason of ["llm_failed", "ledger_unavailable", "execution_unknown", "hook_blocked"]) {
+      const lastRun = { at, outcome: "skipped", skipReason, reason: "поломка" };
+      const verdict = computeAgentState(input({ paused: { tasks: true, schedules: false }, lastRun }));
+      assert.equal(verdict.state, "idle", skipReason);
+      assert.match(verdict.reason, /последний прогон пропущен/, skipReason);
+      assert.deepEqual(verdict, computeAgentState(input({ lastRun })), skipReason);
+    }
+  });
+
+  it("оборванный claim: судьба задачи названа по источнику и тумблеру, а не «можно взять заново» всегда (M-1)", () => {
+    const claimedAt = new Date(NOW.getTime() - LEASE_MS - 60_000);
+    const вердикт = (scheduled: boolean, paused: { tasks: boolean; schedules: boolean }) =>
+      computeAgentState(input({ paused, claimedTasks: [task({ claimedAt, scheduled })] }));
+    // Порученная: при паузе задач её никто не возьмёт до снятия паузы.
+    assert.match(вердикт(false, { tasks: true, schedules: false }).reason, /порученную задачу никто не возьмёт, пока задачи на паузе/);
+    assert.match(вердикт(false, { tasks: false, schedules: true }).reason, /задачу можно взять заново/);
+    // Cron-задача: её очередь гейтится паузой РАСПИСАНИЙ, не задач.
+    assert.match(вердикт(true, { tasks: true, schedules: false }).reason, /cron-задачу подхватит следующий опрос расписаний/);
+    assert.match(вердикт(true, { tasks: false, schedules: true }).reason, /cron-задачу никто не возьмёт, пока расписания на паузе/);
+    for (const v of [вердикт(false, { tasks: true, schedules: false }), вердикт(true, { tasks: false, schedules: true })]) {
+      assert.equal(v.state, "idle");
+      assert.match(v.reason, /lease истёк/);
+      assert.deepEqual(v.since, claimedAt);
+    }
+  });
+
+  it("ВЫКЛЮЧЕН В КАРТОЧКЕ, НО ДЕРЖИТ ЖИВОЙ CLAIM — работает, «дорабатывает начатую» (ревью I-1)", () => {
+    // Рантайм перечитывает карточки своим тиком: до перечитки worker берёт
+    // задачи и жжёт cron, а карточка говорила «выключен» — ложь в обратную
+    // сторону. Живой claim выше паспорта; паспорт — в причине.
+    const claimedAt = new Date(NOW.getTime() - 60_000);
+    const verdict = computeAgentState(input({ passportStatus: "paused", claimedTasks: [task({ claimedAt })] }));
+    assert.equal(verdict.state, "working");
+    assert.match(verdict.reason, /выполняет задачу/);
+    assert.match(verdict.reason, /в карточке выключен \(статус paused\) — дорабатывает начатую задачу/);
+    // «Не возьмёт ПОСЛЕ ПЕРЕЧИТКИ» с числом из общей константы (ревью Ф-5):
+    // до неё оба гейта рантайма читают старую память, а у Core предиката по
+    // статусу агента нет вовсе — в этом окне worker берёт и новые задачи.
+    assert.match(verdict.reason, /новых не возьмёт после перечитки карточек \(до 5 мин\)/);
+    assert.deepEqual(verdict.since, claimedAt);
+    assert.equal(verdict.taskId, "11111111-1111-4111-8111-111111111111");
+    // Затык на этой же живой работе виден и под выключенной карточкой.
+    const затык = computeAgentState(
+      input({
+        passportStatus: "paused",
+        claimedTasks: [task({ claimedAt, blockedAt: new Date(NOW.getTime() - 30_000), blockedReason: "skill_failed" })],
+      }),
+    );
+    assert.equal(затык.state, "blocked");
+    // Живой работы нет — паспорт решает, но затык остаётся В ПРИЧИНЕ (Ф-3).
+    const старый = computeAgentState(
+      input({
+        passportStatus: "paused",
+        claimedTasks: [task({ claimedAt: null, blockedAt: new Date(NOW.getTime() - 86_400_000), blockedReason: "старый" })],
+      }),
+    );
+    assert.equal(старый.state, "paused");
+    assert.match(старый.reason, /статус paused/);
+    assert.match(старый.reason, /неразобранный затык Core/);
+  });
+
+  it("ВЫКЛЮЧЕННАЯ КАРТОЧКА НЕ ПРЯЧЕТ ЗАТЫК И УПАВШИЙ ПРОГОН: они уходят в причину хвостом (ревью Ф-3)", () => {
+    // Владелец гасит карточку, чтобы остановить кровотечение после
+    // `skill_failed` — и затык (возможно, с оплаченным вызовом в неизвестном
+    // исходе) пропадал с экрана: «на паузе: агент выключен в карточке», ни
+    // слова о задаче. Состояние честное, но поломка обязана остаться видимой.
+    const blockedAt = new Date(NOW.getTime() - 3_600_000);
+    const затык = computeAgentState(
+      input({
+        passportStatus: "paused",
+        claimedTasks: [
+          task({ claimedAt: null, blockedAt, blockedReason: "skill_failed: исход metered-вызова неизвестен" }),
+        ],
+      }),
+    );
+    assert.equal(затык.state, "paused", "выключенная карточка — честный ответ на «почему молчит»");
+    assert.match(затык.reason, /статус paused/);
+    assert.match(затык.reason, /неразобранный затык Core \(навык «parts-audit»\)/);
+    assert.match(затык.reason, /skill_failed: исход metered-вызова неизвестен/);
+    assert.equal(затык.taskId, "11111111-1111-4111-8111-111111111111", "затык должно быть куда открыть");
+    assert.equal(затык.skill, "parts-audit");
+    assert.equal(затык.since, undefined, "момент выключения карточки неизвестен — датировать нечем");
+
+    // Затык без записанной причины — сказано и это, а не пустой хвост.
+    const безПричины = computeAgentState(
+      input({ passportStatus: "deprecated", claimedTasks: [task({ claimedAt: null, blockedAt, blockedReason: null })] }),
+    );
+    assert.match(безПричины.reason, /статус deprecated/);
+    assert.match(безПричины.reason, /причина не записана/);
+
+    // Задач нет, но последний прогон упал — тот же приём.
+    const упал = computeAgentState(
+      input({
+        passportStatus: "paused",
+        lastRun: { at: new Date(NOW.getTime() - 7_200_000), outcome: "failed", skipReason: null, reason: "провайдер вернул 500" },
+      }),
+    );
+    assert.equal(упал.state, "paused");
+    assert.match(упал.reason, /последний прогон упал: провайдер вернул 500/);
+
+    // Ничего не сломано — хвоста нет: строка, которая есть всегда, не значит ничего.
+    const чисто = computeAgentState(
+      input({
+        passportStatus: "paused",
+        lastRun: { at: new Date(NOW.getTime() - 7_200_000), outcome: "executed", skipReason: null, reason: "сделано" },
+      }),
+    );
+    assert.equal(чисто.reason, "агент выключен в карточке (статус paused)");
+  });
+
+  it("порядок правил закреплён целиком: оба тумблера и выключенная карточка не отменяют живой claim", () => {
+    const работа = computeAgentState(
+      input({ passportStatus: "active", paused: { tasks: true, schedules: true }, claimedTasks: [task()] }),
+    );
+    assert.deepEqual(работа, computeAgentState(input({ claimedTasks: [task()] })), "тумблеры в вердикт не текут");
+    const выключен = computeAgentState(
+      input({ passportStatus: "paused", paused: { tasks: true, schedules: true }, claimedTasks: [task()] }),
+    );
+    assert.equal(выключен.state, "working");
+    assert.match(выключен.reason, /дорабатывает начатую/);
   });
 
   it("пауза расписаний занятость по задачам не гасит: это разные тумблеры", () => {
