@@ -21,7 +21,7 @@ import {
   notesToAck,
   pendingNotes,
 } from "./briefing";
-import { heartbeatEvent } from "./heartbeat";
+import { createHeartbeatSender } from "./heartbeat";
 import { deliverWeeklyDigest } from "./weekly-delivery";
 import { buildDigest, digestKey } from "./staff-digest";
 import { CoreClient, type PersonRow } from "./core-client";
@@ -902,13 +902,19 @@ async function main(): Promise<void> {
    * Дедуп по пятиминутному бакету (`heartbeatEvent`) делает частый вызов
    * идемпотентным, поэтому свой таймер больше не нужен. Отказ отправки НЕ
    * должен ронять бота — heartbeat диагностика, а не работа.
+   *
+   * ЧАСТОТУ РЕЖЕТ САМ БОТ (`createHeartbeatSender`), а не Core: виток опроса —
+   * это `timeoutSec = 30`, и на каждом витке уходила транзакция со сверкой
+   * хэша через pooler, из которых ~90% заведомо no-op. Отправитель помнит
+   * бакет последней отправки и молчит внутри него; зовут его по-прежнему
+   * КАЖДЫЙ проход опроса, поэтому сигнал так же доказывает проход
+   * `getUpdates`, а не жизнь процесса.
    */
-  const sendHeartbeat = (): void => {
-    const event = heartbeatEvent(new Date());
-    void deps.core
-      .recordEvent(event.type, event.payload, event.source, event.clientKey)
-      .catch((err: unknown) => console.warn("Heartbeat не отправлен:", err));
-  };
+  const sendHeartbeat = createHeartbeatSender({
+    record: (event) =>
+      deps.core.recordEvent(event.type, event.payload, event.source, event.clientKey),
+    now: () => new Date(),
+  });
 
   /**
    * Один update из пачки.
