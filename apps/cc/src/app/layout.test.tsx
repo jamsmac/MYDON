@@ -1,6 +1,6 @@
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CONSOLE_HEADER, THEME_BG, THEME_HEADER } from "../lib/theme";
+import { CONSOLE_HEADER, THEME_BG, THEME_COOKIE, THEME_HEADER } from "../lib/theme";
 import { СВЕТЛАЯ, ТЁМНАЯ_ВЫБРАННАЯ, ТЁМНАЯ_СИСТЕМНАЯ, палитраБлока, стилиПанели } from "../test/css";
 
 /*
@@ -13,16 +13,21 @@ import { СВЕТЛАЯ, ТЁМНАЯ_ВЫБРАННАЯ, ТЁМНАЯ_СИСТ�
  * child of <div>». Дерево говорит то же самое без шума: атрибут либо стоит на
  * элементе `html`, либо нет.
  *
- * Заголовки глушатся так же, как в `lib/owner.test.ts`: вне запроса
- * `next/headers` ничего не отдаёт. `cookies()` (Задача 3) сторожит не этот
- * файл — он же `header-actions.test.tsx`, — здесь достаточно заглушки без
- * куки: пропс `themeChoice` в этом наборе не проверяется, `HeaderActions`
- * замокан целиком.
+ * Заголовки и кука глушатся так же, как в `lib/owner.test.ts`: вне запроса
+ * `next/headers` ничего не отдаёт. `HeaderActions` замокан целиком, но пропс
+ * `themeChoice` всё равно проверяется — он виден в ДЕРЕВЕ, до всякого рендера.
+ * Раньше кука была заглушена наглухо (`get: () => undefined`), и отображение
+ * «кука → выбор переключателя» не проверял ни один поведенческий тест:
+ * единственным сторожом была подстрока исходника в `header-actions.test.tsx`,
+ * и она покрывала ЧТЕНИЕ куки, но не разбор её значения.
  */
-const mocks = vi.hoisted(() => ({ get: vi.fn<(name: string) => string | null>() }));
+const mocks = vi.hoisted(() => ({
+  get: vi.fn<(name: string) => string | null>(),
+  cookie: vi.fn<(name: string) => { value: string } | undefined>(),
+}));
 vi.mock("next/headers", () => ({
   headers: async () => ({ get: mocks.get }),
-  cookies: async () => ({ get: () => undefined }),
+  cookies: async () => ({ get: mocks.cookie }),
 }));
 // Шрифты — файлы через `next/font/local`; вне сборки Next загрузчика нет.
 vi.mock("next/font/local", () => ({ default: () => ({ variable: "font" }) }));
@@ -41,6 +46,7 @@ vi.mock("../components/command-palette", () => ({ CommandPalette: () => null }))
 vi.mock("../components/header-actions", () => ({ HeaderActions: () => null }));
 vi.mock("../components/bg/background", () => ({ Background: () => null }));
 
+import { HeaderActions } from "../components/header-actions";
 import RootLayout, { generateViewport } from "./layout";
 
 type Элемент = ReactElement<Record<string, unknown>>;
@@ -71,8 +77,17 @@ async function дерево(): Promise<{ html: Элемент; app: Элемен
   return { html, app };
 }
 
+/** Пропс `themeChoice`, который layout отдаёт переключателю: он виден в дереве. */
+async function выборТемы(): Promise<unknown> {
+  const все = элементы(await RootLayout({ children: <p>тело</p> }));
+  const узел = все.find((el) => el.type === HeaderActions);
+  if (узел === undefined) throw new Error("в дереве layout нет HeaderActions");
+  return узел.props.themeChoice;
+}
+
 beforeEach(() => {
   mocks.get.mockReset();
+  mocks.cookie.mockReset();
 });
 
 describe("Корневой layout: тема стоит на <html> в разметке (Р-Д2-1, Р-Д2-2)", () => {
@@ -121,6 +136,21 @@ describe("Корневой layout: область на холсте .app (для
     заголовки("dark", "0");
     const { app } = await дерево();
     expect(app.props["data-console"]).toBeUndefined();
+  });
+});
+
+describe("Корневой layout: выбор переключателя берётся из куки", () => {
+  // Заголовок здесь НАРОЧНО противоречит куке: он несёт фактическую тему (на
+  // /apps без куки это «dark»), а переключатель обязан показывать ВЫБОР. Так
+  // видно, из чего берётся пропс, а не только что он есть.
+  it.each([
+    ["dark", "dark"],
+    ["light", "light"],
+    ["blue", "system"],
+  ])("кука %s → переключатель показывает «%s»", async (кука, ожидание) => {
+    заголовки("dark", "1");
+    mocks.cookie.mockImplementation((name) => (name === THEME_COOKIE ? { value: кука } : undefined));
+    expect(await выборТемы()).toBe(ожидание);
   });
 });
 

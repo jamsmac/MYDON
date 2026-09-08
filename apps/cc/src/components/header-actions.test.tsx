@@ -59,8 +59,14 @@ describe("переключатель темы в шапке (Р-Д2-6)", () => {
 
     await user.selectOptions(themeSwitch(), "dark");
 
-    const retry = await screen.findByRole("button", { name: "Тема не сохранилась · повторить" });
+    const retry = await screen.findByRole("button", { name: "повторить · Тема не сохранилась" });
     expect(retry).toBeVisible();
+    // ГЛАГОЛ ПЕРВЫМ: кнопку режет многоточие (`max-width: 180px`), и в прежнем
+    // порядке «<сообщение> · повторить» на 390px глаголу оставалось ~46px из
+    // нужных ~212px — владелец видел «Тема н…» вместо действия.
+    expect(retry.textContent ?? "", "сообщение вперёд глагола — многоточие съест действие").toMatch(
+      /^повторить/,
+    );
     expect(themeSwitch()).toHaveValue("dark");
     expect(mocks.refresh).not.toHaveBeenCalled();
 
@@ -70,6 +76,27 @@ describe("переключатель темы в шапке (Р-Д2-6)", () => {
     expect(mocks.setTheme).toHaveBeenLastCalledWith("dark");
     await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("button", { name: /повторить/ })).toBeNull();
+  });
+
+  it("пока сохраняется — переключатель заперт: второй выбор не уходит в action", async () => {
+    // `disabled={pending}` заявлен кодом, но не был пришпилен: снятие атрибута
+    // оставляло набор зелёным. Косметика (двойной клик по списку во время
+    // сохранения), поэтому один ассерт, а не сценарий.
+    let отпустить: (() => void) | undefined;
+    mocks.setTheme.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          отпустить = () => resolve({ ok: true });
+        }),
+    );
+    const user = userEvent.setup();
+    render(<HeaderActions pendingCount={0} themeChoice="system" />);
+
+    await user.selectOptions(themeSwitch(), "dark");
+    await vi.waitFor(() => expect(themeSwitch()).toBeDisabled());
+
+    отпустить?.();
+    await vi.waitFor(() => expect(themeSwitch()).toBeEnabled());
   });
 
   it("сервер побеждает: новый пропс после refresh переставляет контрол", () => {
@@ -101,6 +128,22 @@ describe("переключатель читается в обеих темах (
 
   it("стрелка родного select убрана — иначе контрол не влезает в шапку 390px", () => {
     expect(последнееПравило(стилиПанели, ".hdr .theme-sw")?.тело).toMatch(/appearance\s*:\s*none/);
+  });
+
+  it("кнопку «повторить» режет многоточие, а не перенос строки", () => {
+    /*
+     * §4.1 навыка требует арифметику узкой колонки: ширина кнопки заперта
+     * (`max-width: 180px`), а «Не удалось сохранить тему · повторить» ≈212px —
+     * что-то обязано уйти в многоточие. Уходит ПРИЧИНА, потому что глагол в
+     * разметке первый (проверено выше по доступному имени); здесь CSS-половина:
+     * без `nowrap` кнопка переносилась бы и ломала шапку 54px, без `ellipsis`
+     * текст обрывался бы без знака обрезки.
+     */
+    const тело = последнееПравило(стилиПанели, ".hdr .theme-retry")?.тело ?? "";
+    expect(тело, "в globals.css нет правила .hdr .theme-retry").not.toBe("");
+    expect(тело, "ширина кнопки не заперта — сообщение растянет шапку").toMatch(/max-width\s*:\s*\d+px/);
+    expect(тело, "нет ellipsis — текст обрежется без знака обрезки").toMatch(/text-overflow\s*:\s*ellipsis/);
+    expect(тело, "нет nowrap — кнопка перенесётся и сломает шапку").toMatch(/white-space\s*:\s*nowrap/);
   });
 });
 

@@ -17,6 +17,22 @@ function снятьКуку(): void {
   document.cookie = `${THEME_COOKIE}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }
 
+/**
+ * Заголовок кук целиком — им подменяется `document.cookie` на один тест.
+ *
+ * jsdom не даёт положить в свою банку две куки с одним именем: tough-cookie
+ * ключует их по домену И пути, а `document.cookie` отдаёт только совпавшие с
+ * URL документа. Панель такой вход и не породит — его кладут руками через
+ * DevTools или чужое приложение того же хоста (куки не различают порты).
+ * Проверяется РАЗБОР заголовка, поэтому подставляется сам заголовок.
+ */
+function подменитьЗаголовокКук(значение: string): () => void {
+  Object.defineProperty(document, "cookie", { get: () => значение, configurable: true });
+  return () => {
+    delete (document as unknown as { cookie?: unknown }).cookie;
+  };
+}
+
 /** Разметка, как её отдаёт сервер для маршрута командного центра без куки. */
 function какСерверДляКонсоли(): void {
   document.documentElement.dataset.theme = "dark";
@@ -124,6 +140,27 @@ describe("ThemeSync: тема следует маршруту при SPA-нав�
     навигация.pathname = "/stock";
     render(оболочка(false));
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("две куки mydon_theme в заголовке: побеждает ПОСЛЕДНЯЯ, как на сервере", () => {
+    /*
+     * Круг починок 2: асимметрия того же рода, что находка 1, только через
+     * дубли вместо процентной записи. `RequestCookies` в Next кладёт пары в
+     * `Map` — побеждает последняя, — и её читают и прокси, и `cookies()` в
+     * корневом layout. Клиент до правки брал ПЕРВОЕ совпадение: при двух
+     * `mydon_theme` сервер отдавал бы разметку `light`, а клиент после
+     * гидрации переставлял в `dark` — перекраска через кадр. Эффект
+     * косметический и лечится перезагрузкой, но одно правило на двух
+     * по-разному разобранных входах — не правило.
+     */
+    const вернуть = подменитьЗаголовокКук(`${THEME_COOKIE}=light; mydon_bg=1; ${THEME_COOKIE}=dark`);
+    try {
+      навигация.pathname = "/stock";
+      render(оболочка(false));
+      expect(document.documentElement.dataset.theme).toBe("dark");
+    } finally {
+      вернуть();
+    }
   });
 
   it("кривой процент в куке не роняет эффект — мусор равен отсутствию куки", () => {

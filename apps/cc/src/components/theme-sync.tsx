@@ -22,20 +22,29 @@ import { THEME_COOKIE, isConsoleRoute, themeFor } from "../lib/theme";
  * подделываема кем угодно, и падать эффекту нельзя; в этом случае считаем
  * куку мусором (равносильно её отсутствию — `themeFor` отвергнет и сырую
  * строку тоже, ни одно легальное значение декодирования не требует).
+ *
+ * БЕРЁТСЯ ПОСЛЕДНЕЕ СОВПАДЕНИЕ, а не первое (круг починок 2): при ДВУХ куках
+ * `mydon_theme` (разные `Path`/`Domain` — панель такого не пишет, но положить
+ * может DevTools или другое приложение того же хоста: куки не различают порты)
+ * сервер видит ПОСЛЕДНЮЮ — `RequestCookies` в Next кладёт пары в `Map`, и её
+ * читают и прокси, и `cookies()` в корневом layout. Первое совпадение здесь
+ * давало бы ту же асимметрию, что и отсутствие декодирования: разметка от
+ * сервера одна, а эффект через кадр — другая.
  */
 function кукаТемы(): string | undefined {
   const ключ = `${THEME_COOKIE}=`;
+  let последнее: string | undefined;
   for (const часть of document.cookie.split(";")) {
     const пара = часть.trim();
     if (!пара.startsWith(ключ)) continue;
     const сырое = пара.slice(ключ.length);
     try {
-      return decodeURIComponent(сырое);
+      последнее = decodeURIComponent(сырое);
     } catch {
-      return сырое;
+      последнее = сырое;
     }
   }
-  return undefined;
+  return последнее;
 }
 
 /**
