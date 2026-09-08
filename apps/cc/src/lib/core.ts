@@ -6,6 +6,7 @@ import type {
   AutonomyTier,
   DeadStockReport,
   DenominationCounts,
+  Domain,
   LlmLedgerMonitoring,
   MarginReport,
   MonthlyPrice,
@@ -1438,6 +1439,41 @@ export interface AppsHealth {
   outside: AppsHealthRow[];
   /** «Внутренние мониторы» — читают только Core: их здоровье — здоровье данных. */
   internal: AppsHealthRow[];
+}
+
+/**
+ * Строка кольца артефактов — `GET /artifacts` (срез A3, Р-A3-3).
+ *
+ * БЕЗ `storageKey` И БЕЗ СОДЕРЖИМОГО: ключ хранилища — путь на томе Core, и
+ * панели он не нужен ни для чего, кроме утечки; сам файл отдаёт
+ * `GET /attachments/:id/raw` через прокси панели. `kind` — `string`, а не
+ * союз трёх типов: колонка в БД текстовая, и строка, записанная мимо
+ * `UploadDto`, не должна ронять витрину — экран сужает тип сам
+ * (`isArtifactKind` в `lib/artifacts.ts`).
+ */
+export interface ArtifactRow {
+  id: string;
+  ownerType: string;
+  ownerId: string;
+  kind: string;
+  /** Человеческое имя; `null` у полевых вложений (фото, чеки), снятых до среза A3. */
+  title: string | null;
+  domain: Domain | null;
+  tags: string[];
+  mime: string | null;
+  bytes: number | null;
+  /** Кто загрузил: owner | person:<id> | staff:<id> | agent:<имя>; `null` — не записано. */
+  createdBy: string | null;
+  createdAt: string;
+}
+
+/** Ответ `GET /artifacts`: страница, курсор следующей и часы Core для давности. */
+export interface ArtifactList {
+  items: ArtifactRow[];
+  /** Непрозрачный курсор по `(created_at, id)`; `null` — страница последняя. */
+  next: string | null;
+  /** Часы Core: давность строк считается от них (Р-A3-6), а не от `Date.now()` панели. */
+  now: string;
 }
 
 /**
@@ -2990,6 +3026,27 @@ export const core = {
    * голый `err.message` с хостом и пользователем БД.
    */
   appsHealth: () => getWithToken<AppsHealth>("/apps/health"),
+
+  /**
+   * Кольцо артефактов (срез A3, Р-A3-3): вложения по типу, владельцу,
+   * направлению, периоду и названию, страницами по курсору.
+   *
+   * С ТОКЕНОМ: на `ArtifactsController` висит классовый `ReadTokenGuard` — в
+   * названиях артефактов содержательный пересказ работы агентов по делам
+   * владельца («Дебиторка GLOBERENT за август»), то же основание, что у
+   * `/agents/status`. `owner: true` — тот же довод, что у `agentsStatus`:
+   * артефакты с `domain=personal` — личный контур, и без второго пояса при
+   * включённом ужесточении владелец молча не видел бы собственных документов.
+   * Токен проставится, только если серверный контекст подтвердил владельца.
+   *
+   * Параметры уходят КАК ЕСТЬ: что считать фильтром, решает страница
+   * (`app/artifacts/page.tsx`) — она же не пропускает в Core чужие значения из
+   * адреса, на которые тот отвечает 400.
+   */
+  artifacts: (params: Record<string, string> = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return getWithToken<ArtifactList>(`/artifacts${q ? `?${q}` : ""}`, { owner: true });
+  },
 
   // ── Задачи ──
   // Личный контур (R-P5-4/R-P5-6): `/tasks?domain=personal` Core гейтит тем же

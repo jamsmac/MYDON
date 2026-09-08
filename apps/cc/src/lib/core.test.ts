@@ -145,4 +145,44 @@ describe("Состояние агентов и здоровье приложен
     await (await сТокеном()).appsHealth();
     expect(заголовки[0]?.["x-service-token"]).toBe("secret-token");
   });
+
+  it("artifacts несёт x-service-token, а фильтры — в строке запроса (срез A3, Р-A3-3)", async () => {
+    // Названия артефактов — пересказ работы агентов по делам владельца, и
+    // `GET /artifacts` закрыт `ReadTokenGuard`: возврат на `get()` дал бы
+    // здесь `undefined` и 401 на проде вместо витрины.
+    const вызовы: { url: string; headers: Record<string, string> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        вызовы.push({ url: String(url), headers: (init?.headers as Record<string, string>) ?? {} });
+        return {
+          ok: true,
+          json: async () => ({ items: [], next: null, now: "2026-09-08T00:00:00.000Z" }),
+        } as unknown as Response;
+      }),
+    );
+    await (await сТокеном()).artifacts({ kind: "doc", q: "дебиторка", limit: "50" });
+    expect(вызовы).toHaveLength(1);
+    expect(вызовы[0]?.headers["x-service-token"]).toBe("secret-token");
+    // Параметры не переписываются клиентом: страница решает, что фильтр.
+    expect(decodeURIComponent(вызовы[0]?.url ?? "")).toContain("/artifacts?kind=doc&q=дебиторка&limit=50");
+  });
+
+  it("artifacts без параметров не тащит пустую строку запроса", async () => {
+    // `?` без параметров Core примет, но адрес в логах и в кеше ядра стал бы
+    // вторым написанием одного и того же запроса.
+    const вызовы: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        вызовы.push(String(url));
+        return {
+          ok: true,
+          json: async () => ({ items: [], next: null, now: "2026-09-08T00:00:00.000Z" }),
+        } as unknown as Response;
+      }),
+    );
+    await (await сТокеном()).artifacts();
+    expect(вызовы[0]).toMatch(/\/artifacts$/);
+  });
 });
