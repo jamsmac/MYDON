@@ -61,19 +61,25 @@ describe("attachment как субстрат артефактов (срез A3, 
     assert.equal(c.kind.default, "photo");
   });
 
-  it("индекс attachment_kind_created_idx: (kind, created_at DESC), сплошной, не уникальный", () => {
+  it("индекс attachment_kind_created_idx: (kind, created_at DESC NULLS FIRST), сплошной, не уникальный", () => {
     const индексы = getTableConfig(attachment).indexes;
     const idx = индексы.find((i) => i.config.name === "attachment_kind_created_idx");
     assert.ok(idx, "индекса attachment_kind_created_idx нет — витрина пойдёт полным сканом");
     assert.equal(idx.config.unique, false);
     assert.equal(idx.config.where, undefined, "индекс сплошной: фильтр по kind задаёт запрос");
+    // Порядок NULL — часть формы, а не мелочь: у DESC умолчание NULLS FIRST, и
+    // ORDER BY витрины (`desc(createdAt), desc(id)`) даёт именно его. С NULLS
+    // LAST пути сортировки не совпадают, и планировщик берёт из индекса одно
+    // равенство по kind, а сортирует заново (замер: 859 буферов против 5).
+    // Проверять «order: desc» без «nulls» значит не проверять форму: ровно эта
+    // недосказанность и пропустила дефект в первый раз.
     const колонки = idx.config.columns.map((col) => {
-      const ic = col as unknown as { name?: string; indexConfig?: { order?: string } };
-      return { name: ic.name, order: ic.indexConfig?.order };
+      const ic = col as unknown as { name?: string; indexConfig?: { order?: string; nulls?: string } };
+      return { name: ic.name, order: ic.indexConfig?.order, nulls: ic.indexConfig?.nulls };
     });
     assert.deepEqual(колонки, [
-      { name: "kind", order: "asc" },
-      { name: "created_at", order: "desc" },
+      { name: "kind", order: "asc", nulls: "last" },
+      { name: "created_at", order: "desc", nulls: "first" },
     ]);
     assert.ok(
       индексы.some((i) => i.config.name === "attachment_owner_idx"),
