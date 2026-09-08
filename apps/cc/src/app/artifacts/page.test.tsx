@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ARTIFACT_KINDS, ARTIFACTS_SINCE } from "../../lib/artifacts";
+import { ARTIFACT_KINDS, ARTIFACTS_Q_MAX, ARTIFACTS_SINCE } from "../../lib/artifacts";
 import type { ArtifactList, ArtifactRow, Person } from "../../lib/core";
 import { ago } from "../../lib/format";
 import { ARTIFACT_KIND_LED, ARTIFACT_KIND_WORD } from "../../lib/state";
@@ -17,9 +17,17 @@ vi.mock("../../lib/core", () => ({
       super("Core недоступен");
     }
   },
+  // Тот же класс, что видит страница: `instanceof` через мок работает только
+  // когда тест и страница берут его из ОДНОГО модуля (приём flows/page.test).
+  CoreRefused: class CoreRefused extends Error {
+    constructor(readonly status: number) {
+      super("Core отказал");
+    }
+  },
 }));
 
 import ArtifactsPage from "./page";
+import { CoreRefused, CoreUnavailable } from "../../lib/core";
 
 /** Часы Core в ответе: от них считается давность, а не от часов машины. */
 const СЕЙЧАС = "2026-09-08T10:00:00.000Z";
@@ -160,6 +168,36 @@ describe("Витрина «Артефакты»: фильтры уходят в 
     expect(screen.getByText("Часть фильтров не применена").closest(".warn")).toHaveTextContent(
       "дата с «2026-02-30»",
     );
+  });
+
+  it("НАЗВАНИЕ ДЛИННЕЕ ПРЕДЕЛА CORE — непринятый фильтр, а не экран отказа", async () => {
+    /*
+     * У `q` в Core стоит `MaxLength(200)`, и до этой правки страница слала
+     * строку любой длины: 201 символ — 400 от Core, то есть «Нет связи с
+     * ядром MYDON» при живом ядре. Ссылку `?q=<имя файла>` печатает бот
+     * (`ссылкаНаАрхив`), а имя файла собирает модель — длина не в наших руках.
+     */
+    const длинное = "я".repeat(ARTIFACTS_Q_MAX + 1);
+    await страница({ q: длинное });
+    expect(artifacts).toHaveBeenCalledWith({ limit: "50" });
+    expect(screen.getByText("Часть фильтров не применена").closest(".warn")).toHaveTextContent(
+      `название длиннее ${ARTIFACTS_Q_MAX} символов`,
+    );
+    // Само название на экран не выливается: 201 символ мусора в предупреждении
+    // ничего не объясняет, а обрезок читался бы как «искали вот это».
+    expect(screen.queryByText(длинное)).toBeNull();
+  });
+
+  it("ровно предел — фильтр рабочий: пережать так же плохо, как недожать", async () => {
+    const впритык = "я".repeat(ARTIFACTS_Q_MAX);
+    await страница({ q: впритык });
+    expect(artifacts).toHaveBeenCalledWith({ q: впритык, limit: "50" });
+    expect(screen.queryByText("Часть фильтров не применена")).toBeNull();
+  });
+
+  it("форма не даёт набрать больше предела Core: maxLength на поле поиска", async () => {
+    await страница();
+    expect(screen.getByLabelText("Название")).toHaveAttribute("maxlength", String(ARTIFACTS_Q_MAX));
   });
 
   it("курсор передаётся как есть, а ссылка «дальше» несёт фильтры и новый курсор", async () => {
@@ -318,14 +356,45 @@ describe("Витрина «Артефакты»: строка в граммат�
     expect(container.innerHTML).not.toContain("storageKey");
   });
 
-  it("сводка в шапке считает строки и называет дату архива", async () => {
+  it("сводка в шапке считает строки СТРАНИЦЫ и называет дату архива", async () => {
     artifacts.mockImplementation(async () => ({
       items: [строка({}), строка({ id: "8b1f2d3e-0000-4000-8000-000000000002" })],
       next: null,
       now: СЕЙЧАС,
     }));
     await страница();
-    expect(screen.getByText(/^2 артефакта · последние сверху · архив ведётся с 8 сентября 2026$/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /^2 артефакта на этой странице · последние сверху · архив ведётся с 8 сентября 2026$/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("ШАПКА НЕ НАЗЫВАЕТ ЧИСЛОМ СТРАНИЦЫ ЧИСЛО АРХИВА: на второй странице «3 артефакта» без оговорки — ложь", async () => {
+    /*
+     * Общего количества у страницы НЕТ: Core отдаёт порцию и курсор, `total`
+     * в ответе не предусмотрен. Прежняя шапка печатала «3 артефакта ·
+     * последние сверху · архив ведётся с 8 сентября 2026» на второй странице
+     * с тремя строками, и это читалось как «в архиве три артефакта» —
+     * ровно тот класс лжи экрана, ради которого шла дизайн-волна. Подпись
+     * «Показаны N строк» стояла НИЖЕ и только при наличии следующей
+     * страницы, то есть на последней порции не спасала вовсе.
+     */
+    artifacts.mockImplementation(async () => ({
+      items: [
+        строка({}),
+        строка({ id: "8b1f2d3e-0000-4000-8000-000000000002" }),
+        строка({ id: "8b1f2d3e-0000-4000-8000-000000000003" }),
+      ],
+      next: "eyJ",
+      now: СЕЙЧАС,
+    }));
+    const { container } = await страница({ cursor: "eyI" });
+    const шапка = container.querySelector(".page-head .lead");
+    expect(шапка).toHaveTextContent("3 артефакта на этой странице");
+    // Число без оговорки — запрещено: именно так утверждается несуществующий итог.
+    expect(шапка?.textContent).not.toMatch(/3 артефакта ·/);
+    expect(screen.getByRole("link", { name: "дальше →" })).toBeInTheDocument();
   });
 });
 
@@ -408,5 +477,84 @@ describe("Витрина «Артефакты»: оболочка", () => {
     await страница();
     expect(screen.getByText(/Нет связи с ядром MYDON/i)).toBeInTheDocument();
     expect(screen.queryByText(/ещё нет/)).toBeNull();
+  });
+});
+
+/*
+ * ИСПОРЧЕННЫЙ КУРСОР — НЕ АВАРИЯ ЯДРА (круг починок 2, И-2).
+ *
+ * Цепочка была такая: страница передаёт курсор из адреса как есть → Core
+ * честно отвечает 400 (`decodeCursor` не разобрал) → `getWithToken`
+ * превращает ЛЮБОЙ не-ok в `CoreUnavailable` → экран рисует «Нет связи с
+ * ядром MYDON. Проверьте контейнер mydon-core» с деталью «HTTP 400 на
+ * /artifacts?cursor=abc&limit=50». Ядро при этом ЖИВО, и владельца
+ * отправляли проверять здоровый контейнер из-за опечатки в закладке —
+ * при том что докблок страницы объявляет обратный принцип для остальных
+ * фильтров. Различает исходы ТИП отказа, а не текст сообщения.
+ */
+describe("Витрина «Артефакты»: отказ Core ≠ авария Core (И-2)", () => {
+  it("испорченный курсор → архив с начала списка и строка о курсоре, а не «нет связи»", async () => {
+    artifacts.mockImplementation(async (params: Record<string, string>) => {
+      if (params.cursor !== undefined) throw new CoreRefused(400);
+      return { items: [строка({})], next: null, now: СЕЙЧАС };
+    });
+    const { container } = await страница({ kind: "doc", cursor: "abc" });
+
+    // Ядро живо — экрана аварии быть не должно ни в каком виде.
+    expect(screen.queryByText(/Нет связи с ядром MYDON/i)).toBeNull();
+    expect(container.innerHTML).not.toContain("mydon-core");
+    // Сказано словами, что именно не приняли.
+    const предупреждение = screen.getByText("Курсор из адреса не распознан").closest(".warn");
+    expect(предупреждение).toHaveTextContent("архив показан с начала списка");
+    // И показано С НАЧАЛА, а не пустота: второй заход ушёл БЕЗ курсора, но с фильтром.
+    expect(artifacts).toHaveBeenCalledTimes(2);
+    expect(artifacts).toHaveBeenLastCalledWith({ kind: "doc", limit: "50" });
+    expect(screen.getByRole("link", { name: "Дебиторка GLOBERENT за август" })).toBeInTheDocument();
+    // «Дальше пусто» — про курсор, которого больше нет: такой строки быть не может.
+    expect(screen.queryByText("Дальше пусто")).toBeNull();
+  });
+
+  it("испорченный курсор на пустом архиве: пустое состояние называет дату, а не «дальше пусто»", async () => {
+    // Ветка `cursor !== undefined` у `EmptyState` печатает «Страница за
+    // курсором закончилась». После повтора с начала это была бы ложь: выдача
+    // пришла НЕ за курсором, а с начала — и она действительно пуста.
+    artifacts.mockImplementation(async (params: Record<string, string>) => {
+      if (params.cursor !== undefined) throw new CoreRefused(400);
+      return пусто;
+    });
+    await страница({ cursor: "abc" });
+    expect(screen.getByText("Артефактов с 8 сентября 2026 ещё нет")).toBeInTheDocument();
+    expect(screen.queryByText("Дальше пусто")).toBeNull();
+    expect(screen.getByText("Курсор из адреса не распознан")).toBeInTheDocument();
+  });
+
+  it("НАСТОЯЩАЯ недоступность Core по-прежнему даёт «Core недоступен», а не витрину", async () => {
+    // Обратная сторона: отказ и авария различаются, и второй исход не должен
+    // был пострадать от починки первого.
+    artifacts.mockImplementation(async () => {
+      throw new CoreUnavailable("connect ECONNREFUSED 127.0.0.1:3001");
+    });
+    await страница({ cursor: "abc" });
+    expect(screen.getByText(/Нет связи с ядром MYDON/i)).toBeInTheDocument();
+    expect(screen.getByText("connect ECONNREFUSED 127.0.0.1:3001")).toBeInTheDocument();
+    // Повтора без курсора нет: авария повтором не лечится.
+    expect(artifacts).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Курсор из адреса не распознан")).toBeNull();
+  });
+
+  it("400 без курсора — «Ядро не приняло запрос», тоже не авария контейнера", async () => {
+    // Сегодня недостижимо (все прочие параметры страница сужает сама), но
+    // расхождение контракта панели и Core обязано звучать как расхождение, а
+    // не как упавший контейнер.
+    artifacts.mockImplementation(async () => {
+      throw new CoreRefused(400);
+    });
+    await страница({ kind: "doc" });
+    expect(screen.getByText("Ядро не приняло запрос")).toBeInTheDocument();
+    expect(screen.queryByText(/Нет связи с ядром MYDON/i)).toBeNull();
+    expect(screen.getByRole("link", { name: "открыть архив без фильтров" })).toHaveAttribute(
+      "href",
+      "/artifacts",
+    );
   });
 });

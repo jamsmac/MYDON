@@ -1,14 +1,23 @@
 import { DOMAINS, DOMAIN_LABELS } from "@mydon/shared";
 import Link from "next/link";
 import { CoreDown } from "../../components/core-down";
-import { core, CoreUnavailable, type ArtifactList, type ArtifactRow, type Person } from "../../lib/core";
+import {
+  core,
+  CoreRefused,
+  CoreUnavailable,
+  type ArtifactList,
+  type ArtifactRow,
+  type Person,
+} from "../../lib/core";
 import {
   ARTIFACT_KINDS,
   ARTIFACTS_LIMIT,
+  ARTIFACTS_Q_MAX,
   authorWord,
   fileHref,
   isArtifactKind,
   isDomain,
+  isSearchable,
   opensInNewTab,
   ownerCard,
   периодВМоменты,
@@ -34,10 +43,18 @@ const pick = (v: string | undefined): string | undefined =>
  * ведётся, а не говорит «ничего не найдено» (`ARTIFACTS_SINCE`).
  *
  * ФИЛЬТРЫ ЖИВУТ В АДРЕСЕ, а не в состоянии клиента: форма GET без JS, как на
- * `/flows`, — выборку можно сохранить закладкой и переслать. Тип, направление
- * и даты из адреса СУЖАЮТСЯ до известных значений ПЕРЕД походом в Core: на
- * чужое значение Core отвечает 400, и экран показал бы «нет связи» вместо
- * витрины из-за опечатки в закладке. Непринятый фильтр называется словами.
+ * `/flows`, — выборку можно сохранить закладкой и переслать. Тип, направление,
+ * даты И ДЛИНА НАЗВАНИЯ из адреса СУЖАЮТСЯ до значений, которые Core примет,
+ * ПЕРЕД походом в него: на чужое значение он отвечает 400, и экран показал бы
+ * «нет связи» вместо витрины из-за опечатки в закладке. Непринятый фильтр
+ * называется словами.
+ *
+ * КУРСОР — ЕДИНСТВЕННЫЙ ПАРАМЕТР, КОТОРЫЙ СУЗИТЬ НЕЛЬЗЯ: он непрозрачен, его
+ * форму знает только Core. Поэтому у него другой приём — не проверка до, а
+ * разбор отказа после: 400 приходит `CoreRefused` (`refused: [400]` у
+ * `core.artifacts`), страница показывает архив С НАЧАЛА и говорит про курсор
+ * словами. «Нет связи с ядром» на живом ядре — то же враньё экрана, от
+ * которого уводит сужение фильтров.
  *
  * СКОРОСТИ ЭКРАН НЕ ОБЕЩАЕТ, И ЭТО ИЗМЕРЕНО. Посадочный вид (без `?kind=`)
  * индексом не покрыт — на 50 000 строк это `Seq Scan`, и второй индекс признан
@@ -76,11 +93,15 @@ export default async function ArtifactsPage({
   const askedDomain = pick(sp.domain);
   const askedFrom = pick(sp.from);
   const askedTo = pick(sp.to);
-  const q = pick(sp.q);
+  const askedQ = pick(sp.q);
   const cursor = pick(sp.cursor);
 
   const kind = isArtifactKind(askedKind) ? askedKind : undefined;
   const domain = isDomain(askedDomain) ? askedDomain : undefined;
+  // Название — тоже сужаемый параметр: у Core на `q` стоит `MaxLength(200)`, и
+  // строка длиннее была бы 400, то есть экраном отказа вместо витрины. Ссылку
+  // `?q=<имя файла>` печатает бот, а имя собирает модель — длина не в наших руках.
+  const q = askedQ !== undefined && isSearchable(askedQ) ? askedQ : undefined;
   const период = периодВМоменты(askedFrom, askedTo);
   // Дни из адреса, которые разобрались: они же возвращаются в поля формы и в
   // ссылку «дальше». Мусор (`from=вчера`) в форму не возвращаем — иначе
@@ -95,6 +116,9 @@ export default async function ArtifactsPage({
   }
   if (askedFrom !== undefined && from === undefined) неПрименены.push(`дата с «${askedFrom}»`);
   if (askedTo !== undefined && to === undefined) неПрименены.push(`дата по «${askedTo}»`);
+  if (askedQ !== undefined && q === undefined) {
+    неПрименены.push(`название длиннее ${ARTIFACTS_Q_MAX} символов`);
+  }
 
   /** Фильтры страницы, пережившие проверку, — в форме адреса (дни, не ISO). */
   const filters: Record<string, string> = {
@@ -106,35 +130,84 @@ export default async function ArtifactsPage({
   };
   const filtered = Object.keys(filters).length > 0;
 
-  let list: ArtifactList;
-  let люди: Person[];
-  try {
+  /*
+   * ИМЕНА ЛЮДЕЙ — ВТОРЫМ ЧТЕНИЕМ, И ЕГО ОТКАЗ АРХИВ НЕ УНОСИТ. Core отдаёт
+   * в строке `createdBy = "person:<uuid>"` (так пишет бот, задача 4), а имя
+   * живёт в реестре людей; без него строка печатала бы сырой идентификатор.
+   * Один запрос на всю страницу, а не по строке: людей в реестре единицы.
+   * `all = true` — автор архивного документа мог уволиться и выпасть из
+   * обычной выдачи, а подпись обязана работать и через год (тот же довод и
+   * тот же приём, что у `actorLabel` в `app/audit/page.tsx`). Отказ гасится:
+   * подпись — украшение строки, архив — её содержание, и терять весь экран
+   * из-за имён нельзя.
+   */
+  const порция = async (
+    откуда: string | undefined,
+  ): Promise<{ ok: [ArtifactList, Person[]] } | { fail: unknown }> => {
+    try {
+      return {
+        ok: await Promise.all([
+          core.artifacts({
+            ...(kind !== undefined ? { kind } : {}),
+            ...(domain !== undefined ? { domain } : {}),
+            ...(период.from !== undefined ? { from: период.from } : {}),
+            ...(период.to !== undefined ? { to: период.to } : {}),
+            ...(q !== undefined ? { q } : {}),
+            ...(откуда !== undefined ? { cursor: откуда } : {}),
+            limit: ARTIFACTS_LIMIT,
+          }),
+          core.people(true).catch(() => [] as Person[]),
+        ]),
+      };
+    } catch (err) {
+      return { fail: err };
+    }
+  };
+
+  /*
+   * ИСПОРЧЕННЫЙ КУРСОР — НЕ АВАРИЯ ЯДРА, И ЭКРАН НЕ ИМЕЕТ ПРАВА ГОВОРИТЬ
+   * ИНАЧЕ. Курсор непрозрачен, и страница проверить его не может — форму
+   * знает только Core (`decodeCursor`, 400 на испорченном). Прежде любой
+   * не-ok становился `CoreUnavailable`, и `/artifacts?cursor=abc` рисовал
+   * «Нет связи с ядром MYDON. Проверьте контейнер mydon-core» при ЖИВОМ
+   * ядре: владельца отправляли проверять здоровый контейнер из-за опечатки в
+   * закладке. Теперь 400 — `CoreRefused` (`refused: [400]` у `core.artifacts`),
+   * и ответ на него — начало списка плюс строка о курсоре, а не пустота и не
+   * экран аварии.
+   */
+  let ответ = await порция(cursor);
+  /** Курсор Core не принял: витрина показана с начала, и об этом сказано. */
+  let курсорНеПринят = false;
+  if ("fail" in ответ && ответ.fail instanceof CoreRefused && cursor !== undefined) {
+    курсорНеПринят = true;
+    ответ = await порция(undefined);
+  }
+  if ("fail" in ответ) {
+    const err = ответ.fail;
     /*
-     * ИМЕНА ЛЮДЕЙ — ВТОРЫМ ЧТЕНИЕМ, И ЕГО ОТКАЗ АРХИВ НЕ УНОСИТ. Core отдаёт
-     * в строке `createdBy = "person:<uuid>"` (так пишет бот, задача 4), а имя
-     * живёт в реестре людей; без него строка печатала бы сырой идентификатор.
-     * Один запрос на всю страницу, а не по строке: людей в реестре единицы.
-     * `all = true` — автор архивного документа мог уволиться и выпасть из
-     * обычной выдачи, а подпись обязана работать и через год (тот же довод и
-     * тот же приём, что у `actorLabel` в `app/audit/page.tsx`). Отказ гасится:
-     * подпись — украшение строки, архив — её содержание, и терять весь экран
-     * из-за имён нельзя.
+     * 400 БЕЗ КУРСОРА — ТОЖЕ НЕ АВАРИЯ. Сегодня этой ветки не достичь: тип,
+     * направление, даты и длину названия страница сужает сама, а `limit` —
+     * константа. Значит такой ответ означал бы, что контракт параметров
+     * панели и Core разошёлся, — и «нет связи» соврало бы о мире ровно так
+     * же, как врало про курсор. Поэтому отказ называется отказом.
      */
-    [list, люди] = await Promise.all([
-      core.artifacts({
-        ...(kind !== undefined ? { kind } : {}),
-        ...(domain !== undefined ? { domain } : {}),
-        ...(период.from !== undefined ? { from: период.from } : {}),
-        ...(период.to !== undefined ? { to: период.to } : {}),
-        ...(q !== undefined ? { q } : {}),
-        ...(cursor !== undefined ? { cursor } : {}),
-        limit: ARTIFACTS_LIMIT,
-      }),
-      core.people(true).catch(() => [] as Person[]),
-    ]);
-  } catch (err) {
+    if (err instanceof CoreRefused) {
+      return (
+        <>
+          <div className="page-head">
+            <h1>Артефакты</h1>
+          </div>
+          <div className="warn">
+            <b>Ядро не приняло запрос</b>
+            Связь с MYDON есть, но выборку Core считает неверной (HTTP {err.status}). Дело в адресе,
+            а не в контейнере: <Link href="/artifacts">открыть архив без фильтров</Link>.
+          </div>
+        </>
+      );
+    }
     return <CoreDown detail={err instanceof CoreUnavailable ? err.detail : String(err)} />;
   }
+  const [list, люди] = ответ.ok;
 
   const имена = new Map(люди.map((p) => [p.id, p.name]));
   // Момент, от которого считается давность: часы ЯДРА, не браузера (Р-A3-6).
@@ -151,17 +224,34 @@ export default async function ArtifactsPage({
     <>
       <div className="page-head">
         <h1>Артефакты</h1>
+        {/*
+         * ШАПКА НЕ НАЗЫВАЕТ ЧИСЛОМ СТРАНИЦЫ ЧИСЛО АРХИВА. Общего количества у
+         * страницы нет и быть не может: Core отдаёт порцию и курсор, а не
+         * `total` (`ArtifactsPage` в `artifacts.service.ts`) — считать его
+         * значило бы просканировать таблицу целиком на каждый показ. Прежнее
+         * «3 артефакта · последние сверху» на второй странице читалось как
+         * «в архиве три артефакта», то есть экран утверждал то, чего не знает.
+         */}
         <p className="lead">
           {n === 0
             ? `архив ведётся с ${с}`
-            : `${n} ${plural(n, "артефакт", "артефакта", "артефактов")} · последние сверху · архив ведётся с ${с}`}
+            : `${n} ${plural(n, "артефакт", "артефакта", "артефактов")} на этой странице · последние сверху · архив ведётся с ${с}`}
         </p>
       </div>
+
+      {курсорНеПринят && (
+        <div className="warn" style={{ marginBottom: 12 }}>
+          <b>Курсор из адреса не распознан</b>
+          Ядро его не приняло — архив показан с начала списка. Ссылку «дальше» возьмите заново, а
+          в закладку сохраняйте адрес без курсора.
+        </div>
+      )}
 
       {неПрименены.length > 0 && (
         <div className="warn" style={{ marginBottom: 12 }}>
           <b>Часть фильтров не применена</b>
-          В адресе: {неПрименены.join(", ")} — таких значений нет. Показана выборка без них.
+          В адресе: {неПрименены.join(", ")} — Core такие значения не принимает. Показана выборка
+          без них.
         </div>
       )}
 
@@ -190,6 +280,7 @@ export default async function ArtifactsPage({
           type="search"
           name="q"
           defaultValue={q ?? ""}
+          maxLength={ARTIFACTS_Q_MAX}
           placeholder="Название"
           aria-label="Название"
         />
@@ -199,7 +290,14 @@ export default async function ArtifactsPage({
       </form>
 
       {n === 0 ? (
-        <EmptyState filtered={filtered} cursor={cursor} since={с} back={адрес({})} />
+        /* Курсор, который Core не принял, — уже НЕ курсор: выдача пришла с
+           начала списка, и «страница за курсором закончилась» о ней соврала бы. */
+        <EmptyState
+          filtered={filtered}
+          cursor={курсорНеПринят ? undefined : cursor}
+          since={с}
+          back={адрес({})}
+        />
       ) : (
         <section aria-label="Список артефактов">
           {list.items.map((row) => (
@@ -207,8 +305,7 @@ export default async function ArtifactsPage({
           ))}
           {list.next !== null && (
             <p className="hint">
-              Показаны {n} {plural(n, "строка", "строки", "строк")} ·{" "}
-              <Link href={адрес({ cursor: list.next })}>дальше →</Link>
+              Это не весь архив · <Link href={адрес({ cursor: list.next })}>дальше →</Link>
             </p>
           )}
         </section>

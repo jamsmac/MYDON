@@ -6,11 +6,13 @@ import { describe, expect, it } from "vitest";
 import {
   ARTIFACT_KINDS,
   ARTIFACTS_LIMIT,
+  ARTIFACTS_Q_MAX,
   ARTIFACTS_SINCE,
   authorWord,
   fileHref,
   isArtifactKind,
   isDomain,
+  isSearchable,
   opensInNewTab,
   ownerCard,
   периодВМоменты,
@@ -116,6 +118,19 @@ describe("Сужение значений из адреса", () => {
   it("страница просит 50 строк — потолок Core по контракту", () => {
     expect(ARTIFACTS_LIMIT).toBe("50");
   });
+
+  it("строка поиска сужается по пределу Core: 200 — да, 201 — нет", () => {
+    // Зеркало `@MaxLength(200)` у `ArtifactsQueryDto.q`. Длиннее — 400 от
+    // Core, то есть экран отказа вместо витрины (круг починок 2, И-2).
+    expect(ARTIFACTS_Q_MAX).toBe(200);
+    expect(isSearchable("дебиторка")).toBe(true);
+    expect(isSearchable("я".repeat(ARTIFACTS_Q_MAX))).toBe(true);
+    expect(isSearchable("я".repeat(ARTIFACTS_Q_MAX + 1))).toBe(false);
+    // Счёт НЕ МЯГЧЕ, чем у Core: 101 эмодзи — это 202 единицы UTF-16, и
+    // страница их отвергнет, хотя `validator.isLength` считал бы 101.
+    // Обратная ошибка (пропустить то, что Core отвергнет) хуже: она даёт 400.
+    expect(isSearchable("🙂".repeat(101))).toBe(false);
+  });
 });
 
 describe("Ссылка на файл и способ открытия", () => {
@@ -126,6 +141,13 @@ describe("Ссылка на файл и способ открытия", () => {
   });
 
   it("в новой вкладке — только HTML, параметры типа не мешают", () => {
+    /*
+     * Ветка мёртвая по факту: `text/html` вычеркнут из белого списка Core, а
+     * легаси-строку с таким MIME и `raw`, и прокси отдают с
+     * `Content-Disposition: attachment` — новая вкладка её скачает, а не
+     * покажет (см. докблок `opensInNewTab`). Проверяем поведение ЧИСТОЙ
+     * функции: она — единственное, что здесь вообще может быть верным или нет.
+     */
     expect(opensInNewTab("text/html")).toBe(true);
     expect(opensInNewTab("Text/HTML; charset=utf-8")).toBe(true);
     expect(

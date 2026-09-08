@@ -186,6 +186,30 @@ describe("Состояние агентов и здоровье приложен
     expect(вызовы[0]).toMatch(/\/artifacts$/);
   });
 
+  it("400 — ОТКАЗ (`CoreRefused`), а не авария: испорченный курсор ≠ упавшее ядро (И-2)", async () => {
+    /*
+     * Без `refused: [400]` у `artifacts` любой не-ok становился
+     * `CoreUnavailable`, и страница рисовала «Нет связи с ядром MYDON.
+     * Проверьте контейнер mydon-core» на `/artifacts?cursor=abc` — при ЖИВОМ
+     * ядре. Курсор непрозрачен, страница проверить его не может: различать
+     * исходы обязан клиент, по КОДУ ответа, а не по тексту сообщения.
+     */
+    const клиент = await сТокеном();
+    const { CoreRefused, CoreUnavailable } = await import("./core");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 400 }) as unknown as Response),
+    );
+    await expect(клиент.artifacts({ cursor: "abc" })).rejects.toBeInstanceOf(CoreRefused);
+
+    // 500 — по-прежнему авария: сузили ровно один код, а не «любой не-ok».
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 500 }) as unknown as Response),
+    );
+    await expect(клиент.artifacts()).rejects.toBeInstanceOf(CoreUnavailable);
+  });
+
   /**
    * Срез A3, вторая половина закрытия `attachment` (ловушка спеки §6 п. 3).
    * `AttachmentsController` в Core закрыт классовым `ReadTokenGuard` целиком:
