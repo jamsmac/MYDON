@@ -422,7 +422,7 @@ describe("Состояние агента словами (R-A2-1, решения
     assert.deepEqual(verdict.since, archivedAt);
   });
 
-  it("из нескольких задач берётся самая ранняя: «с каких пор» не должно скакать", () => {
+  it("длительность работы — по САМОМУ РАННЕМУ claim: «с каких пор» не должно скакать", () => {
     const рано = new Date(NOW.getTime() - 300_000);
     const поздно = new Date(NOW.getTime() - 60_000);
     const работа = computeAgentState(
@@ -435,7 +435,15 @@ describe("Состояние агента словами (R-A2-1, решения
     );
     assert.equal(работа.skill, "early");
     assert.deepEqual(работа.since, рано);
+  });
 
+  it("ЗАТЫК — САМЫЙ СВЕЖИЙ, А НЕ САМЫЙ СТАРЫЙ: свежий описывает текущее положение (перепроверка A2, П1)", () => {
+    // Полярность у затыка обратная длительности. Свежий затык — это то, что
+    // произошло ПОСЛЕДНИМ, и именно он говорит, где агент сейчас; старый —
+    // история. С `earliest` сравнение с живым claim шло по старой отметке, и
+    // свежий затык не попадал ни в состояние, ни в хвост.
+    const рано = new Date(NOW.getTime() - 300_000);
+    const поздно = new Date(NOW.getTime() - 60_000);
     const затык = computeAgentState(
       input({
         claimedTasks: [
@@ -445,8 +453,73 @@ describe("Состояние агента словами (R-A2-1, решения
       }),
     );
     assert.equal(затык.state, "blocked");
-    assert.match(затык.reason, /первый/);
-    assert.deepEqual(затык.since, рано);
+    assert.match(затык.reason, /второй/, "цитируется свежая причина, а не недельной давности");
+    assert.doesNotMatch(затык.reason, /: первый/, "старая причина не должна выдаваться за текущую");
+    assert.deepEqual(затык.since, поздно);
+    assert.equal(затык.taskId, "b");
+    assert.equal(затык.skill, "late");
+    // Прежний затык не исчезает за свежим — его тоже некому разобрать.
+    assert.match(затык.reason, /прежних затыков не разобрано ещё: 1/);
+  });
+
+  it("СВЕЖИЙ ЗАТЫК ПЕРЕКРЫВАЕТ ЖИВУЮ РАБОТУ, даже если рядом есть затык недельной давности (перепроверка A2, П1)", () => {
+    // Сценарий находки: A — затык неделю назад (не разобран), C — живой claim
+    // минуту назад, B — затык тридцать секунд назад, то есть НОВЕЕ claim'а C.
+    // При выборе затыка по минимуму сравнивалась отметка A, проверка
+    // «затык не старше живого claim» была ложной, и вердикт выходил
+    // «работает; прежний затык Core не разобран» — про B ни слова, хотя Core
+    // остановил задачу полминуты назад.
+    const неделюНазад = new Date(NOW.getTime() - 7 * 86_400_000);
+    const минутуНазад = new Date(NOW.getTime() - 60_000);
+    const полминутыНазад = new Date(NOW.getTime() - 30_000);
+    const verdict = computeAgentState(
+      input({
+        claimedTasks: [
+          task({ id: "a", skill: "старый", claimedAt: null, blockedAt: неделюНазад, blockedReason: "затык недели" }),
+          task({ id: "c", skill: "живая", claimedAt: минутуНазад }),
+          task({ id: "b", skill: "свежий", claimedAt: null, blockedAt: полминутыНазад, blockedReason: "затык минуты" }),
+        ],
+      }),
+    );
+    assert.equal(verdict.state, "blocked", "затык новее живого claim обязан перекрывать работу");
+    assert.match(verdict.reason, /затык минуты/);
+    assert.equal(verdict.taskId, "b");
+    assert.equal(verdict.skill, "свежий");
+    assert.deepEqual(verdict.since, полминутыНазад);
+    assert.doesNotMatch(verdict.reason, /выполняет задачу/, "работа не может быть верхней строкой при свежем затыке");
+    assert.match(verdict.reason, /прежних затыков не разобрано ещё: 1/, "старый затык уходит в хвост, а не в никуда");
+  });
+
+  it("СТАРЫЙ ЗАТЫК ОСТАЁТСЯ ХВОСТОМ ПРИ ЖИВОЙ РАБОТЕ, и прежние сосчитаны", () => {
+    // Обратная половина того же правила: если все затыки старше живого claim,
+    // состояние честное — «работает», — но хвост называет самый свежий из них
+    // и число остальных.
+    const давно = new Date(NOW.getTime() - 7 * 86_400_000);
+    const менееДавно = new Date(NOW.getTime() - 3 * 86_400_000);
+    const verdict = computeAgentState(
+      input({
+        claimedTasks: [
+          task({ id: "a", skill: "первый-затык", claimedAt: null, blockedAt: давно, blockedReason: "старьё" }),
+          task({ id: "b", skill: "второй-затык", claimedAt: null, blockedAt: менееДавно, blockedReason: "посвежее" }),
+          task({ id: "c", skill: "живая", claimedAt: new Date(NOW.getTime() - 60_000) }),
+        ],
+      }),
+    );
+    assert.equal(verdict.state, "working");
+    assert.match(verdict.reason, /прежний затык Core не разобран \(навык «второй-затык»\)/);
+    assert.match(verdict.reason, /прежних затыков не разобрано ещё: 1/);
+  });
+
+  it("один затык — счётчика прежних нет: строка, которая есть всегда, не значит ничего", () => {
+    const verdict = computeAgentState(
+      input({
+        claimedTasks: [
+          task({ claimedAt: null, blockedAt: new Date(NOW.getTime() - 60_000), blockedReason: "единственный" }),
+        ],
+      }),
+    );
+    assert.equal(verdict.state, "blocked");
+    assert.doesNotMatch(verdict.reason, /прежних затыков/);
   });
 
   it("задача без навыка не роняет фразу: сказано, что навык не указан", () => {
