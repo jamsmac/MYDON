@@ -2,6 +2,7 @@
 //
 // Без DOM: здесь только даты, строки и ссылки (тот же приём, что в
 // `lib/state.test.ts`).
+import { ARTIFACTS_Q_MAX as SHARED_Q_MAX, ATTACHMENT_KINDS } from "@mydon/shared";
 import { describe, expect, it } from "vitest";
 import {
   ARTIFACT_KINDS,
@@ -102,7 +103,15 @@ describe("Период фильтра → границы для Core", () => {
 });
 
 describe("Сужение значений из адреса", () => {
-  it("типов ровно три, и они те же, что у UploadDto Core", () => {
+  it("типы — ПЕРЕСТАНОВКА общего списка @mydon/shared, а не третий литерал", () => {
+    /*
+     * Прежде здесь стояло сравнение со СВОИМ ЖЕ литералом: тест доказывал,
+     * что автор дважды набрал одно и то же, а до `UploadDto.kind` в Core не
+     * дотягивался (круг починок 3, B-1). Теперь сверяются ДВА источника —
+     * список показа и договор `ATTACHMENT_KINDS`; свой порядок у витрины
+     * остаётся (документ первым), поэтому равенство МНОЖЕСТВ.
+     */
+    expect([...ARTIFACT_KINDS].sort()).toEqual([...ATTACHMENT_KINDS].sort());
     expect([...ARTIFACT_KINDS]).toEqual(["doc", "photo", "receipt"]);
     expect(isArtifactKind("doc")).toBe(true);
     expect(isArtifactKind("video")).toBe(false);
@@ -120,9 +129,11 @@ describe("Сужение значений из адреса", () => {
   });
 
   it("строка поиска сужается по пределу Core: 200 — да, 201 — нет", () => {
-    // Зеркало `@MaxLength(200)` у `ArtifactsQueryDto.q`. Длиннее — 400 от
-    // Core, то есть экран отказа вместо витрины (круг починок 2, И-2).
-    expect(ARTIFACTS_Q_MAX).toBe(200);
+    // Предел — ТОТ ЖЕ ОБЪЕКТ, что стоит в `@MaxLength` у `ArtifactsQueryDto.q`
+    // (`@mydon/shared`), а не переписанное здесь число: длиннее — 400 от Core,
+    // то есть экран отказа вместо витрины (круг починок 2, И-2). Сверяем два
+    // источника; само значение пиннит дом договора (круг починок 3, B-1).
+    expect(ARTIFACTS_Q_MAX).toBe(SHARED_Q_MAX);
     expect(isSearchable("дебиторка")).toBe(true);
     expect(isSearchable("я".repeat(ARTIFACTS_Q_MAX))).toBe(true);
     expect(isSearchable("я".repeat(ARTIFACTS_Q_MAX + 1))).toBe(false);

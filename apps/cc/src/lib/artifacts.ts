@@ -1,4 +1,4 @@
-import { DOMAINS, TZ, type Domain } from "@mydon/shared";
+import { ARTIFACTS_Q_MAX, DOMAINS, TZ, type AttachmentKind, type Domain } from "@mydon/shared";
 
 /**
  * Витрина артефактов (срез A3): константы и чистые функции без Core и без
@@ -30,20 +30,28 @@ import { DOMAINS, TZ, type Domain } from "@mydon/shared";
 export const ARTIFACTS_SINCE = "2026-09-08";
 
 /**
- * Типы вложений на витрине — ровно те три, что принимает `POST /attachments`
- * (`UploadDto.kind` в `apps/core/src/attachments/attachments.controller.ts`).
- * Порядок — порядок в выпадающем списке: документ первым, потому что ради него
- * срез и затевался.
+ * Типы вложений на витрине — ПЕРЕСТАНОВКА `ATTACHMENT_KINDS` из
+ * `@mydon/shared`: тот же список, что проверяет `UploadDto.kind` и фильтр
+ * `?kind=` у Core, но в порядке выпадающего списка — документ первым, потому
+ * что ради него срез и затевался.
+ *
+ * Свой массив, а не `ATTACHMENT_KINDS` целиком, — из-за порядка; поэтому
+ * согласие с общим источником проверяется как равенство МНОЖЕСТВ
+ * (`artifacts.test.ts`). Прежде здесь стоял третий независимый литерал, и
+ * четвёртый вид, добавленный в Core, не покраснил бы ничего.
  */
-export const ARTIFACT_KINDS = ["doc", "photo", "receipt"] as const;
-export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
+export const ARTIFACT_KINDS = ["doc", "photo", "receipt"] as const satisfies readonly AttachmentKind[];
+export type ArtifactKind = AttachmentKind;
 
 /** Сколько строк за раз: архив длинный, экран — нет; дальше — по курсору `next`. */
 export const ARTIFACTS_LIMIT = "50";
 
 /**
- * Потолок строки поиска — ЗЕРКАЛО `@MaxLength(200)` у `ArtifactsQueryDto.q`
- * (`apps/core/src/artifacts/artifacts.controller.ts`).
+ * Потолок строки поиска — ОДИН И ТОТ ЖЕ ОБЪЕКТ, что стоит в
+ * `@MaxLength` у `ArtifactsQueryDto.q` (`@mydon/shared`,
+ * `artifacts-contract.ts`), а не зеркало числа. Прежде число было записано
+ * руками с обеих сторон, а тест панели сверял его со своим же литералом —
+ * то есть «зеркало» держалось на дисциплине автора (круг починок 3, B-1).
  *
  * Зачем он здесь, если предел стоит в Core. Строка длиннее 200 символов — это
  * 400 от Core, а 400 на витрине означал «Нет связи с ядром MYDON» при живом
@@ -54,7 +62,7 @@ export const ARTIFACTS_LIMIT = "50";
  * как чужой тип и несуществующий день; в саму форму дополнительно стоит
  * `maxLength`, чтобы владелец не смог его набрать.
  */
-export const ARTIFACTS_Q_MAX = 200;
+export { ARTIFACTS_Q_MAX };
 
 /**
  * Строка поиска в пределах, которые примет Core? Пустая — «фильтра нет», её

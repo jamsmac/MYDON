@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BadRequestException } from "@nestjs/common";
+import { ATTACHMENT_KINDS } from "@mydon/shared";
 import { PgDialect } from "drizzle-orm/pg-core";
 import {
   ARTIFACT_KINDS,
@@ -123,8 +124,18 @@ describe("ArtifactsService.list — рамки страницы", () => {
     assert.equal(page.now, "2026-09-08T12:00:00.000Z");
   });
 
-  it("типы вложений — те же, что принимает UploadDto.kind", () => {
-    assert.deepEqual([...ARTIFACT_KINDS], ["photo", "receipt", "doc"]);
+  it("типы вложений — ТОТ ЖЕ ОБЪЕКТ, что проверяет UploadDto.kind", () => {
+    // Не `deepEqual` со своим литералом: так проверялось, что автор дважды
+    // набрал одно и то же, а до inline-`@IsIn` у `UploadDto` не дотягивался
+    // никто (круг починок 3, B-1). Тождество ловит третий список: объявит
+    // кто-нибудь здесь свой массив — покраснеет сразу, даже если значения
+    // совпадают. Значения пиннит дом договора (`@mydon/shared`), поведение
+    // самого DTO — `attachments.test.ts`.
+    assert.equal(
+      ARTIFACT_KINDS,
+      ATTACHMENT_KINDS,
+      "фильтр витрины обязан брать список из @mydon/shared, а не заводить свой",
+    );
   });
 });
 

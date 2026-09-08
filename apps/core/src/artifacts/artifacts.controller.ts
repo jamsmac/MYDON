@@ -13,7 +13,7 @@ import {
   MaxLength,
   Min,
 } from "class-validator";
-import { DOMAINS, type Domain } from "@mydon/shared";
+import { ARTIFACTS_Q_MAX, DOMAINS, type Domain } from "@mydon/shared";
 import { excludePersonal } from "../common/owner-enforcement";
 import { ReadTokenGuard } from "../common/read-token.guard";
 import { DB, type Db } from "../db/db.module";
@@ -79,7 +79,7 @@ export class ArtifactsQueryDto {
   /** Подстрока названия. Пустая строка — «фильтр не задан», как `?agent=` у деки. */
   @IsOptional()
   @IsString({ message: "q: строка" })
-  @MaxLength(200, { message: "q: не длиннее 200 символов" })
+  @MaxLength(ARTIFACTS_Q_MAX, { message: `q: не длиннее ${ARTIFACTS_Q_MAX} символов` })
   q?: string;
 
   @IsOptional()

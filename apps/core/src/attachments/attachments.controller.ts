@@ -15,7 +15,7 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { domainEnum } from "@mydon/db";
-import type { Domain } from "@mydon/shared";
+import { ATTACHMENT_KINDS, type AttachmentKind, type Domain } from "@mydon/shared";
 import { Transform } from "class-transformer";
 import {
   ArrayMaxSize,
@@ -104,8 +104,13 @@ export class UploadDto {
   @IsUUID()
   ownerId!: string;
 
-  @IsOptional() @IsIn(["photo", "receipt", "doc"])
-  kind?: "photo" | "receipt" | "doc";
+  /**
+   * Что это. Список — из `@mydon/shared`, а не литералом здесь: те же три
+   * значения проверяет фильтр витрины и показывает панель, и разъехавшись они
+   * дали бы «загрузилось, но не находится» (круг починок 3, B-1).
+   */
+  @IsOptional() @IsIn([...ATTACHMENT_KINDS])
+  kind?: AttachmentKind;
 
   @IsOptional() @IsString() @MaxLength(128)
   createdBy?: string;

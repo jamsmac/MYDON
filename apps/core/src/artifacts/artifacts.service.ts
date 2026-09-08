@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { attachment } from "@mydon/db";
-import type { Domain } from "@mydon/shared";
+import { ATTACHMENT_KINDS, type AttachmentKind, type Domain } from "@mydon/shared";
 import { and, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { DB, type Db } from "../db/db.module";
 
@@ -18,12 +18,13 @@ import { DB, type Db } from "../db/db.module";
  */
 
 /**
- * Типы вложений — ровно те, что принимает `UploadDto.kind`
- * (`attachments.controller.ts`). Чужое значение фильтра — 400, а не тихо
- * пустой архив: `?kind=video` иначе выглядел бы как «ничего не было».
+ * Типы вложений — РОВНО ТОТ ЖЕ СПИСОК, что принимает `UploadDto.kind`, и
+ * теперь это один объект, а не два совпадающих литерала (`@mydon/shared`,
+ * `artifacts-contract.ts`). Чужое значение фильтра — 400, а не тихо пустой
+ * архив: `?kind=video` иначе выглядел бы как «ничего не было».
  */
-export const ARTIFACT_KINDS = ["photo", "receipt", "doc"] as const;
-export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
+export const ARTIFACT_KINDS = ATTACHMENT_KINDS;
+export type ArtifactKind = AttachmentKind;
 
 /** Потолок страницы: одна рамка на DTO и на сервис, как `LIST_MAX` у журнала прогонов. */
 export const LIST_MAX = 100;

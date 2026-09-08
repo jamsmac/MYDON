@@ -45,22 +45,62 @@ function контроллеры(dir: string): string[] {
 }
 
 /**
- * Маршруты, закрытые токеном НА ЧТЕНИЕ целым классом.
+ * Блок декораторов КЛАССА: строки непосредственно перед `export class`, вверх
+ * до пустой строки или конца комментария.
+ *
+ * ПОЧЕМУ ОКНО ВОКРУГ КЛАССА, А НЕ «ТЕКСТ ПОСЛЕ @Controller». Прежний разбор
+ * брал кусок между `@Controller("…")` и `export class`, а форму guard'а искал
+ * регэкспом `@UseGuards\(\s*\w*TokenGuard\s*\)` — то есть РОВНО ОДИН аргумент
+ * и только ПОСЛЕ `@Controller`. Седьмая закрытая дверь, написанная как
+ * `@UseGuards(ReadTokenGuard, OwnerGuard)` или поставившая `@UseGuards` выше
+ * `@Controller`, прошла бы вакуумно — при том что докблок сторожа обещает
+ * «покраснит все четыре места сразу» (круг починок 3, B-2).
+ */
+function блокДекораторов(строки: string[], i: number): string {
+  const out: string[] = [];
+  for (let j = i - 1; j >= 0; j--) {
+    const s = (строки[j] ?? "").trim();
+    if (s.length === 0 || s.startsWith("//") || s.startsWith("*") || s.endsWith("*/")) break;
+    out.unshift(s);
+  }
+  return out.join("\n");
+}
+
+/**
+ * Маршруты, закрытые токеном НА ЧТЕНИЕ целым классом, — из одного исходника.
  *
  * Классовый guard, а не маршрутный: `GET /agents/status` и `GET /agents/skills`
  * закрыты по отдельности намеренно (рядом живут открытые `GET /agents` и
  * `GET /agents/:name`), поэтому `AgentsController` в этот список не входит — и
- * докблоки называют его отдельно, как два маршрута.
+ * докблоки называют его отдельно, как два маршрута. Отсюда и окно: маршрутные
+ * `@UseGuards` живут в ТЕЛЕ класса и в блок декораторов не попадают.
+ *
+ * Границы честности разбора: «класс несёт `@UseGuards`, и среди его
+ * декораторов упомянут `…TokenGuard`». Проверка идёт по подстроке после
+ * `@UseGuards(`, а не по одному регэкспу со списком аргументов: у guard'а
+ * может стоять вызов с собственными скобками (`AuthGuard("jwt")`), и
+ * `[^)]*` оборвался бы на первой из них.
  */
+export function двериТекста(text: string): { маршрут: string; класс: string }[] {
+  const out: { маршрут: string; класс: string }[] = [];
+  const строки = text.split("\n");
+  for (let i = 0; i < строки.length; i += 1) {
+    const класс = /^export class (\w+)/.exec(строки[i] ?? "");
+    if (класс === null) continue;
+    const блок = блокДекораторов(строки, i);
+    const маршрут = /@Controller\("([^"]+)"\)/.exec(блок);
+    if (маршрут === null) continue;
+    const guard = блок.indexOf("@UseGuards(");
+    if (guard === -1 || !/TokenGuard\b/.test(блок.slice(guard))) continue;
+    out.push({ маршрут: маршрут[1] ?? "", класс: класс[1] ?? "" });
+  }
+  return out;
+}
+
 function закрытыеНаЧтение(): { маршрут: string; класс: string }[] {
   const out: { маршрут: string; класс: string }[] = [];
   for (const file of контроллеры(SRC)) {
-    const text = readFileSync(file, "utf8");
-    const m = /@Controller\("([^"]+)"\)([\s\S]*?)export class (\w+)/.exec(text);
-    if (m === null) continue;
-    const между = m[2] ?? "";
-    if (!/@UseGuards\(\s*\w*TokenGuard\s*\)/.test(между)) continue;
-    out.push({ маршрут: m[1] ?? "", класс: m[3] ?? "" });
+    out.push(...двериТекста(readFileSync(file, "utf8")));
   }
   return out.sort((a, b) => a.маршрут.localeCompare(b.маршрут));
 }
@@ -77,6 +117,41 @@ function докблок(файл: string, от: string, до: string): string {
 
 describe("докблоки про «GET открыт» знают все закрытые на чтение двери", () => {
   const закрытые = закрытыеНаЧтение();
+
+  it("разбор видит формы, которые прежний регэксп пропускал (круг починок 3, B-2)", () => {
+    // Три формы одной и той же закрытой двери. Первая — единственная, что
+    // проходила прежний регэксп; из-за остальных двух сторож полноты мог быть
+    // зелёным при седьмой двери, не названной ни в одном докблоке.
+    assert.deepEqual(двериТекста('@Controller("one")\n@UseGuards(ReadTokenGuard)\nexport class OneController {}'), [
+      { маршрут: "one", класс: "OneController" },
+    ]);
+    assert.deepEqual(
+      двериТекста('@Controller("two")\n@UseGuards(ReadTokenGuard, OwnerGuard)\nexport class TwoController {}'),
+      [{ маршрут: "two", класс: "TwoController" }],
+      "два аргумента у @UseGuards — та же закрытая дверь",
+    );
+    assert.deepEqual(
+      двериТекста('@UseGuards(ReadTokenGuard)\n@Controller("three")\nexport class ThreeController {}'),
+      [{ маршрут: "three", класс: "ThreeController" }],
+      "порядок декораторов Nest не важен, и сторожу он тоже не должен быть важен",
+    );
+    assert.deepEqual(
+      двериТекста('@Controller("four")\n@UseGuards(\n  ReadTokenGuard,\n)\nexport class FourController {}'),
+      [{ маршрут: "four", класс: "FourController" }],
+      "@UseGuards в несколько строк",
+    );
+
+    // И обратная половина: маршрутный guard в ТЕЛЕ класса дверью класса не
+    // является (`AgentsController` закрывает два GET по отдельности), а
+    // контроллер без guard'а — тем более.
+    assert.deepEqual(
+      двериТекста(
+        '@Controller("agents")\nexport class AgentsController {\n  @Get("status")\n  @UseGuards(ReadTokenGuard)\n  status() {}\n}',
+      ),
+      [],
+    );
+    assert.deepEqual(двериТекста('@Controller("open")\nexport class OpenController {}'), []);
+  });
 
   it("двери находятся в коде, а не в списке в тесте", () => {
     // Если разбор перестанет находить контроллеры (переименование декоратора,

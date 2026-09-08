@@ -7,9 +7,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { domainEnum } from "@mydon/db";
-import { DOMAINS } from "@mydon/shared";
+import { ATTACHMENT_KINDS, DOMAINS } from "@mydon/shared";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
+import { ARTIFACT_KINDS } from "../artifacts/artifacts.service";
 import { IS_PUBLIC } from "../common/public.decorator";
 import { ReadTokenGuard } from "../common/read-token.guard";
 import {
@@ -408,6 +409,32 @@ describe("Артефакты: направление — только из пе�
       const errors = await validate(artifactDto({ domain: bad }));
       assert.ok(
         errors.some((e) => e.property === "domain"),
+        `«${String(bad)}» обязано быть отклонено`,
+      );
+    }
+  });
+});
+
+describe("Артефакты: вид вложения — один список на бота, Core и панель (круг починок 3, B-1)", () => {
+  it("перечень договора и то, что принимает UploadDto, — один и тот же объект", () => {
+    // `ARTIFACT_KINDS` фильтра витрины — не копия, а ссылка: третий список
+    // (а он тут уже был) не покраснил бы ни один тест.
+    assert.equal(ARTIFACT_KINDS, ATTACHMENT_KINDS);
+  });
+
+  it("каждое значение перечня проходит валидацию DTO", async () => {
+    // Дотягиваемся до самого `@IsIn`, а не до литерала рядом с ним: до этой
+    // проверки заявленная «сверка с UploadDto.kind» шла мимо DTO вовсе.
+    for (const k of ATTACHMENT_KINDS) {
+      assert.deepEqual(await validate(artifactDto({ kind: k })), [], `${k} должен проходить`);
+    }
+  });
+
+  it("чужой вид → ошибка по своему полю, а не тихая загрузка не того", async () => {
+    for (const bad of ["video", "Doc", "doc ", 7, ["doc", "photo"]]) {
+      const errors = await validate(artifactDto({ kind: bad }));
+      assert.ok(
+        errors.some((e) => e.property === "kind"),
         `«${String(bad)}» обязано быть отклонено`,
       );
     }
