@@ -210,6 +210,21 @@ describe("Витрина «Артефакты»: фильтры уходят в 
     );
   });
 
+  it("подпись под порцией говорит ВОЗМОЖНОСТЬ, а не факт (круг починок 3, A-3)", async () => {
+    /*
+     * Курсор у Core значит «строк пришло ровно `limit`», то есть «страница
+     * МОГЛА быть не последней»: `rows.length === limit` в artifacts.service.ts.
+     * На объёме, кратном 50, следующая страница пуста — и утвердительное «Это
+     * не весь архив» оказывалось бы ложью ровно там, где владелец жмёт
+     * «дальше». Проверяем не наличие ссылки (оно выше), а форму утверждения.
+     */
+    artifacts.mockImplementation(async () => ({ items: [строка({})], next: "eyJ", now: СЕЙЧАС }));
+    const { container } = await страница();
+    const подпись = container.querySelector("section .hint");
+    expect(подпись).toHaveTextContent("Возможно, это не весь архив");
+    expect(подпись?.textContent).not.toMatch(/^Это не весь архив/);
+  });
+
   it("поля формы возвращают принятые фильтры, а не мусор из адреса", async () => {
     await страница({ kind: "doc", from: "2026-09-01", to: "вчера", q: "дебиторка" });
     expect(screen.getByLabelText("Тип")).toHaveValue("doc");
@@ -305,6 +320,33 @@ describe("Витрина «Артефакты»: строка в граммат�
     expect(ссылка).not.toHaveAttribute("target");
   });
 
+  it("файл скачивается ПОД НАЗВАНИЕМ, а не под именем «raw» (круг починок 3, A-5)", async () => {
+    /*
+     * Имени файла в базе нет, а `Content-Disposition: attachment` у Core и у
+     * прокси идёт БЕЗ `filename` — браузер берёт имя из последнего сегмента
+     * адреса, то есть «raw», «raw (1)». Витрина сделала этот маршрут
+     * единственной дверью к docx/xlsx/pdf, поэтому имя обязано быть здесь.
+     */
+    artifacts.mockImplementation(async () => ({ items: [строка({})], next: null, now: СЕЙЧАС }));
+    await страница();
+    expect(screen.getByRole("link", { name: "Дебиторка GLOBERENT за август" })).toHaveAttribute(
+      "download",
+      "Дебиторка GLOBERENT за август",
+    );
+  });
+
+  it("без названия имени скачивания не выдумываем", async () => {
+    // Пустой `download` браузер понял бы как «возьми имя из адреса» — то есть
+    // тот же «raw»; выдумывать имя вместо базы витрина не имеет права.
+    artifacts.mockImplementation(async () => ({
+      items: [строка({ title: null })],
+      next: null,
+      now: СЕЙЧАС,
+    }));
+    await страница();
+    expect(screen.getByRole("link", { name: "без названия" })).not.toHaveAttribute("download");
+  });
+
   it("HTML открывается в новой вкладке", async () => {
     artifacts.mockImplementation(async () => ({
       items: [строка({ mime: "text/html; charset=utf-8", title: "Отчёт о продажах" })],
@@ -315,6 +357,8 @@ describe("Витрина «Артефакты»: строка в граммат�
     const ссылка = screen.getByRole("link", { name: "Отчёт о продажах" });
     expect(ссылка).toHaveAttribute("target", "_blank");
     expect(ссылка).toHaveAttribute("rel", "noreferrer");
+    // `download` и `_blank` вместе бессмысленны: у HTML смысл ветки — читать.
+    expect(ссылка).not.toHaveAttribute("download");
   });
 
   it("кто / для кого / направление — одной строкой, владелец — ссылкой на карточку", async () => {

@@ -304,8 +304,16 @@ export default async function ArtifactsPage({
             <ArtifactRowView key={row.id} row={row} now={момент} people={имена} />
           ))}
           {list.next !== null && (
+            /* ВОЗМОЖНОСТЬ, А НЕ ФАКТ (круг починок 3, A-3). Курсор Core отдаёт
+               по признаку «строк ровно `limit`» (`rows.length === limit` в
+               artifacts.service.ts) — то есть «страница МОГЛА быть не
+               последней». На объёме, кратном 50, архив кончается ровно на
+               50-й строке, и утвердительное «Это не весь архив» врало бы:
+               владелец жмёт «дальше» и получает «Дальше пусто». Пустой
+               запрос дешевле пропущенной строки, но обещание экрана обязано
+               совпадать с тем, что ядро знает. */
             <p className="hint">
-              Это не весь архив · <Link href={адрес({ cursor: list.next })}>дальше →</Link>
+              Возможно, это не весь архив · <Link href={адрес({ cursor: list.next })}>дальше →</Link>
             </p>
           )}
         </section>
@@ -388,9 +396,33 @@ function ArtifactRowView({
       </span>
       <div className="ab">
         <div className="an">
+          {/*
+           * `download` — ЧТОБЫ ФАЙЛ НЕ СКАЧИВАЛСЯ ПОД ИМЕНЕМ «raw».
+           *
+           * Имени файла в базе нет (есть `title` и `storage_key`), а Core и
+           * прокси панели ставят `Content-Disposition: attachment` БЕЗ
+           * `filename` — браузер берёт имя из последнего сегмента адреса, то
+           * есть `raw`, `raw (1)`, `raw (2)`. Витрина сделала этот маршрут
+           * единственной дверью к docx/xlsx/pdf, а четыре соседних скачивания
+           * панели имя ставят. Атрибут работает: прокси свой (origin панели),
+           * а при `attachment` без `filename` браузер берёт значение отсюда.
+           *
+           * РАСШИРЕНИЯ В ИМЕНИ НЕТ: `title` — «Дебиторка GLOBERENT
+           * 08.09.2026» (`заголовокИзИмени` в боте срезает его намеренно, по
+           * нему ищут). Полная починка — отдавать `filename*` у Core, собрав
+           * его из `title` и расширения ключа хранилища; это форма решения
+           * владельца и записано кандидатом, а не сделано здесь.
+           *
+           * Не ставим вместе с `target="_blank"`: у HTML (ветка мёртвая, см.
+           * `opensInNewTab`) смысл ровно обратный — такой артефакт читают.
+           */}
           <a
             href={fileHref(row.id)}
-            {...(opensInNewTab(row.mime) ? { target: "_blank", rel: "noreferrer" } : {})}
+            {...(opensInNewTab(row.mime)
+              ? { target: "_blank", rel: "noreferrer" }
+              : row.title !== null
+                ? { download: row.title }
+                : {})}
           >
             {row.title ?? "без названия"}
           </a>

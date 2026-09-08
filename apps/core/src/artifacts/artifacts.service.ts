@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { attachment } from "@mydon/db";
 import type { Domain } from "@mydon/shared";
-import { and, desc, eq, gte, lt, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { DB, type Db } from "../db/db.module";
 
 /**
@@ -69,8 +69,28 @@ export interface ArtifactsPage {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Момент в курсоре: ISO с долей секунды до микросекунд — так печатает база. */
+const CURSOR_MOMENT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/;
+
 /**
- * Курсор страницы: `base64url("<created_at ISO>|<id>")`.
+ * Момент, КОТОРЫЙ СУЩЕСТВУЕТ В КАЛЕНДАРЕ, — формы недостаточно, и это измерено.
+ *
+ * `new Date("2026-02-30T10:00:00Z")` — не «Invalid Date», а 2 марта: V8
+ * ПЕРЕПОЛНЯЕТ лишние дни, а не отвергает их (`2026-09-31` → 1 октября;
+ * `2026-13-01` — уже Invalid). Такая строка уехала бы в SQL параметром с
+ * `::timestamptz` и упала бы 22008 драйвера, то есть 500 вместо честного 400.
+ * Тот же приём и тот же довод, что у `strict: true` в `ArtifactsQueryDto` и
+ * `календарныйДень` в панели: сверяем ОБРАТНЫМ РАЗБОРОМ. Лишние знаки доли
+ * секунды V8 отбрасывает, а не округляет (проверено на
+ * `2026-12-31T23:59:59.999999Z`), поэтому сутки от них не съезжают.
+ */
+function моментЖивой(iso: string): boolean {
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === iso.slice(0, 10);
+}
+
+/**
+ * Курсор страницы: `base64url("<created_at ISO с микросекундами>|<id>")`.
  *
  * Непрозрачный для клиента, но составной для нас: страница режется по
  * кортежу `(created_at, id)`, а не по одному времени — бот кладёт документ
@@ -79,19 +99,37 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * курсор едет в строке запроса, где `+` декодируется в пробел, а `/` и `=`
  * требуют экранирования — «непрозрачный» курсор ломался бы при простом
  * копировании ссылки на страницу.
+ *
+ * ВРЕМЯ БЕРЁТСЯ СТРОКОЙ ИЗ БАЗЫ, А НЕ ЧЕРЕЗ `Date` (круг починок 3, A-4).
+ * `created_at` — `timestamptz` из `now()`, то есть МИКРОсекунды; JS `Date`
+ * держит миллисекунды, и `toISOString()` печатал `…:00.123Z` там, где в базе
+ * `…:00.123456`. Последствие было хуже мёртвой ветки «равное время»: строка с
+ * тем же миллисекундным срезом времени не меньше `…:00.123` и не равна ему —
+ * то есть страница за курсором НЕ ВИДЕЛА ЕЁ ВОВСЕ, и на границе порции строки
+ * молча выпадали из обхода. Поэтому в курсор едет `createdAtCursor` —
+ * `to_char(… '.US')` самой базы (см. ARTIFACT_COLUMNS).
  */
-export function encodeCursor(row: { createdAt: Date; id: string }): string {
-  return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`, "utf8").toString("base64url");
+export function encodeCursor(row: { createdAtCursor: string; id: string }): string {
+  return Buffer.from(`${row.createdAtCursor}|${row.id}`, "utf8").toString("base64url");
 }
 
-/** Обратный разбор; `null` — курсор чужой или испорчен (наружу — 400, а не 500 драйвера). */
-export function decodeCursor(raw: string): { createdAt: Date; id: string } | null {
+/**
+ * Обратный разбор; `null` — курсор чужой или испорчен (наружу — 400, а не 500
+ * драйвера).
+ *
+ * Момент остаётся СТРОКОЙ: через `Date` он потерял бы те самые микросекунды,
+ * ради которых и берётся из базы. Поэтому проверяем его формой И живостью —
+ * «вчера» в параметре с `::timestamptz` дало бы 22P02 драйвера вместо 400, а
+ * «2026-02-30T00:00:00Z» форму проходит и в базе не существует.
+ */
+export function decodeCursor(raw: string): { createdAt: string; id: string } | null {
   const text = Buffer.from(raw, "base64url").toString("utf8");
   const sep = text.indexOf("|");
   if (sep <= 0) return null;
-  const createdAt = new Date(text.slice(0, sep));
+  const createdAt = text.slice(0, sep);
   const id = text.slice(sep + 1);
-  if (!Number.isFinite(createdAt.getTime()) || !UUID_RE.test(id)) return null;
+  if (!CURSOR_MOMENT_RE.test(createdAt) || !моментЖивой(createdAt)) return null;
+  if (!UUID_RE.test(id)) return null;
   return { createdAt, id };
 }
 
@@ -130,6 +168,19 @@ const ARTIFACT_COLUMNS = {
   bytes: attachment.bytes,
   createdBy: attachment.createdBy,
   createdAt: attachment.createdAt,
+  /**
+   * Время СТРОКОЙ ПОЛНОЙ ТОЧНОСТИ — служебный столбец под курсор, наружу он не
+   * едет (`toRow` его не переносит, `ArtifactRow` о нём не знает).
+   *
+   * `createdAt` выше приезжает драйвером как JS `Date`, а он держит только
+   * миллисекунды — микросекунды `now()` теряются ДО `encodeCursor`, и починить
+   * это в кодировании курсора нельзя. `to_char` с `.US` печатает те же шесть
+   * знаков, что стоят в базе, и Postgres принимает такую строку обратно как
+   * `timestamptz`. `at time zone 'UTC'` — чтобы значение не зависело от
+   * `TimeZone` сессии: у курсора один смысл на любой машине.
+   */
+  createdAtCursor:
+    sql<string>`to_char(${attachment.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
 };
 
 /** Что отдаёт выборка по ARTIFACT_COLUMNS; `tags` — jsonb, тип не доказан базой. */
@@ -145,6 +196,8 @@ interface Selected {
   bytes: number | null;
   createdBy: string | null;
   createdAt: Date;
+  /** `to_char` базы: ISO с микросекундами. Уезжает только в курсор. */
+  createdAtCursor: string;
 }
 
 /** Теги — jsonb; в базу могли положить не список (ручной SQL) — наружу всегда список строк. */
@@ -209,11 +262,14 @@ export class ArtifactsService {
       // Строго «раньше кортежа» по той же паре столбцов, что в ORDER BY:
       // сравнение по одному created_at на равном времени либо теряло бы
       // строки, либо повторяло их на стыке страниц.
-      const before = or(
-        lt(attachment.createdAt, c.createdAt),
-        and(eq(attachment.createdAt, c.createdAt), lt(attachment.id, c.id)),
+      //
+      // Момент едет параметром-строкой с `::timestamptz`, а не через `Date`:
+      // сравнение обязано идти в ПОЛНОЙ точности базы (A-4 выше). Через
+      // маппер колонки (`lt(attachment.createdAt, …)`) прошла бы только
+      // миллисекундная копия, и ветка равенства снова стала бы мёртвой.
+      conds.push(
+        sql`(${attachment.createdAt} < ${c.createdAt}::timestamptz or (${attachment.createdAt} = ${c.createdAt}::timestamptz and ${attachment.id} < ${c.id}))`,
       );
-      if (before !== undefined) conds.push(before);
     }
     if (opts.excludePersonal === true) {
       // `is distinct from`, а не `<> 'personal'`: у вложений полевого контура

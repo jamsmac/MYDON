@@ -26,7 +26,7 @@ import { deliverWeeklyDigest } from "./weekly-delivery";
 import { buildDigest, digestKey } from "./staff-digest";
 import { CoreClient, type PersonRow } from "./core-client";
 import { handleMessage, parseApprovalCallback, type HandlerDeps } from "./handler";
-import { доставитьДокумент } from "./document-archive";
+import { доставитьОтвет } from "./reply-delivery";
 import { Notifier } from "./notifier";
 import { parseAllowlist, RateLimiter, isAllowed } from "./security/access";
 import { Conversations } from "./conversation";
@@ -1005,40 +1005,23 @@ async function main(): Promise<void> {
         }
         const reply = await handleMessage(chatId, u.message.text, deps, Date.now(), u.update_id);
         if (reply) {
-          await tg.sendMessage(chatId, reply.text, reply.keyboard);
-          // Длинный ответ (план закупа) приходит частями: у Telegram предел на
-          // одно сообщение, а резать список многоточием нельзя — обрезанный
-          // маршрут читается как полный. Единственное место доставки Reply.
+          // ЕДИНСТВЕННОЕ МЕСТО ДОСТАВКИ Reply, И ЗДЕСЬ ТОЛЬКО ПРОВОДА.
           //
-          // Обрыв на середине молчать не имеет права: недоехавшие части
-          // владелец прочитает как «маршрут кончился» и не довезёт товар.
-          try {
-            for (const part of reply.more ?? []) await tg.sendMessage(chatId, part);
-          } catch (err) {
-            console.error("Части ответа не отправлены:", err);
-            await tg
-              .sendMessage(chatId, "⚠️ Остальные части не дошли — повтори «план закупа».")
-              .catch(() => undefined);
-          }
-          // Файл идёт отдельным сообщением: у документа своя доставка,
-          // и она не должна мешать тексту, если сорвётся.
-          //
-          // СНАЧАЛА архив, ПОТОМ Telegram (срез A3): документ стоил вызова
-          // модели с исполнением кода, а до этого жил секунды. Порядок и
-          // тексты — в document-archive.ts, здесь только провода.
-          if (reply.document) {
-            await доставитьДокумент(
-              {
-                resolveOwner: () => personOf(chatId),
-                save: (input) => deps.core.uploadDocument(input),
-                sendDocument: (filename, content) => tg.sendDocument(chatId, filename, content),
-                sendMessage: (text) => tg.sendMessage(chatId, text),
-                panelUrl,
-                log: (message, error) => console.error(`${message}:`, error),
-              },
-              reply.document,
-            );
-          }
+          // Порядок шагов, их защита и тексты владельцу — в reply-delivery.ts:
+          // отказ отправки ТЕКСТА не имеет права унести архивацию файла
+          // (`processUpdate` — замыкание, тестом его не позвать, а обещание
+          // «файл сохранён независимо от текста» обязано быть под ассертом).
+          await доставитьОтвет(
+            {
+              sendMessage: (text, keyboard) => tg.sendMessage(chatId, text, keyboard),
+              sendDocument: (filename, content) => tg.sendDocument(chatId, filename, content),
+              resolveOwner: () => personOf(chatId),
+              save: (input) => deps.core.uploadDocument(input),
+              panelUrl,
+              log: (message, error) => console.error(`${message}:`, error),
+            },
+            reply,
+          );
         }
       } else {
         // Не владелец — возможно, сотрудник. Ему доступны только свои задачи.

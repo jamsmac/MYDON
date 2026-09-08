@@ -57,22 +57,36 @@ const ID3 = "33333333-3333-4333-8333-333333333333";
 const AT = new Date("2026-09-08T10:00:00.000Z");
 const NOW = new Date("2026-09-08T12:00:00.000Z");
 
+/**
+ * Время в форме, в которой его печатает САМА БАЗА (`to_char … '.US'`): шесть
+ * знаков доли секунды. Драйвер отдаёт рядом ещё и `Date`, но он теряет
+ * микросекунды — фикстура обязана отличать одно от другого, иначе сторож
+ * курсора слеп ровно к тому дефекту, который чинил круг 3 (A-4).
+ */
+const мкс = (d: Date, микро = "000"): string => `${d.toISOString().slice(0, -1)}${микро}Z`;
+
 /** Строка, как если бы её вернул `select *`: storageKey внутри — наружу уезжать не должен. */
-const row = (id: string, over: Row = {}): Row => ({
-  id,
-  ownerType: "person",
-  ownerId: ID1,
-  kind: "doc",
-  title: "Дебиторка GLOBERENT за август",
-  domain: "globerent",
-  tags: ["bot"],
-  mime: "application/pdf",
-  bytes: 12345,
-  createdBy: "bot",
-  createdAt: AT,
-  storageKey: "person/x/f.pdf",
-  ...over,
-});
+const row = (id: string, over: Row = {}): Row => {
+  const base: Row = {
+    id,
+    ownerType: "person",
+    ownerId: ID1,
+    kind: "doc",
+    title: "Дебиторка GLOBERENT за август",
+    domain: "globerent",
+    tags: ["bot"],
+    mime: "application/pdf",
+    bytes: 12345,
+    createdBy: "bot",
+    createdAt: AT,
+    storageKey: "person/x/f.pdf",
+    ...over,
+  };
+  // Служебный столбец курсора идёт из того же времени, если его не задали
+  // явно: так фикстура остаётся согласованной, а тесту про микросекунды
+  // ничто не мешает подставить своё.
+  return { createdAtCursor: мкс(base.createdAt as Date), ...base };
+};
 
 describe("ArtifactsService.list — рамки страницы", () => {
   it("по умолчанию 50, потолок LIST_MAX, мусорный limit не уезжает в SQL", async () => {
@@ -208,16 +222,33 @@ describe("titleMatches — подстановочные знаки и регис
 });
 
 describe("Курсор — кортеж (created_at, id)", () => {
-  it("кодируется base64url и разбирается обратно без потерь", () => {
-    const cur = encodeCursor({ createdAt: AT, id: ID1 });
+  it("кодируется base64url и разбирается обратно без потерь — включая микросекунды", () => {
+    // МИКРОСЕКУНДЫ — НЕСУЩАЯ ЧАСТЬ (круг починок 3, A-4): `created_at` пишет
+    // `now()`, то есть шесть знаков доли секунды. Пока курсор печатался через
+    // `Date.toISOString()`, шестая цифра терялась, и строка с тем же
+    // миллисекундным срезом времени не попадала НИ в «раньше», НИ в «равно» —
+    // страница за курсором её не видела вовсе.
+    const момент = "2026-09-08T10:00:00.123456Z";
+    const cur = encodeCursor({ createdAtCursor: момент, id: ID1 });
     assert.match(cur, /^[A-Za-z0-9_-]+$/, "в строке запроса не должно быть +, / и =");
-    assert.deepEqual(decodeCursor(cur), { createdAt: AT, id: ID1 });
-    assert.equal(Buffer.from(cur, "base64url").toString("utf8"), `${AT.toISOString()}|${ID1}`);
+    assert.deepEqual(decodeCursor(cur), { createdAt: момент, id: ID1 });
+    assert.equal(Buffer.from(cur, "base64url").toString("utf8"), `${момент}|${ID1}`);
+    assert.equal(
+      decodeCursor(cur)?.createdAt,
+      момент,
+      "разбор обязан вернуть тот же момент, а не его миллисекундную копию",
+    );
   });
 
   it("испорченный курсор — null, а не Invalid Date в SQL", () => {
     for (const bad of ["", "abc", Buffer.from("|").toString("base64url"), Buffer.from("вчера|" + ID1).toString("base64url"),
-      Buffer.from(AT.toISOString() + "|not-uuid").toString("base64url"), Buffer.from(AT.toISOString()).toString("base64url")]) {
+      Buffer.from(AT.toISOString() + "|not-uuid").toString("base64url"), Buffer.from(AT.toISOString()).toString("base64url"),
+      // Момент едет в SQL параметром с `::timestamptz`: форма без «Z», лишние
+      // знаки доли секунды и несуществующий день дали бы 22P02 драйвера (500)
+      // вместо честного 400.
+      Buffer.from("2026-09-08 10:00:00|" + ID1).toString("base64url"),
+      Buffer.from("2026-09-08T10:00:00.1234567Z|" + ID1).toString("base64url"),
+      Buffer.from("2026-02-30T10:00:00Z|" + ID1).toString("base64url")]) {
       assert.equal(decodeCursor(bad), null, `«${bad}» обязан быть отвергнут`);
     }
   });
@@ -230,20 +261,25 @@ describe("Курсор — кортеж (created_at, id)", () => {
 
   it("условие страницы — строго раньше кортежа по тем же столбцам, что ORDER BY", async () => {
     const { db, captured } = listStub();
-    await new ArtifactsService(db).list({ cursor: encodeCursor({ createdAt: AT, id: ID2 }) });
+    const момент = "2026-09-08T10:00:00.123456Z";
+    await new ArtifactsService(db).list({ cursor: encodeCursor({ createdAtCursor: момент, id: ID2 }) });
     const { sql, params } = render(captured.where);
     assert.match(
       sql,
-      /^\("attachment"\."created_at" < \$1 or \("attachment"\."created_at" = \$2 and "attachment"\."id" < \$3\)\)$/,
+      /^\("attachment"\."created_at" < \$1::timestamptz or \("attachment"\."created_at" = \$2::timestamptz and "attachment"\."id" < \$3\)\)$/,
     );
-    assert.deepEqual(params, [AT.toISOString(), AT.toISOString(), ID2]);
+    // Параметры — СТРОКИ полной точности, а не `Date.toISOString()`: через
+    // маппер колонки в SQL уехала бы миллисекундная копия, и ветка равенства
+    // на живых строках не срабатывала бы никогда (A-4).
+    assert.deepEqual(params, [момент, момент, ID2]);
   });
 
   it("next — курсор последней строки, только когда строк ровно limit", async () => {
-    const full = listStub([row(ID1), row(ID2, { createdAt: new Date(AT.getTime() - 1000) })]);
+    const раньше = new Date(AT.getTime() - 1000);
+    const full = listStub([row(ID1), row(ID2, { createdAt: раньше })]);
     const page = await new ArtifactsService(full.db).list({ limit: 2 });
     assert.notEqual(page.next, null);
-    assert.deepEqual(decodeCursor(page.next ?? ""), { createdAt: new Date(AT.getTime() - 1000), id: ID2 });
+    assert.deepEqual(decodeCursor(page.next ?? ""), { createdAt: мкс(раньше), id: ID2 });
 
     const short = listStub([row(ID1)]);
     assert.equal((await new ArtifactsService(short.db).list({ limit: 2 })).next, null);
@@ -264,7 +300,7 @@ describe("Курсор — кортеж (created_at, id)", () => {
     const { params } = render(вторая.captured.where);
     // Граница второй страницы — ровно последняя строка первой, сравнение строгое:
     // ID2 в неё попасть не может, ID1 (< ID2 при равном времени) — попадает.
-    assert.deepEqual(params, [AT.toISOString(), AT.toISOString(), ID2]);
+    assert.deepEqual(params, [мкс(AT), мкс(AT), ID2]);
     assert.deepEqual(p2.items.map((i) => i.id), [ID1]);
     assert.equal(p2.next, null);
     const всего = new Set([...p1.items, ...p2.items].map((i) => i.id));
@@ -279,7 +315,9 @@ describe("Форма строки — без storageKey и без содержи
     const columns = Object.keys(captured.columns ?? {});
     assert.ok(!columns.includes("storageKey"), "storage_key не должен выбираться из базы");
     assert.deepEqual(columns.sort(), [
-      "bytes", "createdAt", "createdBy", "domain", "id", "kind", "mime", "ownerId", "ownerType", "tags", "title",
+      // `createdAtCursor` — служебный столбец курсора (`to_char … '.US'`):
+      // в выборке он есть, в строке наружу — нет (проверка ниже).
+      "bytes", "createdAt", "createdAtCursor", "createdBy", "domain", "id", "kind", "mime", "ownerId", "ownerType", "tags", "title",
     ]);
     assert.deepEqual(Object.keys(page.items[0] ?? {}).sort(), [
       "bytes", "createdAt", "createdBy", "domain", "id", "kind", "mime", "ownerId", "ownerType", "tags", "title",
