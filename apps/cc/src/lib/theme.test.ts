@@ -1,5 +1,6 @@
-/** @vitest-environment node */
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   CONSOLE_HEADER,
@@ -72,8 +73,23 @@ describe("theme.ts: список маршрутов командного цен�
   it("модуль не импортирует ничего: его читают и прокси, и клиент (ловушка 3)", () => {
     // `next/headers` здесь уронил бы клиентскую сборку; любой другой импорт —
     // повод перечитать шапку файла, прежде чем его добавлять.
-    const источник = readFileSync(new URL("./theme.ts", import.meta.url), "utf8");
+    //
+    // Путь строится как в `test/css.ts` (`path.resolve` + `fileURLToPath`), а
+    // не литеральным `new URL("./theme.ts", import.meta.url)`: под jsdom Vite
+    // статически распознаёт именно этот паттерн как ссылку на ассет и
+    // подменяет его на URL дев-сервера (`http://localhost:3000/…`), из-за чего
+    // `readFileSync` падал на схеме URL, а не на содержимом файла. Приём из
+    // `css.ts` работает и под jsdom, и под node — докблок окружения не нужен.
+    const источник = readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./theme.ts"),
+      "utf8",
+    );
     expect(источник).not.toMatch(/^\s*import\s/m);
+    // Динамический импорт (`await import(…)`) не начинается со строки и не
+    // содержит `require(` — прежняя пара проверок его не ловила, хотя в
+    // клиентской сборке `import("next/headers")` уронил бы её ровно так же,
+    // как обычный `import … from`.
+    expect(источник).not.toMatch(/\bimport\s*\(/);
     expect(источник).not.toMatch(/require\(/);
   });
 });
