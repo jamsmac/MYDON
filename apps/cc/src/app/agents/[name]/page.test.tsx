@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentCard, AgentRun, AgentStatusRow, AuditEntry, SkillDeckItem } from "../../../lib/core";
+import type { AgentCard, AgentRun, AgentsStatus, AgentStatusRow, AuditEntry, SkillDeckItem } from "../../../lib/core";
 import type { AutonomyMax } from "../../../components/agent-editor";
 
 // `page.tsx` тянет клиент Core, а тот первой строкой импортирует пакет
