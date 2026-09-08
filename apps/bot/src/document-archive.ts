@@ -120,6 +120,32 @@ export function ссылкаНаАрхив(panelUrl: string, title: string): str
 }
 
 /**
+ * Кому принадлежит документ — или почему архива не будет.
+ *
+ * Три исхода `personOf` (человек / гость / «Core недоступен») плюс четвёртый:
+ * сам поиск бросил. Он тоже часть половины «архив», и его сбой не имеет права
+ * унести с собой отправку — файл у нас в руках (Р-A3-2). Провод (`personOf`)
+ * исключения глотает сам, но гарантия принадлежит модулю, иначе она держалась
+ * бы на дисциплине вызывающего.
+ */
+async function владелецИлиПричина(
+  deps: DocumentArchiveDeps,
+): Promise<{ owner: PersonRow } | { note: string }> {
+  let owner: PersonRow | null | "core-down";
+  try {
+    owner = await deps.resolveOwner();
+  } catch (error) {
+    deps.log("Владелец документа не найден", error);
+    return { note: ярлыкПричины(error) };
+  }
+  if (owner === "core-down") return { note: "Core не ответил" };
+  // Гость: у файла нет владельца, а вложения без владельца не бывает
+  // (спека §1, ownerId NOT NULL). Не выдумываем хозяина — говорим.
+  if (owner === null) return { note: "чат не привязан к человеку в MYDON" };
+  return { owner };
+}
+
+/**
  * Доставка документа владельцу: архив → Telegram → одна строка о судьбе
  * файла, только если что-то пошло не так (Р-A3-1, Р-A3-2).
  */
@@ -132,18 +158,14 @@ export async function доставитьДокумент(
   // 1. Архив — ДО отправки (Р-A3-1): сорвётся Telegram — файл уже есть.
   let savedId: string | null = null;
   let archiveNote: string | null = null;
-  const owner = await deps.resolveOwner();
-  if (owner === "core-down") {
-    archiveNote = "Core не ответил";
-  } else if (owner === null) {
-    // Гость: у файла нет владельца, а вложения без владельца не бывает
-    // (спека §1, ownerId NOT NULL). Не выдумываем хозяина — говорим.
-    archiveNote = "чат не привязан к человеку в MYDON";
+  const хозяин = await владелецИлиПричина(deps);
+  if ("note" in хозяин) {
+    archiveNote = хозяин.note;
   } else {
     try {
       const saved = await deps.save({
         ownerType: "person",
-        ownerId: owner.id,
+        ownerId: хозяин.owner.id,
         title,
         mime: mimeПоРасширению(doc.filename),
         filename: doc.filename,

@@ -33,6 +33,7 @@ const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 function стенд(
   opts: {
     владелец?: PersonRow | null | "core-down";
+    поискВладельцаПадает?: unknown;
     архивПадает?: unknown;
     отправкаПадает?: unknown;
     уведомлениеПадает?: boolean;
@@ -45,7 +46,10 @@ function стенд(
   const сообщения: string[] = [];
   const лог: string[] = [];
   const deps: DocumentArchiveDeps = {
-    resolveOwner: async () => (opts.владелец === undefined ? ВЛАДЕЛЕЦ : opts.владелец),
+    resolveOwner: async () => {
+      if (opts.поискВладельцаПадает !== undefined) throw opts.поискВладельцаПадает;
+      return opts.владелец === undefined ? ВЛАДЕЛЕЦ : opts.владелец;
+    },
     save: async (input) => {
       порядок.push("save");
       if (opts.архивПадает !== undefined) throw opts.архивПадает;
@@ -170,6 +174,20 @@ describe("Архив документов бота (срез A3, Р-A3-1/Р-A3-2
       content: Buffer.from("x"),
     });
     assert.equal(Object.hasOwn(st.сохранено[0]!, "domain"), false);
+  });
+
+  it("поиск владельца бросил — файл всё равно отправлен, причина названа", async () => {
+    // Половина «архив» не имеет права уронить половину «отправка» ЦЕЛИКОМ, а
+    // не только на записи (Р-A3-2). Сегодня провод `personOf` глотает всё сам,
+    // но гарантия принадлежит этому модулю, а не дисциплине вызывающего:
+    // без своего барьера дорогой файл терялся бы из-за чужого throw.
+    const st = стенд({ поискВладельцаПадает: new Error("fetch failed") });
+    const итог = await доставитьДокумент(st.deps, ФАЙЛ);
+    assert.deepEqual(st.порядок, ["send"]);
+    assert.equal(итог.sent, true);
+    assert.equal(итог.savedId, null);
+    assert.match(st.сообщения[0]!, /в архив не лёг: Core недоступен\./);
+    assert.ok(st.лог.includes("Владелец документа не найден"));
   });
 
   it("ссылка без CC_PUBLIC_URL — путь, место всё равно названо", async () => {
