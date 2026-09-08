@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -170,6 +171,75 @@ describe("ruling про закрытие вложений сверяется с 
       решение,
       "решение снова числит raw открытым — сверь с @UseGuards в контроллере",
     ).not.toContain("`raw` остаётся");
+  });
+});
+
+/*
+ * Круг починок 2, И-3 и М-5. Оба пункта — правки ТОЛЬКО в решении, и без
+ * сторожа их нельзя ни проверить, ни удержать: markdown откатывается молча.
+ * Поэтому здесь сверяются не формулировки, а ЧИСЛА И ИМЕНА, которые решение
+ * называет: они обязаны совпадать с кодом, иначе запись превращается во
+ * второй источник правды, разошедшийся с первым.
+ */
+describe("ruling про открытый /people и цена задержки сверяются с кодом", () => {
+  it("решение называет `/people` открытым сознательно, а не молчит о нём", () => {
+    for (const факт of [
+      "остаётся ОТКРЫТЫМ",
+      "разорвана на ВТОРОМ звене",
+      "tgChatId",
+      "tools/smoke-core.mjs",
+    ]) {
+      expect(решение, `ruling про /people не называет ${факт}`).toContain(факт);
+    }
+  });
+
+  it("`/people` в Core действительно открыт: закроют — ruling обязан краснеть, а не устаревать молча", () => {
+    // Если следующий срез закроет дверь, обоснование ruling'а («цепочка
+    // разорвана на втором звене, а первое открыто») перестанет описывать мир —
+    // и решение придётся переписать. Пусть об этом скажет тест, а не читатель.
+    const люди = читать("apps/core/src/people/people.controller.ts");
+    expect(
+      люди,
+      "PeopleController закрыт классовым guard'ом — ruling про открытый /people устарел",
+    ).toMatch(/@Controller\("people"\)\s*export class PeopleController/);
+  });
+
+  it("замер цены закрытия — настоящий: столько мест в apps/cc, сколько названо в решении", () => {
+    /*
+     * Число в решении — обещание тому, кто возьмётся. Считаем ровно то, что
+     * пришлось бы править: вызовы `core.people(...)` и `core.person(...)` в
+     * коде панели, без тестов.
+     */
+    const m = /В `apps\/cc` — (\d+) мест/.exec(решение);
+    expect(m, "в решении нет замера «В `apps/cc` — N мест»").not.toBeNull();
+    const файлы = execSync(
+      "grep -rln --include=*.ts --include=*.tsx -E 'core\\.(people|person)\\(' apps/cc/src",
+      { cwd: КОРЕНЬ, encoding: "utf8" },
+    )
+      .trim()
+      .split("\n")
+      .filter((f) => f.length > 0 && !f.includes(".test."));
+    const вызовов = файлы
+      .map((f) => (читать(f).match(/core\.(?:people|person)\(/g) ?? []).length)
+      .reduce((a, b) => a + b, 0);
+    expect(вызовов, `решение обещает ${m?.[1]} мест, а в apps/cc их ${вызовов}`).toBe(
+      Number(m?.[1]),
+    );
+  });
+
+  it("цена задержки названа числом из КОДА, а не из памяти автора", () => {
+    // 60 с в решении и `UPLOAD_TIMEOUT_MS` в боте — одно число. Уменьшат
+    // таймаут, не тронув решение, — цена в записи станет вымыслом.
+    const бот = читать("apps/bot/src/core-client.ts");
+    const m = /UPLOAD_TIMEOUT_MS\s*=\s*([\d_]+)/.exec(бот);
+    expect(m, "в core-client.ts нет UPLOAD_TIMEOUT_MS").not.toBeNull();
+    const секунд = Number((m?.[1] ?? "0").replace(/_/g, "")) / 1000;
+    expect(решение, "Р-3 не называет UPLOAD_TIMEOUT_MS").toContain("UPLOAD_TIMEOUT_MS");
+    expect(решение, `в решении не написано «${секунд} с» — число разошлось с кодом`).toContain(
+      `${секунд} с`,
+    );
+    // И вторая половина задержки — общий таймаут клиента перед загрузкой.
+    expect(решение, "Р-3 не называет шаг resolveOwner, а он тоже ждёт").toContain("personOf");
   });
 });
 
