@@ -102,6 +102,14 @@ await run(`DROP INDEX IF EXISTS "attachment_kind_created_idx"`);
 await run(`ALTER TABLE "attachment" DROP COLUMN IF EXISTS "tags"`);
 await run(`ALTER TABLE "attachment" DROP COLUMN IF EXISTS "domain"`);
 await run(`ALTER TABLE "attachment" DROP COLUMN IF EXISTS "title"`);
+// Удаляется САМАЯ ПОЗДНЯЯ запись журнала — и это не сокращение записи, а
+// условие, при котором рецепт откатa вообще работает (круг починок 3, C-2).
+// Мигратор drizzle сравнивает файлы с ОДНОЙ последней строкой
+// (`order by created_at desc limit 1` в pg-core/dialect.js), поэтому пока
+// 0089 последняя, удаление её строки возвращает миграцию в очередь. Появится
+// 0090 — эта же строка окажется в СЕРЕДИНЕ колонки, её удаление ничего не
+// вернёт, и сценарий обязан будет измениться вместе с рецептом в заголовке
+// миграции. Проверка ниже (`= 90 записей`) держит это соответствие числом.
 await run(
   `DELETE FROM "drizzle"."__drizzle_migrations"
     WHERE "created_at" = (select max("created_at") from "drizzle"."__drizzle_migrations")`,

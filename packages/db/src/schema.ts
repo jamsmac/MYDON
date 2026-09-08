@@ -1145,7 +1145,8 @@ export const geoPoint = pgTable(
 // Срез A3 «Кольцо артефактов» (миграция 0089): та же таблица — субстрат
 // артефактов агентов и бота (owner_type='person' | 'task', kind='doc').
 // Не `document`: у неё ноль писателей и читателей, а здесь живое хранилище
-// (StorageService) и пять маршрутов. Артефакт — ещё один owner_type, а не
+// (StorageService) и шесть маршрутов (`POST`, `GET`, `GET /batch`, `GET /:id`,
+// `GET /:id/raw`, `DELETE /:id`). Артефакт — ещё один owner_type, а не
 // новая сущность (спека 2026-09-07-artifacts-ring-design §1).
 export const attachment = pgTable(
   "attachment",
@@ -1189,7 +1190,14 @@ export const attachment = pgTable(
     storageKey: text("storage_key").notNull(),
     mime: text("mime"),
     bytes: integer("bytes"),
-    /** Кто загрузил: owner | staff:<id> | agent:<имя>. */
+    /**
+     * Кто загрузил: owner | person:<id> | staff:<id> | agent:<имя>.
+     *
+     * `person:<id>` пишут ОБА пути бота — загрузка фото полевого контура и
+     * документы среза A3: отчёт может попросить любой из заведённых людей, и
+     * «owner» про запрос сотрудника было бы ложью в аудитном поле. Читаемость
+     * — забота витрины (`authorWord` в `apps/cc/src/lib/artifacts.ts`).
+     */
     createdBy: text("created_by"),
     createdAt: createdAt(),
   },
@@ -1201,9 +1209,10 @@ export const attachment = pgTable(
     // контура. ПОСАДОЧНЫЙ вид (без `?kind=`) этим индексом не покрыт и с ним:
     // первая колонка не ограничена, поэтому Seq Scan + top-N heapsort (замер
     // на 50 000 строках, PostgreSQL 15.14: 794 блока, Limit cost 2955).
-    // Второго индекса под него НЕ заводим: на проде в attachment десятки строк,
-    // и лишний индекс — плата за каждую запись без выигрыша на чтении. Когда
-    // витрина наберёт объём — отдельная миграция.
+    // Второго индекса под него НЕ заводим: замер объёма таблицы на проде и
+    // довод про цену записи — в самой миграции
+    // (`packages/db/drizzle/0089_attachment_artifacts.sql`, один источник на
+    // все ссылки). Когда витрина наберёт объём — отдельная миграция.
     //
     // `.desc()` на колонке, а не `desc()` из drizzle-orm: так генератор пишет
     // порядок в саму колонку индекса, и снапшот хранит колонку, а не выражение.

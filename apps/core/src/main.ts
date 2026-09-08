@@ -80,9 +80,18 @@ async function bootstrap(): Promise<void> {
   console.log(`MYDON Core слушает :${appConfig.port} (TZ=${appConfig.tz})`);
   if (!appConfig.serviceToken) {
     console.warn(
+      // Не только мутации, и это записано в самой ветке (`appConfig.serviceToken`
+      // в config.ts): при ПУСТОМ токене `assertServiceToken` первым условием
+      // проверяет `!expected` и отказывает ВСЕМ — то есть читающие двери
+      // закрыты наглухо, включая панель. Оператор, читающий это сообщение,
+      // видел прежде только «мутации» и шёл искать поломку не там (круг
+      // починок 3, C-1).
       "ВНИМАНИЕ: SERVICE_TOKEN не задан — ВСЕ мутации Core (POST/PATCH/PUT/DELETE) " +
-        "будут отклонены 401 (fail-closed). Задайте его в .env ОДНОВРЕМЕННО в Core, " +
-        "CC, боте и агентах.",
+        "будут отклонены 401 (fail-closed), а ВМЕСТЕ С НИМИ и ЧТЕНИЯ шести " +
+        "контроллеров: /docs, /routines, /events, /apps, /attachments, /artifacts " +
+        "(плюс GET /agents/status и /agents/skills). Они откажут всем, включая " +
+        "панель: владелец увидит 401 вместо архива. Задайте токен в .env " +
+        "ОДНОВРЕМЕННО в Core, CC, боте и агентах.",
     );
   }
 }
