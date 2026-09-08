@@ -2,6 +2,12 @@
 // строка цела, колонки с честными значениями → откат из комментария миграции →
 // колонок нет, строки на месте → повторный прогон 0089 (IF NOT EXISTS) применяется заново.
 // Движок — pglite локально, сервис postgres:17 в CI (см. run-migrations.mjs).
+// Где ЭТОТ файл действительно прогоняли (08.09.2026): pglite 17.5 и локальный
+// кластер PostgreSQL 15.14 через CHECKS_DATABASE_URL. postgres:17 в докере не
+// поднимался — Docker в этой среде не отвечает (`timeout 12 docker info` → 124);
+// на нём файл проверит CI. Прогон на настоящем сервере обязателен и не
+// заменяется pglite: именно он поймал сравнение сырого Result драйвера с []
+// (см. README, «сырую выдачу драйвера нельзя отдавать в deepEqual»).
 import assert from "node:assert/strict";
 import { migratedDb, ENGINE } from "./run-migrations.mjs";
 
@@ -49,6 +55,10 @@ assert.match(String(cols.find((c) => c.column_name === "tags").column_default), 
 const [старая] = await run(
   `select title, domain, tags::text as tags, storage_key from attachment where id = '${ФОТО}'`,
 );
+// Сначала — что строка вообще нашлась: без этой проверки мутация «0089 чистит
+// таблицу» валила сценарий TypeError'ом по `старая.title`, то есть красный был,
+// а диагностики не было.
+assert.ok(старая, "строка полевого контура исчезла — 0089 тронула существующие данные");
 assert.equal(старая.title, null);
 assert.equal(старая.domain, null);
 assert.equal(старая.tags, "[]");
