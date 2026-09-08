@@ -32,6 +32,7 @@ const КОНСОЛЬ: readonly string[] = [
   "/docs",
   "/apps",
   "/apps/",
+  "/artifacts",
 ];
 const БИЗНЕС: readonly string[] = [
   "/",
@@ -52,7 +53,12 @@ const БИЗНЕС: readonly string[] = [
 const КУКИ: readonly (string | undefined)[] = [undefined, "light", "dark", "auto", ""];
 
 describe("theme.ts: список маршрутов командного центра — данные в одном месте", () => {
-  it("ровно восемь префиксов, без слэша на конце, без дублей", () => {
+  it("ровно девять префиксов, без слэша на конце, без дублей", () => {
+    // Девятый — `/artifacts` (срез A3). МАРШРУТ СТОИТ ТРЁХ ПРАВОК, а не двух:
+    // массив в `lib/theme.ts`, этот точный список и абзац §4 навыка в трёх
+    // зеркалах (его сверяют `test/theme-routes.test.ts` и
+    // `test/design-skill.test.ts`). Проверено мутацией: правка только массива
+    // роняет ровно три сторожа в трёх файлах.
     expect([...CONSOLE_ROUTES]).toEqual([
       "/mydon",
       "/agents",
@@ -62,6 +68,7 @@ describe("theme.ts: список маршрутов командного цен�
       "/brain",
       "/docs",
       "/apps",
+      "/artifacts",
     ]);
     for (const p of CONSOLE_ROUTES) {
       expect(p, `${p}: префикс обязан начинаться со слэша`).toMatch(/^\/[a-z]/);
