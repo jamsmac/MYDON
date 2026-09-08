@@ -592,6 +592,17 @@ Telegram-ботом, моделями (`GET /apps/health`, панель `/apps`)
 ни строк подключения. Панель ходит в них `getWithToken`; смоук — с заголовком (и отдельно
 проверяет, что без него оба отвечают 401).
 
+Со среза A3 (08.09.2026) к ним добавился ТРЕТИЙ адрес и ЧЕТВЁРТЫЙ пользователь того же guard'а:
+`GET /artifacts` (архив артефактов) и весь `AttachmentsController` — `GET /attachments`,
+`GET /attachments/batch`, `GET /attachments/:id` и `GET /attachments/:id/raw`. Последний до среза
+отдавал файл по id вообще без проверки, а витрина `/artifacts` печатает список id пачкой; список же
+отдавал в поле `url` пресайнед-ссылку S3 на час, то есть сами байты в обход `raw`. **Для отладки на
+сервере это значит: `curl` за фото или чеком без заголовка теперь получает 401, и это не поломка
+хранилища.** Правильный вызов — `curl -H "x-service-token: $SERVICE_TOKEN"
+http://127.0.0.1:3001/attachments/<id>/raw`; в браузере владельца фото по-прежнему открывается через
+панель (`/api/attachments/<id>/raw`), которая токен носит сама. Решение —
+`docs/decisions/2026-09-07-artifacts-ring.md`.
+
 ### Четыре состояния агента
 
 `working | blocked | paused | idle` — считает Core (`apps/core/src/agents/agent-state.ts`,
