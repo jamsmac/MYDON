@@ -153,10 +153,43 @@ export interface MaintenanceDueRow {
 }
 
 /**
- * Таймаут загрузки фото. Отдельный от общего: 10 секунд достаточно для JSON,
- * но не для мегабайтного снимка с точки на 3G.
+ * Таймаут загрузки ФОТО полевого контура. Отдельный от общего (10 с хватает
+ * JSON-запросу, но не мегабайтному снимку), и он остаётся 60 с.
+ *
+ * ЦЕНА ЗДЕСЬ СВОЯ, И ОНА ОБРАТНА ЦЕНЕ ДОКУМЕНТА. Снимок с точки существует в
+ * одном экземпляре: техник сфотографировал бункер, уехал, и второй раз этот
+ * кадр не снять — потеря дороже минуты ожидания. А ждать её никто не ждёт:
+ * загрузка идёт в фоне визарда, доставки в чат за ней не стоит. Поэтому
+ * горизонт здесь щедрый намеренно: лучше долго, чем никогда.
  */
-const PHOTO_TIMEOUT_MS = 60_000;
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+/**
+ * Таймаут загрузки ДОКУМЕНТА, сгенерированного ботом (срез A3). Своё число,
+ * а не общее с фото: 15 с.
+ *
+ * ЦЕНА ЗДЕСЬ ДРУГАЯ, И ИМЕННО ОНА ДИКТУЕТ ЧИСЛО. Срез A3 поставил архив ПЕРЕД
+ * отправкой в Telegram (Р-A3-1), то есть ОСНОВНАЯ работа (файл в чат) теперь
+ * ждёт ПОБОЧНУЮ (файл в архив). Пока обе стороны делили 60 с, подвисший Core
+ * отодвигал файл в чате почти на минуту — а до среза он приходил сразу.
+ * Минута молчания бота читается владельцем как поломка, и вероятный ответ —
+ * переспросить, то есть заплатить за генерацию (вызов модели с исполнением
+ * кода в контейнере) ВТОРОЙ раз. Обратная ошибка мягче на порядок: по таймауту
+ * файл всё равно уходит в чат, а владельцу говорят словами «в архив не лёг:
+ * Core не ответил вовремя» (`ярлыкПричины` в `document-archive.ts`) — потери
+ * нет, есть пропуск в архиве.
+ *
+ * Почему 15, а не 6 и не 60. Полезная работа шага — POST внутри docker-сети
+ * файла ≤ 12 МБ (предел `FileInterceptor` в Core); даже пессимистично, 2 МБ/с
+ * до объектного хранилища, предельный файл — ~6 с, локальный диск —
+ * миллисекунды. 15 с — 2,5× от пессимистичного предела: не «запас на
+ * медленный канал», а горизонт «соединение зависло».
+ *
+ * ДВА ЧИСЛА ОБЯЗАНЫ ОСТАТЬСЯ ДВУМЯ. Свести их обратно в одно — значит
+ * обменять чужую надёжность на нашу отзывчивость (или наоборот) молча;
+ * `core-client.test.ts` красит и обмен местами, и съезд в одно значение.
+ */
+const DOCUMENT_UPLOAD_TIMEOUT_MS = 15_000;
 
 /**
  * Расхождение при пересчёте склада (§5.4): было → стало. delta<0 — недостача
@@ -1597,11 +1630,77 @@ export class CoreClient {
       // Свой таймаут, а не общий: 10 секунд хватает JSON-запросу, но не
       // мегабайтной фотографии с точки на 3G. По общему таймауту загрузка
       // срывалась бы ровно там, где она особенно нужна.
-      signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS),
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       headers: this.serviceToken ? { "x-service-token": this.serviceToken } : {},
       body: form,
     });
     if (!res.ok) throw new Error(`Core ответил ${res.status} на /attachments`);
+    return (await res.json()) as { id: string; url: string };
+  }
+
+  /**
+   * Загрузить документ, сгенерированный ботом (`@mydon/documents`: xlsx |
+   * docx | pptx | pdf), и заодно завести артефакт — срез A3.
+   *
+   * Контракт для вызывающего: `title` передаётся ПОЛНЫМ текстом — обрезку до
+   * 120 символов делает Core на входе (ловушка спеки §6.4), клипать заранее
+   * не нужно.
+   *
+   * ЧТО КЛАДЁТ ЕДИНСТВЕННЫЙ ВЫЗЫВАЮЩИЙ (`document-archive.ts`, задача 4):
+   * имя файла без расширения — «Дебиторка GLOBERENT 08.09.2026», — а НЕ
+   * `GeneratedDocument.summary`, как обещал прежний пример. Причина записана
+   * там же: сводка модели начинается с «Готово, я построил…» и в списке
+   * `/artifacts` читалась бы как болтовня, а искать по ней («`q` ILIKE по
+   * title») нечего. Сводка остаётся текстом в чате. Подписи у самого файла
+   * бот не ставит вовсе: поле `Reply.document.caption` объявлено, но не
+   * заполняет его никто (круг починок 3, C-4).
+   * `title`/`domain`/`tags` необязательны и, если не заданы, в форму вообще
+   * не попадают — Core тогда пишет null/null/[] ровно как для полевых фото.
+   *
+   * multipart, поэтому свой fetch с тем же service-token — как у `uploadPhoto`.
+   *
+   * Отказ — `CoreError`, а не голый `Error`, как у `uploadPhoto`: вызывающему
+   * (задача 4, `document-archive.ts`) нужен статус, чтобы назвать владельцу
+   * причину словами — «Core отверг файл» (400), «файл слишком большой» (413,
+   * предел `FileInterceptor` 12 МБ), «нет доступа к Core» (401/403). Голый
+   * `Error` схлопывал их в одну строку, из которой не видно, к кому идти.
+   * Текст сообщения тот же (`CoreError` печатает «Core ответил N на путь»),
+   * поэтому старые проверки по тексту не меняются.
+   */
+  async uploadDocument(input: {
+    ownerType: string;
+    ownerId: string;
+    bytes: Buffer;
+    mime: string;
+    filename: string;
+    createdBy: string;
+    title?: string;
+    domain?: Domain;
+    tags?: string[];
+  }): Promise<{ id: string; url: string }> {
+    const form = new FormData();
+    form.append("ownerType", input.ownerType);
+    form.append("ownerId", input.ownerId);
+    form.append("kind", "doc");
+    form.append("createdBy", input.createdBy);
+    if (input.title) form.append("title", input.title);
+    if (input.domain) form.append("domain", input.domain);
+    for (const tag of input.tags ?? []) form.append("tags", tag);
+    const blob = new Blob([new Uint8Array(input.bytes)], { type: input.mime });
+    form.append("file", blob, input.filename);
+    const path = "/attachments";
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      // Своё число, не фото-шное: этот шаг стоит ПЕРЕД отправкой файла в чат,
+      // и его ожидание видит владелец (см. докблок константы).
+      signal: AbortSignal.timeout(DOCUMENT_UPLOAD_TIMEOUT_MS),
+      headers: this.serviceToken ? { "x-service-token": this.serviceToken } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new CoreError(res.status, path, body.slice(0, 500));
+    }
     return (await res.json()) as { id: string; url: string };
   }
 

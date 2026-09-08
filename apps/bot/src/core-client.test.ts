@@ -15,6 +15,7 @@ import type {
 import {
   CancelVendingRecordError,
   CoreClient,
+  CoreError,
   NotAMachineError,
   type AnalyticsWarning,
   type BootstrapSalePriceResult,
@@ -394,5 +395,190 @@ describe("Формы аналитики приходят из @mydon/shared", ()
     const бота: VendingPurchase = общая;
     const обратно: SharedPurchaseSummary = бота;
     assert.equal(обратно, общая);
+  });
+});
+
+// ── Срез A3, задача 3: контракт uploadDocument для задачи 4 ─────────────────
+
+describe("uploadDocument: документ бота (title/domain/tags) — multipart, как uploadPhoto", () => {
+  it("шлёт kind=doc и все три поля артефакта одной multipart-формой", async () => {
+    const { calls } = стубFetchТело(201, { id: "att1", url: "/attachments/att1/raw" });
+    const client = new CoreClient("http://core", 10_000, "tok");
+    const res = await client.uploadDocument({
+      ownerType: "person",
+      ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+      bytes: Buffer.from("pdf-bytes"),
+      mime: "application/pdf",
+      filename: "report.pdf",
+      createdBy: "bot:tg:1",
+      // Полный текст summary — обрезку до 120 символов делает Core на входе
+      // (§6.4 спеки), вызывающему клипать заранее не нужно.
+      title: "Дебиторка GLOBERENT за август",
+      domain: "globerent",
+      tags: ["bot"],
+    });
+    assert.deepEqual(res, { id: "att1", url: "/attachments/att1/raw" });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://core/attachments");
+    const form = calls[0].init?.body as FormData;
+    assert.equal(form.get("ownerType"), "person");
+    assert.equal(form.get("ownerId"), "3f2504e0-4f89-11d3-9a0c-0305e82c3301");
+    assert.equal(form.get("kind"), "doc");
+    assert.equal(form.get("createdBy"), "bot:tg:1");
+    assert.equal(form.get("title"), "Дебиторка GLOBERENT за август");
+    assert.equal(form.get("domain"), "globerent");
+    assert.deepEqual(form.getAll("tags"), ["bot"]);
+    const file = form.get("file") as File;
+    assert.equal(file.name, "report.pdf");
+    assert.equal(file.type, "application/pdf");
+  });
+
+  it("без title/domain/tags поля не отправляются вовсе — старый вызывающий не появился бы", async () => {
+    const { calls } = стубFetchТело(201, { id: "att2", url: "/attachments/att2/raw" });
+    const client = new CoreClient("http://core", 10_000, "tok");
+    await client.uploadDocument({
+      ownerType: "task",
+      ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+      bytes: Buffer.from("x"),
+      mime: "application/pdf",
+      filename: "f.pdf",
+      createdBy: "bot:tg:1",
+    });
+    const form = calls[0].init?.body as FormData;
+    assert.equal(form.has("title"), false, "пустой title не должен уйти пустой строкой");
+    assert.equal(form.has("domain"), false);
+    assert.equal(form.has("tags"), false);
+  });
+
+  it("Core ответил не ok → бросает ошибку с кодом ответа, как uploadPhoto", async () => {
+    стубFetchТело(500, { message: "boom" });
+    const client = new CoreClient("http://core", 10_000, "tok");
+    await assert.rejects(
+      () =>
+        client.uploadDocument({
+          ownerType: "person",
+          ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+          bytes: Buffer.from("x"),
+          mime: "application/pdf",
+          filename: "f.pdf",
+          createdBy: "bot:tg:1",
+        }),
+      /Core ответил 500/,
+    );
+  });
+
+  // Задача 4: бот называет владельцу причину словами («Core отверг файл»,
+  // «файл слишком большой»), а для этого ему нужен СТАТУС, а не текст
+  // исключения. Голый Error схлопывал 400, 413 и упавшую сеть в одну строку.
+  it("отказ — CoreError со статусом, путём и телом: по ним бот выбирает слова", async () => {
+    стубFetchТело(413, { message: "File too large" });
+    const client = new CoreClient("http://core", 10_000, "tok");
+    await assert.rejects(
+      () =>
+        client.uploadDocument({
+          ownerType: "person",
+          ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+          bytes: Buffer.from("x"),
+          mime: "application/pdf",
+          filename: "f.pdf",
+          createdBy: "bot:tg:1",
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof CoreError, "нужен CoreError, а не голый Error");
+        assert.equal(err.status, 413);
+        assert.equal(err.path, "/attachments");
+        assert.match(err.body, /File too large/);
+        return true;
+      },
+    );
+  });
+});
+
+/*
+ * ДВА ТАЙМАУТА ЗАГРУЗКИ — ДВА ЧИСЛА, И ОНИ НЕ ИМЕЮТ ПРАВА СЪЕХАТЬСЯ (М-5).
+ *
+ * До разделения фото и документ делили `UPLOAD_TIMEOUT_MS = 60_000`, и срез A3
+ * этим числом заплатил не своей монетой: архив он поставил ПЕРЕД отправкой в
+ * Telegram, то есть основная работа (файл в чат) стала ждать побочную (файл в
+ * архив) до минуты, тогда как до среза файл приходил сразу. Цены у двух путей
+ * ОБРАТНЫЕ: снимок с точки существует в одном экземпляре и его потеря дороже
+ * ожидания, которого никто не ждёт; документ уже сгенерирован дорого, его
+ * доставку ждёт человек, а пропуск в архиве назван словами.
+ *
+ * Поэтому проверяется ПОВЕДЕНИЕ, а не текст константы: подменяем
+ * `AbortSignal.timeout` и смотрим, с каким числом её позвали. Такой ассерт
+ * краснеет на всех трёх способах потерять разделение — свести числа в одно,
+ * поменять их местами и подставить в `uploadDocument` фото-константу.
+ */
+describe("таймауты загрузки: у фото и документа свои числа (М-5)", () => {
+  const настоящийTimeout = AbortSignal.timeout;
+
+  /** Шпион за AbortSignal.timeout: наружу — запрошенные миллисекунды. */
+  function шпионТаймаута(): number[] {
+    const мс: number[] = [];
+    AbortSignal.timeout = ((ms: number) => {
+      мс.push(ms);
+      return настоящийTimeout.call(AbortSignal, 60_000);
+    }) as typeof AbortSignal.timeout;
+    return мс;
+  }
+
+  afterEach(() => {
+    AbortSignal.timeout = настоящийTimeout;
+  });
+
+  const файл = {
+    ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    bytes: Buffer.from("x"),
+    mime: "application/pdf",
+    filename: "f.pdf",
+    createdBy: "bot:tg:1",
+  };
+
+  it("документ ждёт 15 с, а не минуту: его доставку в чат ждёт человек", async () => {
+    стубFetchТело(201, { id: "att1", url: "/attachments/att1/raw" });
+    const мс = шпионТаймаута();
+    await new CoreClient("http://core", 10_000, "tok").uploadDocument({
+      ownerType: "person",
+      ...файл,
+    });
+    assert.deepEqual(
+      мс,
+      [15_000],
+      "документ снова ждёт не 15 с: при подвисшем Core файл в чате отодвинется на это время",
+    );
+  });
+
+  it("фото по-прежнему ждёт 60 с: снимок с точки не переснять, и доставки за ним не стоит", async () => {
+    стубFetchТело(201, { id: "att2", url: "/attachments/att2/raw" });
+    const мс = шпионТаймаута();
+    await new CoreClient("http://core", 10_000, "tok").uploadPhoto({
+      ownerType: "task",
+      ...файл,
+      mime: "image/jpeg",
+      filename: "f.jpg",
+    });
+    assert.deepEqual(
+      мс,
+      [60_000],
+      "фото укоротили заодно с документом — обменяли чужую надёжность на нашу отзывчивость",
+    );
+  });
+
+  it("числа РАЗНЫЕ и документ строго меньше: одно значение на два пути — снова тот же обмен", async () => {
+    // Ассерт против самого дешёвого способа потерять разделение: оставить две
+    // константы, но записать в них одно и то же.
+    стубFetchТело(201, { id: "a", url: "u" });
+    const мс = шпионТаймаута();
+    const client = new CoreClient("http://core", 10_000, "tok");
+    await client.uploadDocument({ ownerType: "person", ...файл });
+    await client.uploadPhoto({ ownerType: "task", ...файл, mime: "image/jpeg", filename: "f.jpg" });
+    const [документ, фото] = мс;
+    assert.equal(мс.length, 2, "ожидали по одному таймауту на путь");
+    assert.notEqual(документ, фото, "таймауты снова одно число — цены двух путей опять смешаны");
+    assert.ok(
+      документ !== undefined && фото !== undefined && документ < фото,
+      `документ (${документ}) обязан ждать МЕНЬШЕ фото (${фото}): за ним стоит доставка в чат`,
+    );
   });
 });

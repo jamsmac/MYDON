@@ -43,9 +43,11 @@
 
 <!-- CONSOLE_ROUTES -->
 Маршруты командного центра — `CONSOLE_ROUTES` в `apps/cc/src/lib/theme.ts`:
-`/mydon`, `/agents`, `/crons`, `/flows`, `/skills`, `/brain`, `/docs`, `/apps`. Это ПРЕФИКСЫ пути, дверь —
-`isConsoleRoute(pathname)`: вложенный маршрут, например карточка агента, покрыт префиксом родителя. Сторож
-`apps/cc/src/test/theme-routes.test.ts` роняет сборку, когда эта копия и код расходятся в любую сторону.
+`/mydon`, `/agents`, `/crons`, `/flows`, `/skills`, `/brain`, `/docs`, `/apps`, `/artifacts`. Это ПРЕФИКСЫ
+пути, дверь — `isConsoleRoute(pathname)`: вложенный маршрут, например карточка агента, покрыт префиксом
+родителя. Сторож `apps/cc/src/test/theme-routes.test.ts` роняет сборку, когда эта копия и код расходятся в
+любую сторону. Новый маршрут стоит ТРЁХ правок: массив, точный список в `apps/cc/src/lib/theme.test.ts` и
+этот абзац во всех трёх зеркалах навыка.
 
 Механизм темы (срез Д2, спека `docs/superpowers/specs/2026-09-07-design-wave-theme-design.md`):
 - **Правило одно — `themeFor(pathname, cookie)`** в `apps/cc/src/lib/theme.ts`: явный выбор из куки

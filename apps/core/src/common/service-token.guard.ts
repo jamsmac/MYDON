@@ -48,8 +48,23 @@ export function assertServiceToken(req: Pick<Request, "headers">): void {
  *
  * Раньше любой, кто дотянулся до сети Core, мог менять данные — защита держалась
  * лишь на Docker/Tailscale. Теперь POST/PATCH/PUT/DELETE требуют `x-service-token`
- * (или `Authorization: Bearer`). Чтения (GET) открыты: панель и бот читают много,
- * а вреда от чтения в закрытой сети нет.
+ * (или `Authorization: Bearer`).
+ *
+ * ЧТЕНИЯ (GET) ОТКРЫТЫ ПО УМОЛЧАНИЮ — И ЭТО УЖЕ НЕ ПРАВИЛО, А ДЕФОЛТ. Довод
+ * «вреда от чтения в закрытой сети нет» верен для реестра, продаж и задач, но
+ * НЕ для чтения, которое пересказывает работу агентов по делам владельца. К
+ * срезу A3 своя читающая дверь стоит у ШЕСТИ контроллеров целиком —
+ * `DocsController` (`DocsTokenGuard`, R-M-8: в `memory/` личное),
+ * `RoutinesController` (`RoutinesTokenGuard`, волна R: `agent_run.reason`),
+ * `EventsController` (`EventsTokenGuard`, волна A1), `AppsController` и
+ * `AttachmentsController` и `ArtifactsController` (общий `ReadTokenGuard`) —
+ * плюс у двух маршрутов `AgentsController` (`GET /agents/status`,
+ * `GET /agents/skills`). Общий guard живёт в `read-token.guard.ts`; новая
+ * читающая поверхность выбирает сознательно, а не наследует «GET открыт».
+ *
+ * Fail-closed распространяется и на них: `assertServiceToken` с пустым
+ * SERVICE_TOKEN отказывает ВСЕМ, то есть без токена в окружении эти шесть
+ * контроллеров не читаются вовсе — не только не пишутся.
  *
  * Fail-closed: если SERVICE_TOKEN не задан, мутации ОТКАЗЫВАЮТСЯ, а не
  * пропускаются — раньше здесь был fail-open (`return true`), и любой в сети

@@ -1135,17 +1135,24 @@ export const geoPoint = pgTable(
   ],
 );
 
-// ── attachment: файлы (фото номенклатуры, чеки), привязанные к записи ──
+// ── attachment: файлы (фото номенклатуры, чеки, артефакты), привязанные к записи ──
 //
 // Полиморфная привязка: одна таблица под фото карточек, чеки приходов и т.п.
 // Сам файл лежит в объектном хранилище (S3/MinIO) или на диске — здесь только
 // ключ и метаданные. Так фото товара/запчасти, снятое сотрудником в Telegram,
 // привязывается к карточке (owner_type='entity') или движению склада.
+//
+// Срез A3 «Кольцо артефактов» (миграция 0089): та же таблица — субстрат
+// артефактов агентов и бота (owner_type='person' | 'task', kind='doc').
+// Не `document`: у неё ноль писателей и читателей, а здесь живое хранилище
+// (StorageService) и шесть маршрутов (`POST`, `GET`, `GET /batch`, `GET /:id`,
+// `GET /:id/raw`, `DELETE /:id`). Артефакт — ещё один owner_type, а не
+// новая сущность (спека 2026-09-07-artifacts-ring-design §1).
 export const attachment = pgTable(
   "attachment",
   {
     id: id(),
-    /** К чему привязано: 'entity' | 'stock_movement' | ... */
+    /** К чему привязано: 'entity' | 'stock_movement' | 'person' (артефакт бота) | 'task' | ... */
     ownerType: text("owner_type").notNull(),
     ownerId: uuid("owner_id").notNull(),
     /** Что это: photo | receipt | doc. */
@@ -1160,15 +1167,67 @@ export const attachment = pgTable(
      * момент снят», и смешивать их значит терять одно из двух.
      */
     stage: text("stage"),
+    /**
+     * Человеческое имя артефакта: «Дебиторка GLOBERENT за август». NULL у фото
+     * и чеков полевого контура — у них имени нет, и требовать его значило бы
+     * бэкфиллить тысячи строк выдумкой. Витрина /artifacts ищет по нему (ILIKE).
+     */
+    title: text("title"),
+    /**
+     * Направление бизнеса — ТОТ ЖЕ enum, что у money_flow: «всё по VendHub»
+     * должно означать одно и то же для денег и для документов. NULL — «вне
+     * направления» (фото карточки в реестре, документ бота без контекста).
+     */
+    domain: domainEnum("domain"),
+    /**
+     * Метки артефакта (`["bot"]`, `["kp"]`…) — то, ради чего заводили `document`.
+     * NOT NULL с default '[]': читатель не разбирает null-ветку, а старые строки
+     * получают пустой список без бэкфилла (default постоянный — Postgres не
+     * переписывает таблицу).
+     */
+    tags: jsonb("tags").$type<string[]>().default([]).notNull(),
     /** Ключ в хранилище (S3-ключ или относительный путь на диске). */
     storageKey: text("storage_key").notNull(),
     mime: text("mime"),
     bytes: integer("bytes"),
-    /** Кто загрузил: owner | staff:<id> | agent:<имя>. */
+    /**
+     * Кто загрузил: owner | person:<id> | staff:<id> | agent:<имя>.
+     *
+     * `person:<id>` пишут ОБА пути бота — загрузка фото полевого контура и
+     * документы среза A3: отчёт может попросить любой из заведённых людей, и
+     * «owner» про запрос сотрудника было бы ложью в аудитном поле. Читаемость
+     * — забота витрины (`authorWord` в `apps/cc/src/lib/artifacts.ts`).
+     */
     createdBy: text("created_by"),
     createdAt: createdAt(),
   },
-  (t) => [index("attachment_owner_idx").on(t.ownerType, t.ownerId)],
+  (t) => [
+    index("attachment_owner_idx").on(t.ownerType, t.ownerId),
+    // Витрина /artifacts: «последние артефакты такого рода», то есть вид С
+    // ФИЛЬТРОМ ТИПА (`?kind=doc`). До среза A3 был только (owner_type,
+    // owner_id) — такой запрос шёл бы полным сканом по таблице с фото полевого
+    // контура. ПОСАДОЧНЫЙ вид (без `?kind=`) этим индексом не покрыт и с ним:
+    // первая колонка не ограничена, поэтому Seq Scan + top-N heapsort (замер
+    // на 50 000 строках, PostgreSQL 15.14: 794 блока, Limit cost 2955).
+    // Второго индекса под него НЕ заводим: замер объёма таблицы на проде и
+    // довод про цену записи — в самой миграции
+    // (`packages/db/drizzle/0089_attachment_artifacts.sql`, один источник на
+    // все ссылки). Когда витрина наберёт объём — отдельная миграция.
+    //
+    // `.desc()` на колонке, а не `desc()` из drizzle-orm: так генератор пишет
+    // порядок в саму колонку индекса, и снапшот хранит колонку, а не выражение.
+    //
+    // `.nullsFirst()` — НЕ про NULL в данных (created_at NOT NULL с 0000), а
+    // про совпадение путей сортировки: у `DESC` в PostgreSQL умолчание —
+    // NULLS FIRST, и ORDER BY витрины (`desc(createdAt), desc(id)` в
+    // artifacts.service.ts) даёт именно его. Индекс с NULLS LAST планировщик
+    // берёт только на равенство по kind, а сортировать обязан заново: замер на
+    // 50 000 строках (PostgreSQL 15.14 и pglite 17.5) — Bitmap Heap Scan +
+    // top-N heapsort, 859 буферов против 5 у Index Scan + Incremental Sort.
+    // Обязательство держит ОДИН автор индекса, а не каждый будущий читатель
+    // таблицы, которому иначе пришлось бы писать ORDER BY … DESC NULLS LAST.
+    index("attachment_kind_created_idx").on(t.kind, t.createdAt.desc().nullsFirst()),
+  ],
 );
 
 // ── notification_delivery: что уже доставлено владельцу (FR-2) ──
@@ -1185,6 +1244,13 @@ export const notificationDelivery = pgTable("notification_delivery", {
 });
 
 // ── document: ссылки на файлы (в архив/knowledge-curator) ──
+//
+// Ни одного писателя и читателя во всём монорепо (проверено 06.09.2026,
+// .superpowers/sdd/notes/2026-09-06-a3-artifacts-premise.md). Не сносится:
+// снос таблицы необратим, а срез A3 — про письмо артефактов, не про уборку.
+// Решение о сносе — за владельцем, когда /artifacts поработает. Экспорт и
+// регистрация в `schema` остаются: тест «11 таблиц реестра» её по-прежнему ждёт.
+/** УСТАРЕЛА: писателей нет, читателей нет; субстрат артефактов — attachment (срез A3). */
 export const document = pgTable("document", {
   id: id(),
   pathOrUrl: text("path_or_url").notNull(),

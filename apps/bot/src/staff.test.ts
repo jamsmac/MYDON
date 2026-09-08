@@ -254,6 +254,29 @@ describe("Отчёты файлами", () => {
     const plan = await planReport({ format: "xlsx", topic: "receivables" }, core);
     assert.match(plan.emptyReason ?? "", /просрочек нет/i);
   });
+
+  it("направление отчёта едет в план — по нему документ ляжет в архив (срез A3)", async () => {
+    const core = {
+      obligations: async (domain: string) => ({
+        domain,
+        totals: [{ status: "plan", count: 1 }],
+        overdue: [{ id: "1", amount: "5000000", currency: "UZS", date: "2026-03-01" }],
+        overdueTotal: 1,
+        overdueTruncated: false,
+      }),
+    } as never;
+    assert.equal(
+      (await planReport({ format: "xlsx", topic: "receivables" }, core)).domain,
+      "globerent",
+    );
+    assert.equal(
+      (await planReport({ format: "xlsx", topic: "receivables", domain: "vendhub" }, core)).domain,
+      "vendhub",
+    );
+    // Задачи — сквозь все направления: домена у плана нет, в архив он не поедет.
+    const tasks = { myTasks: async () => [] } as never;
+    assert.equal((await planReport({ format: "docx", topic: "tasks" }, tasks)).domain, undefined);
+  });
 });
 
 describe("Порядок разбора сообщения сотрудника", () => {

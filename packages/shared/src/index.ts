@@ -127,6 +127,9 @@ export * from "./maintenance";
 export * from "./maintenance-due";
 export * from "./catalog-kinds";
 
+/** Кольцо артефактов: виды вложений и предел строки поиска — один источник. */
+export * from "./artifacts-contract";
+
 /** Вид места: точка продаж / склад / мастерская. */
 export * from "./place-kinds";
 export * from "./place-name";

@@ -10,6 +10,15 @@ WASM-пакет в lockfile для этого не нужен. Локально 
 отдаёт числом, а postgres-js — строкой (bigint), поэтому счётчики в сценариях приводятся
 к `::int`.
 
+Второй случай той же природы: **сырую выдачу драйвера нельзя отдавать в `deepEqual`**.
+`client.query()` в режиме `CHECKS_DATABASE_URL` возвращает результат postgres-js —
+`class Result extends Array`, — а `deepEqual` из `node:assert/strict` сравнивает ещё и
+прототипы: на пустой выдаче получается `+ Result(0) [] / - []` вместо зелёного.
+Сравнивайте копию (`[...rows]`) или отдельные поля. Локально на pglite это НЕ ловится
+(там обычный массив) и не ловится в соседних сценариях: они сравнивают с `[]` выдачу
+drizzle-СЕРВИСА, а не драйвера. Поймано 08.09.2026 на `check-0089.mjs`: файл был
+зелёным на pglite и красным на настоящем сервере, то есть в CI.
+
 ```bash
 # на настоящем сервере (так же, как в CI); postgres:17 в докере — той же версии, что прод
 docker run -d --name pg17 -e POSTGRES_USER=mydon -e POSTGRES_PASSWORD=mydon -e POSTGRES_DB=mydon -p 55432:5432 postgres:17
@@ -36,7 +45,8 @@ pnpm --filter @mydon/db build && pnpm --filter @mydon/core build
 # миграции целиком (или --upto 83)
 NODE_PATH=~/pgtest/node_modules node tools/pglite-checks/run-migrations.mjs
 
-# все сценарии каталога: бэкфилл 0083 → 0084, узлы У1–У6, строка «Модели» (Ф-2)
+# ВСЕ сценарии каталога — по поиску, а не по списку: список тут уже успел
+# устареть дважды, а новый сценарий должен гоняться по факту своего появления
 for c in tools/pglite-checks/check-*.mjs; do
   NODE_PATH=~/pgtest/node_modules node "$c"
 done

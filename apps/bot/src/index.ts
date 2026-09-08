@@ -26,6 +26,7 @@ import { deliverWeeklyDigest } from "./weekly-delivery";
 import { buildDigest, digestKey } from "./staff-digest";
 import { CoreClient, type PersonRow } from "./core-client";
 import { handleMessage, parseApprovalCallback, type HandlerDeps } from "./handler";
+import { доставитьОтвет } from "./reply-delivery";
 import { Notifier } from "./notifier";
 import { parseAllowlist, RateLimiter, isAllowed } from "./security/access";
 import { Conversations } from "./conversation";
@@ -77,6 +78,10 @@ async function main(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN ?? "";
   const allowlist = parseAllowlist(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
   const coreUrl = process.env.CORE_API_URL ?? "http://127.0.0.1:3001";
+  // Публичный адрес панели — для строки «файл в архиве: <ссылка>» (срез A3).
+  // Пусто → ссылка будет путём `/artifacts?…`: место названо, хоть и не
+  // кликается. Хвостовой «/» срезаем, чтобы не клеить `//artifacts`.
+  const panelUrl = (process.env.CC_PUBLIC_URL ?? "").trim().replace(/\/+$/, "");
   const serviceToken = process.env.SERVICE_TOKEN ?? "";
   // «Второй пояс» владельца (R-P5-2). Пусто (по умолчанию) → бот шлёт только
   // service-token, поведение РОВНО как сегодня (merge-safe). Задан → бот
@@ -1000,34 +1005,23 @@ async function main(): Promise<void> {
         }
         const reply = await handleMessage(chatId, u.message.text, deps, Date.now(), u.update_id);
         if (reply) {
-          await tg.sendMessage(chatId, reply.text, reply.keyboard);
-          // Длинный ответ (план закупа) приходит частями: у Telegram предел на
-          // одно сообщение, а резать список многоточием нельзя — обрезанный
-          // маршрут читается как полный. Единственное место доставки Reply.
+          // ЕДИНСТВЕННОЕ МЕСТО ДОСТАВКИ Reply, И ЗДЕСЬ ТОЛЬКО ПРОВОДА.
           //
-          // Обрыв на середине молчать не имеет права: недоехавшие части
-          // владелец прочитает как «маршрут кончился» и не довезёт товар.
-          try {
-            for (const part of reply.more ?? []) await tg.sendMessage(chatId, part);
-          } catch (err) {
-            console.error("Части ответа не отправлены:", err);
-            await tg
-              .sendMessage(chatId, "⚠️ Остальные части не дошли — повтори «план закупа».")
-              .catch(() => undefined);
-          }
-          // Файл идёт отдельным сообщением: у документа своя доставка,
-          // и она не должна мешать тексту, если сорвётся.
-          if (reply.document) {
-            try {
-              await tg.sendDocument(chatId, reply.document.filename, reply.document.content);
-            } catch (err) {
-              console.error("Файл не отправлен:", err);
-              await tg.sendMessage(
-                chatId,
-                "Файл получился, но отправить не вышло. Повтори запрос.",
-              );
-            }
-          }
+          // Порядок шагов, их защита и тексты владельцу — в reply-delivery.ts:
+          // отказ отправки ТЕКСТА не имеет права унести архивацию файла
+          // (`processUpdate` — замыкание, тестом его не позвать, а обещание
+          // «файл сохранён независимо от текста» обязано быть под ассертом).
+          await доставитьОтвет(
+            {
+              sendMessage: (text, keyboard) => tg.sendMessage(chatId, text, keyboard),
+              sendDocument: (filename, content) => tg.sendDocument(chatId, filename, content),
+              resolveOwner: () => personOf(chatId),
+              save: (input) => deps.core.uploadDocument(input),
+              panelUrl,
+              log: (message, error) => console.error(`${message}:`, error),
+            },
+            reply,
+          );
         }
       } else {
         // Не владелец — возможно, сотрудник. Ему доступны только свои задачи.

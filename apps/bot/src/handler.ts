@@ -1,6 +1,11 @@
 import { answer, llmLedgerErrorText, type ContextSearch, type LlmResolver } from "@mydon/assistant";
 import type { DocumentRequest, GeneratedDocument } from "@mydon/documents";
-import { DOMAIN_LABELS, normalizeProductName, type LlmCallContext } from "@mydon/shared";
+import {
+  DOMAIN_LABELS,
+  normalizeProductName,
+  type Domain,
+  type LlmCallContext,
+} from "@mydon/shared";
 import {
   approvalKeyboard,
   collectGloberentSignals,
@@ -121,8 +126,12 @@ export interface Reply {
    */
   more?: string[];
   keyboard?: ReturnType<typeof approvalKeyboard>;
-  /** Готовый файл: владелец получает его в чат, а не текст для переписывания. */
-  document?: { filename: string; content: Buffer; caption?: string };
+  /**
+   * Готовый файл: владелец получает его в чат, а не текст для переписывания.
+   * `domain` — направление, если отчёт о нём: с ним файл ляжет в архив
+   * (срез A3) и найдётся на /artifacts по направлению.
+   */
+  document?: { filename: string; content: Buffer; caption?: string; domain?: Domain };
 }
 
 const HELP = [
@@ -747,7 +756,11 @@ export async function handleMessage(
         );
         return {
           text: doc.summary.length > 0 ? doc.summary : "Готово.",
-          document: { filename: doc.filename, content: doc.content },
+          document: {
+            filename: doc.filename,
+            content: doc.content,
+            ...(plan.domain ? { domain: plan.domain } : {}),
+          },
         };
       }
 

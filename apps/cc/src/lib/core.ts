@@ -6,6 +6,7 @@ import type {
   AutonomyTier,
   DeadStockReport,
   DenominationCounts,
+  Domain,
   LlmLedgerMonitoring,
   MarginReport,
   MonthlyPrice,
@@ -101,11 +102,16 @@ async function get<T>(path: string, opts: { owner?: boolean } = {}): Promise<T> 
  * Чтение из Core С СЕРВИСНЫМ ТОКЕНОМ.
  *
  * Обычный `get()` токен не несёт: глобальный `ServiceTokenGuard` Core пропускает
- * GET/HEAD by design, и чтениям он не нужен. Документы — исключение (R-M-8):
- * в `memory/` лежит личное, поэтому на `/docs/*` висит `DocsTokenGuard`,
- * который требует токен и на чтении, — без заголовка ответ 401. Заголовки
- * берём там же, где их берут мутации (`coreWriteHeaders`), чтобы токен
- * подставлялся ровно в одном месте панели.
+ * GET/HEAD by design, и большинству чтений он не нужен. Но исключений уже не
+ * одно: к срезу A3 своя читающая дверь стоит у ШЕСТИ контроллеров Core —
+ * `/docs/*` (`DocsTokenGuard`, R-M-8: в `memory/` личное), `/routines/*`
+ * (волна R), `/events` (волна A1), `/apps/*`, `/attachments/*` и
+ * `/artifacts` (общий `ReadTokenGuard`) — плюс у двух маршрутов
+ * `/agents/status` и `/agents/skills`. Основание у всех одно: читается
+ * пересказ работы агентов по делам владельца. Без заголовка ответ 401,
+ * поэтому каждый такой читатель панели ходит ЭТОЙ дверью, а не `get()`.
+ * Заголовки берём там же, где их берут мутации (`coreWriteHeaders`), чтобы
+ * токен подставлялся ровно в одном месте панели.
  *
  * `opts.owner` — добавить ВТОРОЙ пояс (owner-токен, и только подтверждённому
  * владельцу): содержимое `memory/**` и профиля владельца Core отдаёт по тому
@@ -1441,6 +1447,41 @@ export interface AppsHealth {
 }
 
 /**
+ * Строка кольца артефактов — `GET /artifacts` (срез A3, Р-A3-3).
+ *
+ * БЕЗ `storageKey` И БЕЗ СОДЕРЖИМОГО: ключ хранилища — путь на томе Core, и
+ * панели он не нужен ни для чего, кроме утечки; сам файл отдаёт
+ * `GET /attachments/:id/raw` через прокси панели. `kind` — `string`, а не
+ * союз трёх типов: колонка в БД текстовая, и строка, записанная мимо
+ * `UploadDto`, не должна ронять витрину — экран сужает тип сам
+ * (`isArtifactKind` в `lib/artifacts.ts`).
+ */
+export interface ArtifactRow {
+  id: string;
+  ownerType: string;
+  ownerId: string;
+  kind: string;
+  /** Человеческое имя; `null` у полевых вложений (фото, чеки), снятых до среза A3. */
+  title: string | null;
+  domain: Domain | null;
+  tags: string[];
+  mime: string | null;
+  bytes: number | null;
+  /** Кто загрузил: owner | person:<id> | staff:<id> | agent:<имя>; `null` — не записано. */
+  createdBy: string | null;
+  createdAt: string;
+}
+
+/** Ответ `GET /artifacts`: страница, курсор следующей и часы Core для давности. */
+export interface ArtifactList {
+  items: ArtifactRow[];
+  /** Непрозрачный курсор по `(created_at, id)`; `null` — страница последняя. */
+  next: string | null;
+  /** Часы Core: давность строк считается от них (Р-A3-6), а не от `Date.now()` панели. */
+  now: string;
+}
+
+/**
  * Заголовки записи в Core: тип тела и внутренний токен.
  *
  * Единственное место в панели, где подставляется SERVICE_TOKEN. Экспортируется
@@ -2425,13 +2466,25 @@ export interface Attachment {
  * Core наружу не смотрит, а `<img>` в браузере ходит на панель — поэтому байты
  * идут через неё же, как и выгрузки. Отдаём тело и тип, а стримингом займётся
  * маршрут.
+ *
+ * С СЕРВИСНЫМ ТОКЕНОМ (срез A3): `AttachmentsController` закрыт классовым
+ * `ReadTokenGuard` — до среза `GET /attachments/:id/raw` отдавал файл по id
+ * вообще без проверки, а витрина `/artifacts` сделала перебор ненужным, печатая
+ * список id. Без заголовка Core ответил бы 401, и прокси отдал бы в `<img>`
+ * текст ошибки вместо фото: сторож пары —
+ * `app/api/attachments/[id]/raw/route.token.test.ts`. Заголовки берём там же,
+ * где мутации (`coreWriteHeaders`), — токен подставляется в одном месте панели.
  */
 export async function coreBytes(
   path: string,
 ): Promise<{ body: ArrayBuffer; contentType: string | null }> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+    res = await fetch(`${BASE}${path}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+      headers: coreWriteHeaders(false),
+    });
   } catch (err) {
     throw new CoreUnavailable(err instanceof Error ? err.message : String(err));
   }
@@ -2991,6 +3044,38 @@ export const core = {
    */
   appsHealth: () => getWithToken<AppsHealth>("/apps/health"),
 
+  /**
+   * Кольцо артефактов (срез A3, Р-A3-3): вложения по типу, владельцу,
+   * направлению, периоду и названию, страницами по курсору.
+   *
+   * С ТОКЕНОМ: на `ArtifactsController` висит классовый `ReadTokenGuard` — в
+   * названиях артефактов содержательный пересказ работы агентов по делам
+   * владельца («Дебиторка GLOBERENT за август»), то же основание, что у
+   * `/agents/status`. `owner: true` — тот же довод, что у `agentsStatus`:
+   * артефакты с `domain=personal` — личный контур, и без второго пояса при
+   * включённом ужесточении владелец молча не видел бы собственных документов.
+   * Токен проставится, только если серверный контекст подтвердил владельца.
+   *
+   * Параметры уходят КАК ЕСТЬ: что считать фильтром, решает страница
+   * (`app/artifacts/page.tsx`) — она же не пропускает в Core чужие значения из
+   * адреса, на которые тот отвечает 400.
+   *
+   * 400 — ОТКАЗ, А НЕ АВАРИЯ (`refused`). Единственный параметр, который
+   * страница проверить не может, — `cursor`: он непрозрачный, его форму знает
+   * только Core (`decodeCursor` в `artifacts.service.ts` отвечает 400 на
+   * испорченный). Без этой строки любой не-ok превращался в `CoreUnavailable`,
+   * и опечатка в закладке (`/artifacts?cursor=abc`) рисовала владельцу «Нет
+   * связи с ядром MYDON. Проверьте контейнер mydon-core» — при живом ядре.
+   * Тот же приём и тот же довод, что у `docFile` и `flow`.
+   */
+  artifacts: (params: Record<string, string> = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return getWithToken<ArtifactList>(`/artifacts${q ? `?${q}` : ""}`, {
+      owner: true,
+      refused: [400],
+    });
+  },
+
   // ── Задачи ──
   // Личный контур (R-P5-4/R-P5-6): `/tasks?domain=personal` Core гейтит тем же
   // PersonalDomainGuard, что и реестр. Owner-токен несём симметрично
@@ -3454,20 +3539,28 @@ export const core = {
   contractorsAll: () => get<Entity[]>(`/entities?type=contractor&limit=${MAX_FIND_LIMIT}`),
   entity: (id: string) => get<Entity>(`/entities/${id}`),
   createEntity: (input: Record<string, unknown>) => send<Entity>("/entities", "POST", input),
-  /** Вложения записи (фото номенклатуры, чеки) — для галереи карточки. */
+  /**
+   * Вложения записи (фото номенклатуры, чеки) — для галереи карточки.
+   *
+   * С ТОКЕНОМ (срез A3): весь `AttachmentsController` закрыт `ReadTokenGuard`.
+   * Отдавать этот список без токена было нельзя не только из-за названий
+   * артефактов: в `url` строки у S3-хранилища лежит ПРЕСАЙНЕД-ссылка на час,
+   * то есть сами байты в обход закрытого `raw`.
+   */
   attachments: (ownerType: string, ownerId: string) =>
-    get<Attachment[]>(
+    getWithToken<Attachment[]>(
       `/attachments?ownerType=${encodeURIComponent(ownerType)}&ownerId=${encodeURIComponent(ownerId)}`,
     ),
   /**
    * Вложения многих записей одним запросом — для очереди утверждения: пачка
    * черновиков показывается сразу с фото, без похода в хранилище по одному.
-   * Пустой набор ходить незачем — отдаём пустую карту сразу.
+   * Пустой набор ходить незачем — отдаём пустую карту сразу. Токен — по той же
+   * причине, что у `attachments`.
    */
   attachmentsBatch: (ownerType: string, ids: string[]) =>
     ids.length === 0
       ? Promise.resolve<Record<string, Attachment[]>>({})
-      : get<Record<string, Attachment[]>>(
+      : getWithToken<Record<string, Attachment[]>>(
           `/attachments/batch?ownerType=${encodeURIComponent(ownerType)}&ids=${encodeURIComponent(ids.join(","))}`,
         ),
   entityDrafts: (id: string) => get<EntityDraft[]>(`/entities/${id}/drafts`),

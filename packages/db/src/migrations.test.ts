@@ -35,6 +35,8 @@ const ПАПКА = path.resolve(__dirname, "..", "drizzle");
 interface ЗаписьЖурнала {
   idx: number;
   tag: string;
+  /** Миллисекунды генерации; мигратор применяет только записи новее последней применённой. */
+  when: number;
 }
 
 function журнал(): ЗаписьЖурнала[] {
@@ -335,5 +337,117 @@ describe("Цепочка миграций: файл ↔ журнал (сторо
     assert.match(migration, /t\."entity_id" = mp\."entity_id"/);
     assert.match(migration, /o\."code" = 'vendhub'/);
     assert.match(migration, /\^maint:/);
+  });
+
+  it("0089 расширяет attachment под артефакты, не трогая существующие строки (Р-A3-7)", () => {
+    const sql = readFileSync(path.join(ПАПКА, "0089_attachment_artifacts.sql"), "utf8");
+    // Отрицательные проверки — по операторам без комментариев: заголовок
+    // миграции сам называет CONCURRENTLY и CREATE TYPE, объясняя, почему их нет.
+    const операторы = sql
+      .split("\n")
+      .filter((строка) => !строка.trimStart().startsWith("--"))
+      .join("\n");
+
+    assert.equal(sql.split("--> statement-breakpoint").length, 6, "ровно шесть операторов");
+    assert.match(sql, /ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "title" text;/);
+    assert.match(sql, /ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "domain" "domain";/);
+    assert.match(
+      sql,
+      /ALTER TABLE "attachment" ADD COLUMN IF NOT EXISTS "tags" jsonb DEFAULT '\[\]'::jsonb NOT NULL;/,
+    );
+    assert.doesNotMatch(
+      операторы,
+      /"title" text NOT NULL|"domain" "domain" NOT NULL/,
+      "title/domain обязаны быть nullable — иначе старым фото нужен бэкфилл выдумкой",
+    );
+    assert.doesNotMatch(операторы, /CREATE TYPE/, "enum domain есть с 0000 — второй CREATE TYPE уронит миграцию");
+    // NULLS FIRST, а не LAST: у DESC в PostgreSQL умолчание — NULLS FIRST,
+    // и ORDER BY витрины (`desc(createdAt), desc(id)` в artifacts.service.ts)
+    // даёт именно его. С NULLS LAST пути сортировки не совпадали, планировщик
+    // брал из индекса одно равенство по kind и сортировал заново: замер на
+    // 50 000 строках — top-N heapsort и 859 буферов против 5 (см. отчёт круга
+    // починок 1). Форма индекса — обязательство ОДНОГО автора, иначе каждый
+    // будущий читатель таблицы обязан писать ORDER BY … DESC NULLS LAST.
+    assert.match(
+      sql,
+      /CREATE INDEX IF NOT EXISTS "attachment_kind_created_idx" ON "attachment" USING btree \("kind","created_at" DESC NULLS FIRST\);/,
+    );
+    assert.doesNotMatch(
+      sql,
+      /"created_at" DESC NULLS LAST/,
+      "NULLS LAST возвращает расхождение с ORDER BY витрины — половина индекса снова мертва",
+    );
+    // Мигратор drizzle применяет файл ВНУТРИ транзакции (pg-core/dialect.js:
+    // session.transaction), CONCURRENTLY там запрещён: оператор упал бы и
+    // повесил автодеплой (0070/0071/0073 — тот же вывод). Причина обязана быть
+    // записана в самом файле, чтобы следующий автор не «улучшил» индекс.
+    assert.doesNotMatch(операторы, /CONCURRENTLY/);
+    assert.match(sql, /CONCURRENTLY в транзакции запрещён/);
+    // Заставы формы — плата за IF NOT EXISTS: он пропускает уже существующую
+    // колонку (или индекс) ЛЮБОЙ формы без ошибки, и журнал говорит «применено»
+    // при колонке не того типа. Проверяем, что заставы в файле есть и что они
+    // именно ПАДАЮТ, а не пишут NOTICE: молчаливое расхождение — то же, что его
+    // отсутствие. Опыт и три вида расхождения — check-0089-shape.mjs.
+    assert.equal((операторы.match(/^DO \$\$$/gm) ?? []).length, 2, "заставы формы (DO $$) пропали из 0089");
+    assert.equal(
+      (операторы.match(/RAISE EXCEPTION/g) ?? []).length,
+      3,
+      "застава без RAISE EXCEPTION расхождение не роняет",
+    );
+    assert.doesNotMatch(операторы, /RAISE (NOTICE|WARNING)/, "застава обязана падать, а не писать в лог");
+    assert.match(операторы, /udt_name/, "застава колонок не смотрит фактический тип");
+    /*
+     * СВЕРЯЕТСЯ ИМЕННО СРАВНЕНИЕ, А НЕ УПОМИНАНИЕ СЛОВА. Прежний регэксп был
+     * `/attachment_kind_created_idx' \)\s*\n?\s*<>|indexdef/`, и его первая
+     * альтернатива не совпадала НИКОГДА: в файле стоит
+     * `'attachment_kind_created_idx')` — без пробела перед скобкой. Зелёным
+     * ассерт держался на второй альтернативе, то есть на наличии слова
+     * `indexdef` где угодно в файле. Проверено мутацией: замена `<> 'CREATE
+     * INDEX …'` на `IS NULL` оставляла тест зелёным при сообщении «застава
+     * индекса не сверяет форму». Теперь совпасть обязана вся связка:
+     * прочитали `indexdef` ИМЕННО этого индекса и сравнили его с ожидаемым
+     * определением, где `created_at DESC` (то есть DESC NULLS FIRST — путь
+     * сортировки витрины).
+     */
+    assert.match(
+      операторы,
+      /SELECT indexdef FROM pg_indexes[\s\S]*?indexname = 'attachment_kind_created_idx'\)\s*<>\s*'CREATE INDEX attachment_kind_created_idx ON public\.attachment USING btree \(kind, created_at DESC\)'/,
+      "застава индекса не сверяет форму: нет сравнения indexdef с ожидаемым «(kind, created_at DESC)»",
+    );
+    // Существующие фото и чеки не трогаем: ни UPDATE, ни DELETE, ни смены типов, ни DROP.
+    assert.doesNotMatch(операторы, /^\s*(UPDATE|DELETE|DROP|ALTER TABLE "attachment" ALTER COLUMN)/m);
+    assert.doesNotMatch(операторы, /"document"/, "document не сносится в этом срезе — только помечается в схеме");
+    // Откат описан в самом файле — оператору не придётся выводить его из diff.
+    for (const шаг of [
+      'DROP INDEX IF EXISTS "attachment_kind_created_idx"',
+      'ALTER TABLE "attachment" DROP COLUMN IF EXISTS "tags"',
+      'ALTER TABLE "attachment" DROP COLUMN IF EXISTS "domain"',
+      'ALTER TABLE "attachment" DROP COLUMN IF EXISTS "title"',
+      'DELETE FROM "drizzle"."__drizzle_migrations" WHERE "created_at" =',
+    ]) {
+      assert.ok(sql.includes(`--   ${шаг}`), `в комментарии отката нет шага: ${шаг}`);
+    }
+  });
+
+  it("0089_attachment_artifacts: запись журнала на месте, when позже 0088", () => {
+    const пред = записи.find((e) => e.idx === 88);
+    const своя = записи.find((e) => e.idx === 89);
+    assert.ok(пред && своя, "в журнале нет записей 0088/0089");
+    assert.equal(своя.tag, "0089_attachment_artifacts");
+    assert.equal(пред.tag, "0088_agent_run");
+    assert.ok(своя.when > пред.when, "when 0089 не позже 0088 — мигратор её молча пропустит");
+  });
+
+  it("when в журнале строго растёт: мигратор применяет только записи новее последней применённой", () => {
+    // pg-core/dialect.js сравнивает folderMillis (= when) с created_at последней
+    // применённой. Запись с меньшим when не применится — без ошибки, без строки в
+    // логе, и колонок в проде не будет. Рукописная правка when — верный способ
+    // получить ровно это.
+    for (let i = 1; i < записи.length; i++) {
+      assert.ok(
+        записи[i].when > записи[i - 1].when,
+        `${записи[i].tag}: when ${записи[i].when} не больше предыдущего ${записи[i - 1].when}`,
+      );
+    }
   });
 });

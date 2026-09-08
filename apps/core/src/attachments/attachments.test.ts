@@ -1,12 +1,28 @@
+// Метаданные Nest (`__guards__`, IS_PUBLIC) существуют только при загруженном
+// reflect-metadata: без него ассерты про гарды прошли бы на `undefined`.
+import "reflect-metadata";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
+import { domainEnum } from "@mydon/db";
+import { ATTACHMENT_KINDS, DOMAINS } from "@mydon/shared";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
-import { AttachmentsController, UploadDto, isImageMime } from "./attachments.controller";
-import { AttachmentsService } from "./attachments.service";
+import { ARTIFACT_KINDS } from "../artifacts/artifacts.service";
+import { IS_PUBLIC } from "../common/public.decorator";
+import { ReadTokenGuard } from "../common/read-token.guard";
+import {
+  ATTACHMENT_TAGS_MAX,
+  ATTACHMENT_TAG_MAX,
+  ATTACHMENT_TITLE_MAX,
+  AttachmentsController,
+  UploadDto,
+  isImageMime,
+} from "./attachments.controller";
+import { AttachmentsModule } from "./attachments.module";
+import { AttachmentsService, tagsOf } from "./attachments.service";
 import { StorageService } from "./storage.service";
 
 /** Мок хранилища: ссылку строим предсказуемо, чтобы проверять раскладку. */
@@ -33,7 +49,16 @@ const row = (id: string, ownerId: string, kind = "photo") => ({
   bytes: 100,
   createdBy: "staff",
   createdAt: new Date("2026-08-01T00:00:00Z"),
+  // Как у строк, записанных до среза A3: колонки есть (миграция 0089), значения пустые.
+  title: null,
+  domain: null,
+  tags: [],
 });
+
+/** Типы файлов `@mydon/documents` — то, что бот с среза A3 кладёт в архив. */
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 describe("Вложения многих записей одним запросом", () => {
   it("пустой набор — не ходит в базу, отдаёт пустую карту", async () => {
@@ -71,9 +96,10 @@ describe("Вложения многих записей одним запросо
 
 // ── Загрузка: тип владельца и тип файла ──────────────────────────────────────
 
-/** Мок хранилища и базы для загрузки: ключ и записанная строка наружу. */
+/** Мок хранилища и базы для загрузки: ключ в хранилище и строка, ушедшая в insert, — наружу. */
 function uploadHarness() {
   const written: { key: string; mime: string | null }[] = [];
+  const inserted: Record<string, unknown>[] = [];
   const storage = {
     keyFor: (ownerType: string, ownerId: string, ext: string) => `${ownerType}/${ownerId}/f${ext}`,
     put: async (key: string, _bytes: Buffer, mime: string | null) => {
@@ -83,12 +109,15 @@ function uploadHarness() {
   } as never;
   const db = {
     insert: () => ({
-      values: (v: Record<string, unknown>) => ({
-        returning: async () => [{ ...v, id: "a1", stage: null, createdAt: new Date("2026-08-01T00:00:00Z") }],
-      }),
+      values: (v: Record<string, unknown>) => {
+        inserted.push(v);
+        return {
+          returning: async () => [{ ...v, id: "a1", stage: null, createdAt: new Date("2026-08-01T00:00:00Z") }],
+        };
+      },
     }),
   } as never;
-  return { service: new AttachmentsService(db, storage), written };
+  return { service: new AttachmentsService(db, storage), written, inserted };
 }
 
 const file = (mimetype: string) => ({
@@ -212,7 +241,7 @@ describe("Отдача байтов: браузер не должен угады
   });
 
   it("не картинка: nosniff и отдача вложением", async () => {
-    for (const mime of ["application/pdf", "text/html", null]) {
+    for (const mime of ["application/pdf", DOCX_MIME, "text/html", null]) {
       const { headers, res } = fakeRes();
       await controller(mime).raw("a1", res);
       assert.equal(headers["X-Content-Type-Options"], "nosniff");
@@ -245,5 +274,287 @@ describe("Отдача байтов: браузер не должен угады
     assert.equal(isImageMime("image/gif"), false, "gif не в белом списке — вложением");
     assert.equal(isImageMime("text/html"), false);
     assert.equal(isImageMime(null), false);
+  });
+});
+
+// ── Срез A3: title / domain / tags и документы бота ──────────────────────────
+
+const OWNER_ID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+
+/** Вход как реально приходит из multipart: строки, без приведения типов. */
+const artifactDto = (extra: Record<string, unknown>) =>
+  plainToInstance(UploadDto, { ownerType: "person", ownerId: OWNER_ID, kind: "doc", ...extra });
+
+describe("Артефакты: старый вызов без новых полей — как раньше", () => {
+  it("DTO без title/domain/tags проходит валидацию, поля не выдумываются", async () => {
+    const dto = artifactDto({ createdBy: "staff:1", stage: "before" });
+    assert.deepEqual(await validate(dto), []);
+    assert.equal(dto.title, undefined);
+    assert.equal(dto.domain, undefined);
+    assert.equal(dto.tags, undefined);
+  });
+
+  it("сервис пишет null / null / [] — фото и чеки полевого контура не меняются", async () => {
+    const { service, inserted } = uploadHarness();
+    const meta = await service.upload(upload("photo"), file("image/jpeg"));
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0].title, null);
+    assert.equal(inserted[0].domain, null);
+    assert.deepEqual(inserted[0].tags, []);
+    assert.equal(meta.title, null);
+    assert.equal(meta.domain, null);
+    assert.deepEqual(meta.tags, []);
+  });
+});
+
+describe("Артефакты: title/domain/tags сохраняются и возвращаются", () => {
+  it("DTO принимает все три поля как есть", async () => {
+    const dto = artifactDto({ title: "Дебиторка GLOBERENT за август", domain: "globerent", tags: ["bot"] });
+    assert.deepEqual(await validate(dto), []);
+    assert.equal(dto.title, "Дебиторка GLOBERENT за август");
+    assert.equal(dto.domain, "globerent");
+    assert.deepEqual(dto.tags, ["bot"]);
+  });
+
+  it("сервис кладёт поля в строку и отдаёт их в метаданных", async () => {
+    const { service, inserted } = uploadHarness();
+    const meta = await service.upload(
+      {
+        ownerType: "person",
+        ownerId: OWNER_ID,
+        kind: "doc",
+        title: "Дебиторка",
+        domain: "globerent",
+        tags: ["bot", "report"],
+      },
+      file("application/pdf"),
+    );
+    assert.equal(inserted[0].title, "Дебиторка");
+    assert.equal(inserted[0].domain, "globerent");
+    assert.deepEqual(inserted[0].tags, ["bot", "report"]);
+    assert.equal(meta.title, "Дебиторка");
+    assert.equal(meta.domain, "globerent");
+    assert.deepEqual(meta.tags, ["bot", "report"]);
+  });
+
+  it("теги из jsonb: не-строки отбрасываются, а не роняют список", async () => {
+    const s = new AttachmentsService(dbReturning([{ ...row("a1", "e1"), tags: ["bot", 7, null] }]), storage);
+    const res = await s.ofOwner("entity", "e1");
+    assert.deepEqual(res[0].tags, ["bot"]);
+    assert.equal(res[0].title, null);
+    assert.equal(res[0].domain, null);
+  });
+
+  it("tagsOf: не-массив — пустой список, а не исключение", () => {
+    assert.deepEqual(tagsOf(null), []);
+    assert.deepEqual(tagsOf("bot"), []);
+    assert.deepEqual(tagsOf({ a: 1 }), []);
+    assert.deepEqual(tagsOf(["a", 1, "b"]), ["a", "b"]);
+  });
+});
+
+describe("Артефакты: длинное название зажимается, а не отвергается", () => {
+  it("200 символов → ровно 120, без ошибки валидации", async () => {
+    const dto = artifactDto({ title: "д".repeat(200) });
+    assert.deepEqual(await validate(dto), []);
+    assert.equal(dto.title?.length, ATTACHMENT_TITLE_MAX);
+  });
+
+  it("режем по символам, а не по UTF-16: эмодзи не разрубается пополам", async () => {
+    const dto = artifactDto({ title: "😀".repeat(150) });
+    assert.deepEqual(await validate(dto), []);
+    assert.equal(Array.from(dto.title ?? "").length, ATTACHMENT_TITLE_MAX);
+    assert.equal(
+      dto.title?.length,
+      ATTACHMENT_TITLE_MAX * 2,
+      "каждый эмодзи — пара суррогатов, обе половины на месте",
+    );
+  });
+
+  it("пробелы по краям срезаются; пустое название — как отсутствующее", async () => {
+    assert.equal(artifactDto({ title: "  Отчёт  " }).title, "Отчёт");
+    const empty = artifactDto({ title: "   " });
+    assert.deepEqual(await validate(empty), []);
+    assert.equal(empty.title, undefined);
+  });
+
+  it("не строка — не зажимается молча, а отвергается", async () => {
+    const errors = await validate(artifactDto({ title: 42 }));
+    assert.ok(
+      errors.some((e) => e.property === "title"),
+      "число в title обязано быть отклонено",
+    );
+  });
+});
+
+describe("Артефакты: направление — только из перечня domainEnum", () => {
+  it("перечень DTO и DOMAINS из @mydon/shared — один и тот же список", () => {
+    assert.deepEqual([...domainEnum.enumValues], [...DOMAINS]);
+  });
+
+  it("каждое значение перечня проходит", async () => {
+    for (const d of domainEnum.enumValues) {
+      assert.deepEqual(await validate(artifactDto({ domain: d })), [], `${d} должен проходить`);
+    }
+  });
+
+  it("пустая строка из формы — «не указано», а не ошибка", async () => {
+    const dto = artifactDto({ domain: "" });
+    assert.deepEqual(await validate(dto), []);
+    assert.equal(dto.domain, undefined);
+  });
+
+  it("чужое направление → ошибка валидации (ValidationPipe отдаст 400)", async () => {
+    for (const bad of ["ozon", "GLOBERENT", "vendhub ", 7]) {
+      const errors = await validate(artifactDto({ domain: bad }));
+      assert.ok(
+        errors.some((e) => e.property === "domain"),
+        `«${String(bad)}» обязано быть отклонено`,
+      );
+    }
+  });
+});
+
+describe("Артефакты: вид вложения — один список на бота, Core и панель (круг починок 3, B-1)", () => {
+  it("перечень договора и то, что принимает UploadDto, — один и тот же объект", () => {
+    // `ARTIFACT_KINDS` фильтра витрины — не копия, а ссылка: третий список
+    // (а он тут уже был) не покраснил бы ни один тест.
+    assert.equal(ARTIFACT_KINDS, ATTACHMENT_KINDS);
+  });
+
+  it("каждое значение перечня проходит валидацию DTO", async () => {
+    // Дотягиваемся до самого `@IsIn`, а не до литерала рядом с ним: до этой
+    // проверки заявленная «сверка с UploadDto.kind» шла мимо DTO вовсе.
+    for (const k of ATTACHMENT_KINDS) {
+      assert.deepEqual(await validate(artifactDto({ kind: k })), [], `${k} должен проходить`);
+    }
+  });
+
+  it("чужой вид → ошибка по своему полю, а не тихая загрузка не того", async () => {
+    for (const bad of ["video", "Doc", "doc ", 7, ["doc", "photo"]]) {
+      const errors = await validate(artifactDto({ kind: bad }));
+      assert.ok(
+        errors.some((e) => e.property === "kind"),
+        `«${String(bad)}» обязано быть отклонено`,
+      );
+    }
+  });
+});
+
+describe("Артефакты: теги из multipart", () => {
+  it("одно поле приходит строкой — становится массивом из одного тега", async () => {
+    const dto = artifactDto({ tags: "bot" });
+    assert.deepEqual(await validate(dto), []);
+    assert.deepEqual(dto.tags, ["bot"]);
+  });
+
+  it("повторённое поле — массив; пробелы срезаются, пустые теги выбрасываются", async () => {
+    const dto = artifactDto({ tags: ["bot", " report ", "", "  "] });
+    assert.deepEqual(await validate(dto), []);
+    assert.deepEqual(dto.tags, ["bot", "report"]);
+  });
+
+  it("не строка внутри, слишком длинный тег, слишком много тегов, не массив — отказ", async () => {
+    const cases: unknown[] = [
+      [7],
+      ["x".repeat(ATTACHMENT_TAG_MAX + 1)],
+      Array.from({ length: ATTACHMENT_TAGS_MAX + 1 }, (_, i) => `t${i}`),
+      { bot: true },
+    ];
+    for (const bad of cases) {
+      const errors = await validate(artifactDto({ tags: bad }));
+      assert.ok(
+        errors.some((e) => e.property === "tags"),
+        `${JSON.stringify(bad).slice(0, 40)} обязано быть отклонено`,
+      );
+    }
+  });
+});
+
+describe("Документ: файлы @mydon/documents проходят белый список", () => {
+  it("docx/xlsx/pptx принимаются для kind=doc, расширение по типу", async () => {
+    const { service, written } = uploadHarness();
+    const cases: [string, string][] = [
+      [DOCX_MIME, ".docx"],
+      [XLSX_MIME, ".xlsx"],
+      [PPTX_MIME, ".pptx"],
+    ];
+    for (const [mime] of cases) await service.upload(upload("doc"), file(mime));
+    assert.deepEqual(
+      written.map((w) => w.key),
+      cases.map(([, ext]) => `entity/e1/f${ext}`),
+    );
+  });
+
+  it("для фото Office-тип по-прежнему «не изображение»", async () => {
+    const { service, written } = uploadHarness();
+    await assert.rejects(() => service.upload(upload("photo"), file(DOCX_MIME)), /Не изображение/);
+    assert.deepEqual(written, []);
+  });
+
+  it("HTML для документа по-прежнему отклоняется — белый список расширен, а не открыт", async () => {
+    const { service, written } = uploadHarness();
+    await assert.rejects(() => service.upload(upload("doc"), file("text/html")), /Недопустимый тип файла/);
+    assert.deepEqual(written, []);
+  });
+});
+
+// ── Срез A3, ловушка спеки §6 п. 3: вложения закрыты токеном и на чтение ─────
+
+describe("Читающие двери вложений — за сервисным токеном (ловушка спеки A3 §6 п. 3)", () => {
+  const prev = process.env.SERVICE_TOKEN;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.SERVICE_TOKEN;
+    else process.env.SERVICE_TOKEN = prev;
+  });
+
+  const ctx = (headers: Record<string, string> = {}) =>
+    ({
+      switchToHttp: () => ({ getRequest: () => ({ method: "GET", headers }) }),
+      getHandler: () => (): void => undefined,
+      getClass: () => class {},
+    }) as unknown as Parameters<ReadTokenGuard["canActivate"]>[0];
+
+  it("guard навешен на КОНТРОЛЛЕР: закрыты и raw, и список, и batch, и meta", () => {
+    // На маршруте guard был бы забыт следующим `@Get`: витрина `/artifacts`
+    // печатает id и владельцев пачкой, и любая новая читающая дверь над
+    // `attachment` открывает тот же архив.
+    const guards: unknown = Reflect.getMetadata("__guards__", AttachmentsController);
+    assert.ok(
+      Array.isArray(guards) && guards.includes(ReadTokenGuard),
+      "нет @UseGuards(ReadTokenGuard) на AttachmentsController",
+    );
+  });
+
+  it("на raw больше нет @Public(): пометка «намеренно открыт» была бы ложью", () => {
+    for (const цель of [
+      AttachmentsController,
+      AttachmentsController.prototype.raw,
+      AttachmentsController.prototype.list,
+      AttachmentsController.prototype.batch,
+      AttachmentsController.prototype.meta,
+    ]) {
+      assert.equal(
+        Reflect.getMetadata(IS_PUBLIC, цель),
+        undefined,
+        "@Public() на вложениях: глобальный guard и так пропускает GET, а пометка врёт про открытость",
+      );
+    }
+  });
+
+  it("guard — провайдер модуля: иначе Nest создаёт его вслепую", () => {
+    const providers: unknown = Reflect.getMetadata("providers", AttachmentsModule);
+    assert.ok(
+      Array.isArray(providers) && providers.includes(ReadTokenGuard),
+      "ReadTokenGuard не в providers AttachmentsModule",
+    );
+  });
+
+  it("анонимный GET raw отклоняется, верный токен проходит", () => {
+    process.env.SERVICE_TOKEN = "secret";
+    assert.throws(() => new ReadTokenGuard().canActivate(ctx()), /токен/);
+    assert.throws(() => new ReadTokenGuard().canActivate(ctx({ "x-service-token": "wrong" })), /токен/);
+    assert.equal(new ReadTokenGuard().canActivate(ctx({ "x-service-token": "secret" })), true);
+    assert.equal(new ReadTokenGuard().canActivate(ctx({ authorization: "Bearer secret" })), true);
   });
 });
