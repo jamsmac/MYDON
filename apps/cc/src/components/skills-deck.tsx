@@ -8,33 +8,8 @@ import type { SkillDeck, SkillDeckItem } from "../lib/core";
 import { plural, when } from "../lib/format";
 import { BUSINESS_LABEL, TIER_LABEL } from "../lib/labels";
 import { implemented, runnable } from "../lib/skills";
+import { CARD_LED, CARD_WORD } from "../lib/state";
 import { Av8 } from "./av8";
-
-/** Состояние агента словами: цвет лампы дублируется текстом, а не заменяется им. */
-const AGENT_STATUS_LABEL: Record<SkillDeckItem["agentStatus"], string> = {
-  active: "работает",
-  paused: "выключен",
-  draft: "не заведён",
-  deprecated: "в архиве",
-};
-
-/**
- * Лампа состояния агента.
- *
- * ВЫКЛЮЧЕННЫЙ АГЕНТ НЕ ЗЕЛЁНЫЙ (волна A2, дефект дизайн-кита `states.html`
- * §1.1). До этого `paused` рисовался классом `.led.idle` — тем же зелёным, что
- * значит «повода нет, всё в норме»: цвет говорил «здоров», слово говорило
- * «выключен». Здесь, рядом со словом, это было терпимо; в сетке из двенадцати
- * агентов на главной ряд зелёных ламп прочитался бы как «всё хорошо» над
- * выключенной системой. Теперь `paused` — базовая лампа (`--tx-2`): состояние
- * известно, поэтому квадрат залит, но нормой оно не является.
- */
-const LED_CLASS: Record<SkillDeckItem["agentStatus"], string> = {
-  active: "led working",
-  paused: "led",
-  draft: "led blocked",
-  deprecated: "led blocked",
-};
 
 /** Статус задачи последнего запуска приходит строкой — переводим известные. */
 const RUN_STATUS_LABEL: Record<string, string> = {
@@ -168,11 +143,18 @@ function SkillCard({ item }: { item: SkillDeckItem }) {
 
   return (
     <section className="panel console">
-      <div className="eyebrow">
-        {BUSINESS_LABEL[item.business] ?? item.business} · <Av8 name={item.agent} /> {item.agent}{" "}
-        <span className={LED_CLASS[item.agentStatus]}>
-          {AGENT_STATUS_LABEL[item.agentStatus]}
-        </span>
+      {/* ЛАМПА СТОИТ РЯДОМ С `.eyebrow`, А НЕ ВНУТРИ (десятый круг починок
+          среза Д1, Ф-3). `.eyebrow` — метка раздела: 700, uppercase, трекинг
+          0.13em, — и всё это НАСЛЕДУЕТСЯ словом лампы внутри неё: «не заведён»
+          и «в архиве» печатались полужирными капителями, то есть весом
+          поломки на оси, где поломки нет (§4.1: вес 400). Сторож веса этого
+          не видел, потому что искал вес только у четырёх носителей состояния,
+          а `.eyebrow` среди них нет. Строка та же, лампа — соседний элемент. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <div className="eyebrow">
+          {BUSINESS_LABEL[item.business] ?? item.business} · <Av8 name={item.agent} /> {item.agent}
+        </div>
+        <span className={CARD_LED[item.agentStatus]}>{CARD_WORD[item.agentStatus]}</span>
       </div>
       <h3 className="h2">{item.skill}</h3>
       <p style={{ margin: "4px 0 8px", fontSize: 13, color: "var(--tx-2)" }}>{item.description}</p>

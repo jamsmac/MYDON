@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { AGENTS_SNAPSHOT_INTERVAL_MS, isSkipReason, type SkipReason } from "@mydon/shared";
+import { AGENTS_SNAPSHOT_INTERVAL_MS } from "@mydon/shared";
 import type { AgentsRuntime, AgentState, AgentStatusRow } from "../lib/core";
 import { runWhen } from "../lib/crons";
 import { plural } from "../lib/format";
+import { AGENT_STATE_WORD, PAUSE_WORD, ledЗанятости, молчитИзЗаПоломки } from "../lib/state";
 import { Av8 } from "./av8";
 
 /**
@@ -14,77 +15,16 @@ import { Av8 } from "./av8";
  * лизы разошлась бы с worker'ом и с Core на первой же правке.
  */
 
-/**
- * Состояние → слово. Цвет никогда не единственный носитель смысла.
- *
- * ЭКСПОРТИРУЕТСЯ ради карточки агента (R-A2-5): сетка и карточка обязаны
- * называть одно состояние одним словом. Второй словарь разошёлся бы с первым
- * на первой же правке, и один агент «работал» бы на главной и «молчал» в
- * собственной карточке.
- */
-export const STATE_WORD: Record<AgentState, string> = {
-  working: "работает",
-  blocked: "затык",
-  paused: "на паузе",
-  idle: "молчит",
-};
-
-/**
- * Состояние → класс лампы.
- *
- * ЗЕЛЁНОЙ ЛАМПЫ ЗДЕСЬ НЕТ НИ У ОДНОГО СОСТОЯНИЯ. `.led.idle` (`--ok`) значит
- * «повода нет, всё в норме» — это утверждение о здоровье, а сетка отвечает на
- * другой вопрос: «занят ли агент». Выключенный и молчащий агент здоровыми не
- * являются: про них просто ничего не известно, кроме того, что они ничего не
- * делают. Дефект витрины навыков (`skills-deck.tsx`, где `paused → idle`) в
- * сетке из двенадцати плиток стоил бы дороже всего: взгляд ловит цвет, и ряд
- * зелёных ламп прочитался бы как «всё хорошо» над выключенной системой.
- */
-export const STATE_LED: Record<AgentState, string> = {
-  working: "led working",
-  blocked: "led blocked",
-  // Пауза и молчание — базовая лампа (`--tx-2`): состояние известно, поэтому
-  // квадрат залит, но «нормой» оно не является. У паузы дополнительно гаснут
-  // имя, лицо и лампа (`.agtile[data-state="paused"]`) — она не проснётся
-  // сама; причина не гаснет, ради неё плитка и печатает текст.
-  paused: "led",
-  idle: "led",
-};
-
-/**
- * Пропуски прогона, за которыми стоит ПОЛОМКА, а не «повода не было».
+/*
+ * ПРИЗНАК ПОЛОМКИ И ЛАМПА ЖИВУТ В `lib/state.ts` (девятый круг починок).
  *
  * Ревью среза: «молчит — модель не ответила» и «молчит — предлагать нечего»
  * приходят одним состоянием `idle`, и причина из Core их различает словами.
  * Но одинаковый вес на экране приучает пролистывать оба: сломанный маршрут к
- * модели неделю выглядит спокойным молчанием. В списке ровно те причины, при
- * которых работа НЕ СДЕЛАНА из-за поломки или запрета (подсказки словаря
- * `RUN_SKIP_REASONS` зовут чинить ключ, ledger, хук или повторять вручную), —
- * в отличие от `no_signal`, `no_change` и `capped`, где делать нечего.
+ * модели неделю выглядит спокойным молчанием. Пока список причин стоял здесь,
+ * шапка карточки агента о пятой лампе не знала — один агент светился тревогой
+ * на главной и спокойным серым в собственной карточке.
  */
-const ПОЛОМКА: readonly SkipReason[] = [
-  "llm_failed",
-  "ledger_unavailable",
-  "execution_unknown",
-  "hook_blocked",
-];
-
-function молчитИзЗаПоломки(row: AgentStatusRow): boolean {
-  // Только у молчания: у «работает» и «затыка» свой вес и своя причина, и
-  // полоса без объяснения в тексте плитки была бы шумом.
-  if (row.state !== "idle") return false;
-  // ОБОРВАННЫЙ CLAIM — НЕ ЭТОТ СЛУЧАЙ (ревью Ф-5). У такого `idle` причина
-  // говорит про истёкший lease и судьбу задачи, а `lastRun` описывает ПРОШЛЫЙ
-  // заход: полоса внимания вставала над текстом, который её не объясняет, —
-  // ровно то, чего этот комментарий не хочет. Различаем по данным: у молчания
-  // из журнала задачи нет, у оборванного claim `taskId` заполнен.
-  if (row.taskId !== undefined) return false;
-  const run = row.lastRun;
-  if (run === undefined || run === null) return false;
-  if (run.outcome === "failed") return true;
-  if (run.outcome !== "skipped") return false;
-  return isSkipReason(run.skipReason) && ПОЛОМКА.includes(run.skipReason);
-}
 
 /**
  * Сводка заголовка: только ненулевое — «затыков 0» не вопрос владельца.
@@ -298,7 +238,10 @@ export function RuntimeLagNotice({
     );
   }
   if (!runtime.lagging || runtime.paused === null) return null;
-  const слово = (on: boolean): string => (on ? "на паузе" : "работают");
+  // Слова — из словаря системной настройки (`PAUSE_WORD`), а не литералом:
+  // это ТА ЖЕ ось, что у тумблеров `/system` и доски рутин, и второй её дом
+  // сторож словарей ловит (`lib/state.test.ts`).
+  const слово = (on: boolean): string => PAUSE_WORD[on ? "on" : "off"];
   const применено = runtime.paused;
   const разница = [
     применено.tasks !== paused.tasks
@@ -359,10 +302,11 @@ function AgentTile({ row, now }: { row: AgentStatusRow; now: Date }) {
         <div className="agn">{row.name}</div>
         <div className="agled">
           {/* Тон «поломки» — тот же, что у предупреждения в журнале прогонов
-              (`.run-led.warn`): не авария, но и не спокойствие. */}
-          <span className={поломка ? "led run-led warn" : STATE_LED[row.state]}>
-            {STATE_WORD[row.state]}
-          </span>
+              (`.run-led.warn`): не авария, но и не спокойствие. И класс, и
+              условие живут в общем доме (`lib/state.ts`, `ledЗанятости`), а не
+              литералом здесь: пара «слово + лампа» обязана меняться одним
+              движением, и у литерала сторож классов её не видел (Ф-5). */}
+          <span className={ledЗанятости(row)}>{AGENT_STATE_WORD[row.state]}</span>
         </div>
         <div className="agr">
           {row.reason}

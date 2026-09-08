@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { SystemConfigItem } from "../lib/core";
 import { saveSystemConfig } from "../app/system/actions";
+import { PAUSE_WORD } from "../lib/state";
 
 const SOURCE_LABEL: Record<SystemConfigItem["source"], string> = {
   db: "задано в панели",
@@ -41,6 +42,20 @@ function Row({ item }: { item: SystemConfigItem }) {
 
   const dirty = value !== item.value;
   /**
+   * Тумблер ПАУЗЫ — четвёртая ось словаря состояний (`lib/state`), и слова у
+   * неё те же, что на доске рутин: `/system` и `/crons` показывают одни и те
+   * же ключи `AGENTS_*_PAUSED`, и разъехавшиеся подписи владелец прочитал бы
+   * как два разных факта.
+   *
+   * Уточнение в скобках ставится ТОЛЬКО этим ключам. `kind: "bool"` носят ещё
+   * пять настроек (`PARTS_COUNT_PHOTO_REQUIRED`, `PARTS_DRYING_STAGE`,
+   * `COFFEE_REFILL_CONSUMES`, `OWNER_IDENTITY_ENFORCED`,
+   * `TASK_BRIDGE_ENABLED`), и до среза выпадающий список писал им то же «Да
+   * (на паузе)»: «Узлы: этап «сушка» после мойки — Да (на паузе)» не значит
+   * ничего.
+   */
+  const пауза = item.key.endsWith("_PAUSED");
+  /**
    * Действующее значение расходится с записанным — фолбэк ядра.
    *
    * Прод-случай ровно один и он на пути катовера: после шага 3 рунбука
@@ -73,8 +88,8 @@ function Row({ item }: { item: SystemConfigItem }) {
 
         {item.kind === "bool" && (
           <select value={value} onChange={(e) => setValue(e.target.value)}>
-            <option value="1">Да (на паузе)</option>
-            <option value="0">Нет (работают)</option>
+            <option value="1">Да{пауза ? ` (${PAUSE_WORD.on})` : ""}</option>
+            <option value="0">Нет{пауза ? ` (${PAUSE_WORD.off})` : ""}</option>
           </select>
         )}
 

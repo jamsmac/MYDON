@@ -22,11 +22,20 @@ import {
   rowFromSilentLayer,
   splitSections,
   unavailableRow,
+  позднееИз,
+  сведенияОПроверкеДоставок,
+  сведенияОПроверкеМонитора,
+  сведенияОПроверкеСбора,
+  сведенияОПроверкеСлоя,
+  сведенияОПроверкеУчёта,
   type FaceMeta,
   type HealthRow,
   type LayerSilence,
   type MonitorRunLite,
   type MonitorSnapshotLite,
+  type OurvendAccountingHealthLite,
+  type OurvendSyncHealthLite,
+  type ПрочитанныйПрогон,
 } from "./apps-health";
 
 /**
@@ -130,6 +139,34 @@ export class AppsHealthService {
     ]);
 
     const мониторы = снимокМониторов(расписания);
+    /*
+     * ЧТО ГОВОРИТЬ О ПРОВЕРКАХ, КОГДА ЧТЕНИЕ ОТКАЗАЛО (круг починок среза Д1,
+     * Ф-1; дверь одна — десятый круг).
+     *
+     * `базаОтказала` поднимается на отказе снимка ЛИБО журнала прогонов, и
+     * ответ о проверках зависит от того, ЧТО ИМЕННО не прочиталось. Служба
+     * этого больше не решает: она отдаёт двери правил (`сведенияОПроверке*`)
+     * то, что успела прочитать, — строку журнала, «журнал прочитан, строки
+     * нет» или «журнал не прочитан», а для ОБЕИХ строк OurVend ещё и отчёт
+     * (`сведенияОПроверкеУчёта` появилась в одиннадцатом круге: у учёта та же
+     * ложь стояла на строку ниже), — и дверь отвечает так же, как ответила бы
+     * правилу на полном входе. Свой ответ у службы был (`проверкаПоЖурналу`),
+     * считанный по одному журналу, и при отказе снимка он печатал «не
+     * запускался» над отчётом с двадцатью прогонами, который лежал в
+     * `ourvend.value` и не спрашивался.
+     *
+     * НЕЧИТАЕМЫЙ МОМЕНТ НА ГРАНИЦЕ — «НЕ ЗНАЕМ», А НЕ «НИ РАЗУ». Строка
+     * прогона с испорченным `started_at` доезжает сюда КАК СТРОКА
+     * (`последниеПрогоны` отдаёт её с `at: null`), и дверь считает её
+     * свидетельством: журнал прочитан, прогон в нём есть, назвать его нечем.
+     * Отбрасывание такой строки на границе — как делалось раньше — превращало
+     * бы пересчёт в фолбэк: ноль получался бы не потому, что журнал пуст, а
+     * потому, что строку выкинули по дороге.
+     */
+    const журналПрочитан = отказ(прогоны) === null;
+    const последние = последниеПрогоны(прогоны);
+    const прочитанныйПрогон = (key: string): ПрочитанныйПрогон =>
+      журналПрочитан ? (последние.get(key) ?? null) : "журнал не прочитан";
     // Снимок опубликован хоть раз: отличает «слой агентов не запущен» от
     // «агенты работают, но про этот монитор не сообщали».
     const снимокЕсть = расписания.ok && расписания.value !== null;
@@ -140,14 +177,29 @@ export class AppsHealthService {
     // одной причиной вместо своих вчерашних вердиктов.
     const слойМолчит: LayerSilence | null =
       свежесть !== null && свежесть.stale ? { ageSec: свежесть.ageSec, reportedAt: свежесть.reportedAt } : null;
-    const последние = последниеПрогоны(прогоны);
     const базаОтказала = отказ(расписания) ?? отказ(прогоны);
 
     const строкаМонитора = (face: FaceMeta): HealthRow => {
-      if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
-      if (слойМолчит !== null) return rowFromSilentLayer(face, слойМолчит, LAYER_DEPENDENCY.monitor);
-      const снимок = мониторы.get(face.key) ?? null;
       const lastRun = последние.get(face.key) ?? null;
+      // МОМЕНТ ПРОВЕРКИ ОТДАЁМ И В ОТКАЗЕ ЧТЕНИЯ. Не прочитался только снимок —
+      // журнал на руках и тик монитора известен; не прочитался сам журнал — о
+      // проверках не известно ничего, и на экране это РАЗНЫЕ слова.
+      if (базаОтказала !== null) {
+        return unavailableRow(face, базаОтказала, сведенияОПроверкеМонитора(прочитанныйПрогон(face.key)));
+      }
+      // МОЛЧАНИЕ СЛОЯ ГАСИТ ВЕРДИКТ, НО НЕ ЗНАНИЕ О ПРОВЕРКАХ (слияние A2-fix и
+      // Д1). «Последний прогон прошёл» над мёртвым слоем — вчерашний день, а вот
+      // тик из `agent_run` прочитан и никуда не делся: дверь свидетельств у
+      // строки та же, что и в штатной ветке.
+      if (слойМолчит !== null) {
+        return rowFromSilentLayer(
+          face,
+          слойМолчит,
+          LAYER_DEPENDENCY.monitor,
+          сведенияОПроверкеМонитора(прочитанныйПрогон(face.key)),
+        );
+      }
+      const снимок = мониторы.get(face.key) ?? null;
       return rowFromMonitor(face, {
         snapshotPublished: снимокЕсть,
         monitor: снимок,
@@ -162,9 +214,16 @@ export class AppsHealthService {
       // и одна его строка называет причину там, где восемь назвали бы следствия.
       расписания.ok
         ? rowFromAgentsLayer(FACES.agents, { freshness: свежесть, staleAfterSec: STALE_AFTER_SEC })
-        : unavailableRow(FACES.agents, расписания.источник),
-      this.строкаСбора(мониторы, последние, ourvend, базаОтказала, слойМолчит, снимокЕсть, now),
-      this.строкаУчёта(мониторы, последние, ourvend, базаОтказала, слойМолчит, снимокЕсть, now),
+        // Снимок не прочитан: о собственных отчётах слоя не известно ничего.
+        // ОТВЕТ БЕРЁТСЯ У ДВЕРИ, А НЕ ПИШЕТСЯ ЛИТЕРАЛОМ (ревью слияния, M-2):
+        // `свежесть` на этой ветке `null` по построению (строка 173 — она
+        // считается только при `расписания.ok`), поэтому дверь отвечает «не
+        // знаем» сама. Литерал давал тот же ответ, но ВТОРЫМ местом: правка
+        // правила свидетельств разошлась бы со службой молча — ровно тот
+        // дефект, от которого файл избавлялся три круга подряд.
+        : unavailableRow(FACES.agents, расписания.источник, сведенияОПроверкеСлоя(свежесть)),
+      this.строкаСбора(мониторы, прочитанныйПрогон, ourvend, базаОтказала, слойМолчит, снимокЕсть, now),
+      this.строкаУчёта(мониторы, прочитанныйПрогон, ourvend, базаОтказала, слойМолчит, снимокЕсть, now),
       ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => строкаМонитора(face)),
       // Очередь Notion разбирает диспетчер внутри прохода задач агентов: над
       // мёртвым слоем «очередь разобрана» держалось бы бессрочно — новых строк
@@ -172,20 +231,34 @@ export class AppsHealthService {
       // бот — отдельный процесс со своим heartbeat, вызовы моделей делают и
       // бот, и панель, и документы (`LLM_LEDGER_CONSUMERS`), не только агенты.
       !доставки.ok
-        ? unavailableRow(FACES.notion, доставки.источник)
+        // Счётчики не прочитаны: о проходах диспетчера не известно ничего.
+        ? unavailableRow(FACES.notion, доставки.источник, "не знаем")
         : слойМолчит !== null
-          ? rowFromSilentLayer(FACES.notion, слойМолчит, LAYER_DEPENDENCY.outbox)
+          // Закрытые доставки из таблицы от молчания слоя не исчезают — дверь
+          // свидетельств та же, что у штатной ветки ниже.
+          ? rowFromSilentLayer(
+              FACES.notion,
+              слойМолчит,
+              LAYER_DEPENDENCY.outbox,
+              сведенияОПроверкеДоставок({ ...доставки.value, now }),
+            )
           : rowFromOutbox(FACES.notion, { ...доставки.value, now }),
       сигнал.ok
         ? rowFromHeartbeat(FACES.bot, {
-            lastAt: сигнал.value?.occurredAt ?? null,
+            // Нечитаемый момент события — это «сигнала не было», а не «бот
+            // отвечает NaN мин назад»: `возраст` ушёл бы в NaN, сравнение с
+            // порогом дало бы `false`, и строка зазеленела бы БЕЗ времени
+            // проверки. Тот же пояс, что у прогонов выше.
+            lastAt: дата(сигнал.value?.occurredAt ?? null),
             intervalMs: BOT_HEARTBEAT_INTERVAL_MS,
             now,
           })
-        : unavailableRow(FACES.bot, сигнал.источник),
+        // Журнал событий не прочитан: о сигналах бота не известно ничего.
+        : unavailableRow(FACES.bot, сигнал.источник, "не знаем"),
       ledger.ok
         ? rowFromLlm(FACES.llm, { monitoring: ledgerСловами(ledger.value), now })
-        : unavailableRow(FACES.llm, ledger.источник),
+        // Монитор ledger не ответил: о завершённых вызовах не известно ничего.
+        : unavailableRow(FACES.llm, ledger.источник, "не знаем"),
       // Монитор, которого нет в реестре лиц: молча пропасть с экрана он не
       // должен — строку получает, но во «внутренних» (splitSections), потому
       // что про связь с чужой системой у него ничего не известно.
@@ -210,7 +283,7 @@ export class AppsHealthService {
   /** Сбор OurVend: снимок расписаний + журнал прогонов + отчёт `/ourvend/health`. */
   private строкаСбора(
     мониторы: Map<string, МониторСнимка>,
-    последние: Map<string, MonitorRunLite>,
+    прочитанныйПрогон: (key: string) => ПрочитанныйПрогон,
     ourvend: Чтение<Awaited<ReturnType<OurvendHealthService["health"]>>>,
     базаОтказала: string | null,
     слойМолчит: LayerSilence | null,
@@ -218,27 +291,32 @@ export class AppsHealthService {
     now: Date,
   ): HealthRow {
     const face = FACES.ourvendSync;
-    if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
-    if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
+    const прогон = прочитанныйПрогон(face.key);
+    const health = ourvend.ok ? отчётСбораСловами(ourvend.value, now) : null;
+    // ЧТО УСПЕЛИ ПРОЧИТАТЬ — ТО И СПРАШИВАЕМ, И СПРАШИВАЕМ У ТОЙ ЖЕ ДВЕРИ, ЧТО
+    // ПРАВИЛО (десятый круг починок, Ф-1). Отчёт OurVend мог не собраться при
+    // исправном журнале — тогда момент проверки известен из тика монитора;
+    // снимок мог не собраться при исправном отчёте — тогда свидетельства
+    // (`runs`, `lastSuccessAt`) лежат в отчёте, и «не запускался» над ними
+    // было бы ложью о сборе, который тикает каждые три часа. Молчание слоя —
+    // третий такой случай: вердикт оно отменяет, свидетельства — нет.
+    const проверено = сведенияОПроверкеСбора({ lastRun: прогон, health });
+    if (базаОтказала !== null) return unavailableRow(face, базаОтказала, проверено);
+    if (!ourvend.ok) return unavailableRow(face, ourvend.источник, проверено);
     // Молчание слоя — выше застоя и серии отказов: «сбор стоит 7 ч» читался бы
     // как проблема OurVend, а стоит он потому, что некому его запускать.
-    if (слойМолчит !== null) return rowFromSilentLayer(face, слойМолчит, LAYER_DEPENDENCY.ourvend);
-    const h = ourvend.value;
+    if (слойМолчит !== null) {
+      return rowFromSilentLayer(face, слойМолчит, LAYER_DEPENDENCY.ourvend, проверено);
+    }
     return rowFromOurvendSync(face, {
       snapshotPublished: снимокЕсть,
       monitor: мониторы.get(face.key) ?? null,
-      lastRun: последние.get(face.key) ?? null,
-      health: {
-        runs: h.runs.length,
-        failedStreak: h.failedStreak,
-        lastSuccessAt: h.lastSuccessAt,
-        // СЫРЫЕ часы — той же функцией, по которой будит владельца сторож
-        // застоя. Поле `staleHours` в ответе округлено до 0,1 ч ДЛЯ ПОКАЗА, и
-        // сравнение по нему сдвинуло бы границу порога.
-        staleHoursRaw: rawStaleHours(h.lastSuccessAt, now),
-        staleHoursShown: h.staleHours,
-        staleThresholdH: h.staleThresholdH,
-      },
+      // Журнал прочитан, иначе сработал бы `базаОтказала` выше.
+      lastRun: прогон === "журнал не прочитан" ? null : прогон,
+      // Перевод повторён, а не взят из `health` выше: `health !== null` и
+      // `ourvend.ok` — одно условие, но TypeScript связи не видит, а фолбэк
+      // `health ?? …` был бы ложью о недостижимой ветке.
+      health: отчётСбораСловами(ourvend.value, now),
       now,
     });
   }
@@ -246,7 +324,7 @@ export class AppsHealthService {
   /** Учётный снимок OurVend и сверка с зеркалом — из того же отчёта. */
   private строкаУчёта(
     мониторы: Map<string, МониторСнимка>,
-    последние: Map<string, MonitorRunLite>,
+    прочитанныйПрогон: (key: string) => ПрочитанныйПрогон,
     ourvend: Чтение<Awaited<ReturnType<OurvendHealthService["health"]>>>,
     базаОтказала: string | null,
     слойМолчит: LayerSilence | null,
@@ -254,12 +332,27 @@ export class AppsHealthService {
     now: Date,
   ): HealthRow {
     const face = FACES.ourvendAccounting;
-    if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
-    if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
-    if (слойМолчит !== null) return rowFromSilentLayer(face, слойМолчит, LAYER_DEPENDENCY.ourvend);
+    const прогон = прочитанныйПрогон(face.key);
+    // ЧТО УСПЕЛИ ПРОЧИТАТЬ — ТО И СПРАШИВАЕМ, У ТОЙ ЖЕ ДВЕРИ, ЧТО ПРАВИЛО
+    // (одиннадцатый круг починок, И-1). Момента в отчёте учёта нет по-прежнему
+    // ни одного, а вот СЛЕД учётного снимка в нём есть, и он говорит, что
+    // монитор ходил: до этого круга строка спрашивала дверь обычного монитора,
+    // которая знает одну таблицу, и печатала «монитор не запускался» над
+    // снимком часовой давности при пустом `agent_run` (свежая установка, день
+    // после смоука, прогон, убитый автодеплоем).
+    const проверено = сведенияОПроверкеУчёта({
+      lastRun: прогон,
+      health: ourvend.ok ? отчётУчётаСловами(ourvend.value) : null,
+    });
+    if (базаОтказала !== null) return unavailableRow(face, базаОтказала, проверено);
+    if (!ourvend.ok) return unavailableRow(face, ourvend.источник, проверено);
+    if (слойМолчит !== null) {
+      return rowFromSilentLayer(face, слойМолчит, LAYER_DEPENDENCY.ourvend, проверено);
+    }
     const h = ourvend.value;
     const снимок = мониторы.get(face.key) ?? null;
-    const lastRun = последние.get(face.key) ?? null;
+    // Журнал прочитан, иначе сработал бы `базаОтказала` выше.
+    const lastRun = прогон === "журнал не прочитан" ? null : прогон;
     return rowFromOurvendAccounting(face, {
       snapshotPublished: снимокЕсть,
       monitor: снимок,
@@ -268,17 +361,9 @@ export class AppsHealthService {
       // Своего сторожа у этой строки не было: `snapshotStale` вне режима `own`
       // жёстко `false`, и мёртвый монитор учёта выглядел зелёным.
       silentAfter: молчитПосле(снимок, lastRun),
-      health: {
-        snapshotStale: h.snapshotStale,
-        salesLagShownH: h.salesLagH,
-        parity: {
-          mode: h.parity.mode,
-          checked: h.parity.checked,
-          mismatches: h.parity.mismatches,
-          stockOk: h.parity.stockOk,
-          stockChecked: h.parity.stockChecked,
-        },
-      },
+      // Перевод повторён, а не взят из `проверено` выше: `ourvend.ok` там уже
+      // проверен, но TypeScript связи не видит — та же причина, что у сбора.
+      health: отчётУчётаСловами(h),
       now,
     });
   }
@@ -315,11 +400,11 @@ export class AppsHealthService {
     for (const r of rows) {
       counts[r.status] = Number(r.n);
       const newest = дата(r.newest);
-      if (r.status === "sent") lastSentAt = позднее(lastSentAt, newest);
-      if (r.status === "skipped") lastSkippedAt = позднее(lastSkippedAt, newest);
+      if (r.status === "sent") lastSentAt = позднееИз(lastSentAt, newest);
+      if (r.status === "skipped") lastSkippedAt = позднееИз(lastSkippedAt, newest);
       // `dead` и `unknown` — один терминальный отказ на два статуса: в обоих
       // случаях запись до Notion не дошла (у `unknown` — неизвестно, дошла ли).
-      if (r.status === "dead" || r.status === "unknown") lastFailedAt = позднее(lastFailedAt, newest);
+      if (r.status === "dead" || r.status === "unknown") lastFailedAt = позднееИз(lastFailedAt, newest);
       if (r.status !== "pending" && r.status !== "dispatching") continue;
       const at = дата(r.oldest);
       // Битую дату отбрасываем здесь: ниже она ушла бы в `toISOString()` и
@@ -362,13 +447,6 @@ function дата(value: Date | string | null): Date | null {
   return at !== null && Number.isFinite(at.getTime()) ? at : null;
 }
 
-/** Более поздний из двух моментов (любой может отсутствовать). */
-function позднее(a: Date | null, b: Date | null): Date | null {
-  if (a === null) return b;
-  if (b === null) return a;
-  return b.getTime() > a.getTime() ? b : a;
-}
-
 /** Ярлык не прочитавшегося источника (не текст исключения) либо `null`. */
 function отказ(чтение: Чтение<unknown>): string | null {
   return чтение.ok ? null : чтение.источник;
@@ -393,7 +471,35 @@ function снимокМониторов(
   return map;
 }
 
-/** Последний прогон каждого монитора: `agent_run` c `agent_name = "system"`. */
+/**
+ * Последний прогон каждого монитора: `agent_run` c `agent_name = "system"`.
+ *
+ * МОМЕНТ ПРОГОНА — ЭТО `startedAt`, НАЧАЛО ПРОВЕРКИ, хотя рядом лежит
+ * `finishedAt`. Так было и до среза (строка описывала им своё событие), и
+ * менять я не стал: журнал прогонов кладёт `finished_at` тем же тиком, разница
+ * — секунды, а ошибка уходит в БЕЗОПАСНУЮ сторону (давность проверки чуть
+ * завышается, «проверено давно» не превращается в «проверено только что»).
+ * Но контракт поля обещает «момент проверки», поэтому названо прямо: это
+ * момент, когда проверка НАЧАЛАСЬ.
+ *
+ * НЕЧИТАЕМЫЙ МОМЕНТ — ЭТО «СТРОКА ЕСТЬ, МОМЕНТ НЕ ПРОЧИТАН», А НЕ «ПРОГОНА
+ * НЕТ» (десятый круг починок, Ф-1). `rowFromRaw` (`routines/runs.service.ts`)
+ * собирает `startedAt: d(r.started_at)!` — `new Date(строка)` без проверки на
+ * конечность и с `!` поверх, — так что испорченный столбец приезжает сюда как
+ * `Invalid Date`. Прежняя редакция отбрасывала такую строку целиком, и на
+ * границе «прогон был, момент испорчен» превращалось в «прогонов не было»:
+ * дальше пересчёт свидетельств честно находил ноль и экран печатал «не
+ * запускался» — над журналом, в котором строка лежит. Отбрасывание на границе
+ * — это ровно то, что делает ноль неправдой.
+ *
+ * Теперь строка едет дальше с `at: null`: правила оценки её не видят
+ * (`сЧитаемымПрогоном` обнуляет прогон ДО сравнения с порогом, поэтому мусор
+ * ни в `toISOString()`, ни в сравнение с `NaN` не попадает), а дверь
+ * свидетельств (`сведенияОПроверкеМонитора`) считает её одним свидетельством
+ * — и на экране стоит «когда проверяли — неизвестно», а не «не запускался».
+ * `дата` при этом по-прежнему отбрасывает битое значение СУБД: не строку, а
+ * только её момент.
+ */
 function последниеПрогоны(
   прогоны: Чтение<Awaited<ReturnType<RunsService["lastPerJob"]>>>,
 ): Map<string, MonitorRunLite> {
@@ -401,9 +507,58 @@ function последниеПрогоны(
   if (!прогоны.ok) return map;
   for (const r of прогоны.value) {
     if (r.agentName !== "system") continue;
-    map.set(r.skill, { at: r.startedAt, outcome: r.outcome, reason: r.reason });
+    map.set(r.skill, { at: дата(r.startedAt ?? null), outcome: r.outcome, reason: r.reason });
   }
   return map;
+}
+
+/**
+ * Отчёт `/ourvend/health` → поля, которые решают судьбу строки сбора.
+ *
+ * Отдельной функцией, потому что отчёт спрашивают ДВАЖДЫ — правило на полном
+ * входе и дверь свидетельств при отказе снимка, — и два перевода одного отчёта
+ * разошлись бы на первом же новом поле.
+ */
+function отчётСбораСловами(
+  h: Awaited<ReturnType<OurvendHealthService["health"]>>,
+  now: Date,
+): OurvendSyncHealthLite {
+  return {
+    runs: h.runs.length,
+    failedStreak: h.failedStreak,
+    lastSuccessAt: h.lastSuccessAt,
+    // СЫРЫЕ часы — той же функцией, по которой будит владельца сторож
+    // застоя. Поле `staleHours` в ответе округлено до 0,1 ч ДЛЯ ПОКАЗА, и
+    // сравнение по нему сдвинуло бы границу порога.
+    staleHoursRaw: rawStaleHours(h.lastSuccessAt, now),
+    staleHoursShown: h.staleHours,
+    staleThresholdH: h.staleThresholdH,
+  };
+}
+
+/**
+ * Отчёт `/ourvend/health` → поля, которые решают судьбу строки УЧЁТА.
+ *
+ * Отдельной функцией по той же причине, что у сбора (одиннадцатый круг
+ * починок, И-1): отчёт спрашивают ДВАЖДЫ — правило на полном входе и дверь
+ * свидетельств, когда до правила дело не дошло, — и два перевода одного отчёта
+ * разошлись бы на первом же новом поле. До этого круга второго читателя не
+ * было, а перевод жил прямо в аргументе правила.
+ */
+function отчётУчётаСловами(
+  h: Awaited<ReturnType<OurvendHealthService["health"]>>,
+): OurvendAccountingHealthLite {
+  return {
+    snapshotStale: h.snapshotStale,
+    salesLagShownH: h.salesLagH,
+    parity: {
+      mode: h.parity.mode,
+      checked: h.parity.checked,
+      mismatches: h.parity.mismatches,
+      stockOk: h.parity.stockOk,
+      stockChecked: h.parity.stockChecked,
+    },
+  };
 }
 
 /**
@@ -416,10 +571,11 @@ function последниеПрогоны(
  * застоя сбора (6 ч при кроне раз в 3 ч).
  *
  * `null` — расписание неизвестно или битое: судить о молчании нечем, и
- * молчаливое «в порядке» здесь честнее выдуманного порога.
+ * молчаливое «в порядке» здесь честнее выдуманного порога. Момент прогона не
+ * прочитан (`at: null`) — то же самое: отсчитывать плановые запуски не от чего.
  */
 function молчитПосле(снимок: МониторСнимка | null, lastRun: MonitorRunLite | null): Date | null {
-  if (снимок === null || !снимок.enabled || lastRun === null) return null;
+  if (снимок === null || !снимок.enabled || lastRun === null || lastRun.at === null) return null;
   // Разбор cron — общей функцией доски рутин (`nextOccurrences`): своя копия
   // с другим часовым поясом или другим поведением на битом выражении дала бы
   // «монитор молчит» там, где доска рисует ближайший запуск.

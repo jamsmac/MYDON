@@ -99,3 +99,32 @@ describe("QuickAdd", () => {
     ]);
   });
 });
+
+/**
+ * Слово о состоянии агента в списке исполнителей — срез Д1, находка Ф-1 ревью.
+ *
+ * Девятый потребитель оси карточки: до среза строка писала `deprecated` как
+ * «(выключен)», пока `/agents` и `/team` уже печатали «в архиве». Согласованно
+ * неверно — плохо, рассогласованно — хуже: владелец видел бы два слова про один
+ * факт.
+ */
+describe("QuickAdd: состояние агента называется тем же словом, что на /agents", () => {
+  it("архивный агент — «(в архиве)», а не «(выключен)»", () => {
+    render(<QuickAdd people={[]} agents={[{ name: "scout", status: "deprecated" }]} />);
+    expect(screen.getByRole("option", { name: "scout (в архиве)" })).toBeInTheDocument();
+  });
+
+  it("не заведённый — «(не заведён)», включённый — без уточнения вовсе", () => {
+    render(
+      <QuickAdd
+        people={[]}
+        agents={[
+          { name: "draftee", status: "draft" },
+          { name: "planner", status: "active" },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("option", { name: "draftee (не заведён)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "planner" })).toBeInTheDocument();
+  });
+});

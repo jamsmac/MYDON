@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { AGENTS_SNAPSHOT_INTERVAL_MS } from "@mydon/shared";
 import { saveSystemConfig } from "../app/system/actions";
+import { PAUSE_LED, PAUSE_WORD } from "../lib/state";
 
 /**
  * Пауза агентского слоя прямо на доске рутин.
@@ -81,7 +82,7 @@ function Toggle({ item, paused }: { item: (typeof TOGGLES)[number]; paused: bool
         >
           {item.label}
         </button>
-        <span className={`led ${on ? "blocked" : "idle"}`}>{on ? "на паузе" : "работают"}</span>
+        <span className={PAUSE_LED[on ? "on" : "off"]}>{PAUSE_WORD[on ? "on" : "off"]}</span>
         {pending && <span className="hint">Сохраняю…</span>}
       </div>
       <small className="hint">{item.help}</small>

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentCard, AgentsStatus, AgentStatusRow } from "../../lib/core";
+import { весаЛамп, правилаВеса, стилиПанели } from "../../test/css";
 
 // `page.tsx` тянет клиент Core, а тот первой строкой импортирует пакет
 // `server-only`, которого вне RSC не существует.
@@ -178,7 +179,10 @@ describe("Список агентов: занятость из /agents/status, �
       }),
     );
     render(await AgentsPage());
-    expect(screen.getByText("Выключены в карточке")).toBeInTheDocument();
+    // Заголовок секции — точная противоположность «Включены в карточке»
+    // (слияние: правило среза Д1). Под ним лежат три разных паспортных
+    // статуса, и называть секцию одним из них значит спорить со строками.
+    expect(screen.getByText("Не включены в карточке")).toBeInTheDocument();
     expect(screen.getByText("выключен в карточке (paused)")).toBeInTheDocument();
     expect(screen.getByText(/агент выключен в карточке/)).toBeInTheDocument();
   });
@@ -215,11 +219,109 @@ describe("Список агентов: занятость из /agents/status, �
     );
   });
 
+  /*
+   * СТАТУС КАРТОЧКИ ВНЕ ЧЕТЫРЁХ ЗНАЧЕНИЙ (девятый круг починок среза Д1).
+   *
+   * `CARD_PASSPORT_WORD` — `Record<AgentCard["status"], string>`, но
+   * индексируется он РАНТАЙМНЫМ значением из Core. Новый статус в ядре (или
+   * старая панель против нового ядра) давал `undefined`: пилюля превращалась в
+   * пустой `<span>`, и строка агента молчала о том, что с ним. До сведения
+   * словарей здесь стоял тернарник с фолбэком «выключен» — вранья стало
+   * меньше, а пустоты больше.
+   */
+  it("незнакомый статус: слово — сырое значение Core, класс — нейтральная пилюля", async () => {
+    agents.mockImplementation(async () => [
+      card(),
+      // Значение, которого нет в словарях: ровно то, что приедет из Core на
+      // следующем статусе жизненного цикла.
+      card({ id: "a3", name: "новый-агент", status: "retired" as AgentCard["status"] }),
+    ]);
+    render(await AgentsPage());
+
+    // Известный статус — как и был, из словаря паспорта и БЕЗ зелёного.
+    const известный = screen.getByText("включён в карточке");
+    expect(известный.className, "класс пилюли паспорта разошёлся со словарём").toBe("pill");
+
+    // Незнакомый — назван словом, а не проглочен.
+    const незнакомый = screen.getByText("retired");
+    expect(незнакомый.className, "класс пилюли потерялся вместе со словарём").toBe("pill");
+  });
+
+  it("строка агента с незнакомым статусом вообще ЕСТЬ на экране", async () => {
+    // Обратная сторона: агент не должен исчезнуть из списка — он попадает в
+    // секцию «Не включены в карточке» (`status !== "active"`).
+    agents.mockImplementation(async () => [
+      card({ id: "a3", name: "новый-агент", status: "retired" as AgentCard["status"] }),
+    ]);
+    render(await AgentsPage());
+    expect(screen.getByText("новый-агент")).toBeInTheDocument();
+    expect(screen.getByText("Не включены в карточке")).toBeInTheDocument();
+  });
+
   it("отказ Core на карточках — «Core недоступен», а не пустой список", async () => {
     agents.mockImplementation(async () => {
       throw new Error("ECONNREFUSED");
     });
     render(await AgentsPage());
     expect(screen.getByText(/Core недоступен|ECONNREFUSED/)).toBeInTheDocument();
+  });
+});
+
+/*
+ * ТРЕТЬЯ ПОВЕРХНОСТЬ ЗАНЯТОСТИ — ПОД СТОРОЖЕМ ВЕСА (ревью слияния, I-1).
+ *
+ * Дефект родился ИМЕННО СЛИЯНИЕМ: у среза A2 правила веса не было вовсе, а у
+ * Д1 в этом списке стоял паспорт (`CARD_WORD`), не занятость. Комбинация
+ * «занятость на `/agents`» + «вес через `.agled`» появилась только вместе — и
+ * ни один сторож её не видел: позитивный ассерт стоял один и только по сетке
+ * (`components/agent-grid.test.tsx`), а `test/state-weight.test.tsx` негативный,
+ * и эта страница проходила его ТРИВИАЛЬНО. Итог: «затык» отличался здесь одним
+ * цветом `--err` — тем самым отличием, которого нет на монохромном экране и
+ * при дальтонизме, то есть ровно тем, из-за чего Р-Д1-4 и появилось.
+ *
+ * Ассерт ПОЗИТИВНЫЙ и по РАЗМЕТКЕ, а не по наличию правила в CSS: правило
+ * `.agled .led.blocked` в файле есть и без обёртки — проверять надо, что
+ * селектор ДОСТАЁТ до слова.
+ */
+describe("Вес «затыка» в списке агентов: третья поверхность оси (I-1)", () => {
+  it("«затык» попадает хотя бы в одно правило веса ламп", async () => {
+    agentsStatus.mockImplementation(async () => ({
+      ...ответ(),
+      agents: [состояние({ state: "blocked", reason: "затык на задаче: нет доступа к OurVend" })],
+    }));
+    render(await AgentsPage());
+    const затык = screen.getByText("затык");
+    expect(
+      весаЛамп(стилиПанели)
+        .map((r) => r.селектор)
+        .filter((sel) => затык.matches(sel)),
+      "ни одно правило веса не достаёт до «затыка» в списке — потерян контейнер `.agled`",
+    ).not.toHaveLength(0);
+  });
+
+  it("остальные три состояния в списке весом НЕ отличаются", async () => {
+    // Обратная сторона того же правила: контейнер общий, а вес — только у
+    // поломки. `closest`, а не `matches`: `font-weight` наследуется от предка.
+    agentsStatus.mockImplementation(async () => ({
+      ...ответ(),
+      agents: [
+        состояние({ name: "vendhub-ops", state: "working" }),
+        состояние({ name: "globerent-scout", state: "idle", reason: "последний прогон — выполнено" }),
+      ],
+    }));
+    agents.mockImplementation(async () => [
+      card(),
+      card({ id: "a2", name: "globerent-scout", business: "globerent" }),
+    ]);
+    render(await AgentsPage());
+    for (const слово of ["работает", "молчит"]) {
+      const элемент = screen.getByText(слово);
+      for (const { селектор, запись } of правилаВеса(стилиПанели)) {
+        expect(
+          элемент.closest(селектор),
+          `правило «${селектор}» (${запись}) утяжеляет «${слово}» — это не поломка`,
+        ).toBeNull();
+      }
+    }
   });
 });

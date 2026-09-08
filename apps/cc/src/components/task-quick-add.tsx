@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { DOMAIN_LABELS, DOMAINS } from "@mydon/shared";
 import { quickAddTask } from "../app/tasks/actions";
 import type { Person } from "../lib/core";
+import { CARD_WORD, type CardStatus } from "../lib/state";
 
 /**
  * Быстрая постановка задачи одной строкой.
@@ -19,7 +20,12 @@ export function QuickAdd({
   agents,
 }: {
   people: Person[];
-  agents: { name: string; status: string }[];
+  /**
+   * Статус карточки — СОЮЗОМ, а не голым `string`: подпись берётся из общего
+   * словаря (`CARD_WORD`), и просмотр по строке пропустил бы опечатку молча.
+   * Данные и так приходят из `AgentCard` (`app/tasks/page.tsx:54`).
+   */
+  agents: { name: string; status: CardStatus }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -94,7 +100,13 @@ export function QuickAdd({
               {agents.map((a) => (
                 <option key={a.name} value={`agent:${a.name}`}>
                   {a.name}
-                  {a.status === "active" ? "" : " (выключен)"}
+                  {/* Та же ось, что у пилюли на `/agents`, и то же вранье до
+                      среза Д1: `deprecated` назывался здесь «выключен», пока
+                      список агентов уже писал «в архиве». Согласованно неверно
+                      — плохо, рассогласованно — хуже: два слова про один факт.
+                      Скобки и ведущий пробел — форма строки выпадающего
+                      списка, а не второе слово. */}
+                  {a.status === "active" ? "" : ` (${CARD_WORD[a.status]})`}
                 </option>
               ))}
             </optgroup>

@@ -47,3 +47,37 @@ describe("«Система»: действующее значение рядом
     expect(screen.getByText("действует: b")).toBeVisible();
   });
 });
+
+/**
+ * Подписи булева тумблера — срез Д1, находка Ф-3 ревью.
+ *
+ * `/system` и `/crons` показывают ОДНИ И ТЕ ЖЕ ключи `AGENTS_*_PAUSED`: доска
+ * рутин через `pause-toggles`, эта витрина — выпадающим списком. Слова обязаны
+ * приходить из одного словаря (`lib/state`), иначе правка формулировки разведёт
+ * два экрана про один факт молча.
+ */
+describe("«Система»: булев тумблер и слово паузы (срез Д1)", () => {
+  const булев = (key: string, label: string): SystemConfigItem => ({
+    key,
+    label,
+    kind: "bool",
+    value: "1",
+    source: "db",
+  });
+
+  it("ключ паузы уточняет обе стороны словами доски рутин", () => {
+    render(<SystemEditor items={[булев("AGENTS_SCHEDULES_PAUSED", "Расписания на паузе")]} />);
+    expect(screen.getByRole("option", { name: "Да (на паузе)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Нет (работают)" })).toBeInTheDocument();
+  });
+
+  it("прочие булевы настройки — просто «Да»/«Нет», без чужого уточнения", () => {
+    // `kind: "bool"` носят ещё пять настроек, и до среза список писал им то же
+    // «Да (на паузе)»: «этап «сушка» после мойки — Да (на паузе)» не значит
+    // ничего. Уточнение принадлежит ключам паузы, а не типу контрола.
+    render(<SystemEditor items={[булев("PARTS_DRYING_STAGE", "Узлы: этап «сушка» после мойки")]} />);
+    expect(screen.getByRole("option", { name: "Да" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Нет" })).toBeInTheDocument();
+    expect(screen.queryByText(/на паузе/)).toBeNull();
+  });
+});
