@@ -15,6 +15,7 @@ import type {
 import {
   CancelVendingRecordError,
   CoreClient,
+  CoreError,
   NotAMachineError,
   type AnalyticsWarning,
   type BootstrapSalePriceResult,
@@ -463,6 +464,32 @@ describe("uploadDocument: документ бота (title/domain/tags) — mult
           createdBy: "bot:tg:1",
         }),
       /Core ответил 500/,
+    );
+  });
+
+  // Задача 4: бот называет владельцу причину словами («Core отверг файл»,
+  // «файл слишком большой»), а для этого ему нужен СТАТУС, а не текст
+  // исключения. Голый Error схлопывал 400, 413 и упавшую сеть в одну строку.
+  it("отказ — CoreError со статусом, путём и телом: по ним бот выбирает слова", async () => {
+    стубFetchТело(413, { message: "File too large" });
+    const client = new CoreClient("http://core", 10_000, "tok");
+    await assert.rejects(
+      () =>
+        client.uploadDocument({
+          ownerType: "person",
+          ownerId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+          bytes: Buffer.from("x"),
+          mime: "application/pdf",
+          filename: "f.pdf",
+          createdBy: "bot:tg:1",
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof CoreError, "нужен CoreError, а не голый Error");
+        assert.equal(err.status, 413);
+        assert.equal(err.path, "/attachments");
+        assert.match(err.body, /File too large/);
+        return true;
+      },
     );
   });
 });

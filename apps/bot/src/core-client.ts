@@ -1618,6 +1618,14 @@ export class CoreClient {
    * не попадают — Core тогда пишет null/null/[] ровно как для полевых фото.
    *
    * multipart, поэтому свой fetch с тем же service-token — как у `uploadPhoto`.
+   *
+   * Отказ — `CoreError`, а не голый `Error`, как у `uploadPhoto`: вызывающему
+   * (задача 4, `document-archive.ts`) нужен статус, чтобы назвать владельцу
+   * причину словами — «Core отверг файл» (400), «файл слишком большой» (413,
+   * предел `FileInterceptor` 12 МБ), «нет доступа к Core» (401/403). Голый
+   * `Error` схлопывал их в одну строку, из которой не видно, к кому идти.
+   * Текст сообщения тот же (`CoreError` печатает «Core ответил N на путь»),
+   * поэтому старые проверки по тексту не меняются.
    */
   async uploadDocument(input: {
     ownerType: string;
@@ -1640,13 +1648,17 @@ export class CoreClient {
     for (const tag of input.tags ?? []) form.append("tags", tag);
     const blob = new Blob([new Uint8Array(input.bytes)], { type: input.mime });
     form.append("file", blob, input.filename);
-    const res = await fetch(`${this.baseUrl}/attachments`, {
+    const path = "/attachments";
+    const res = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
       signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       headers: this.serviceToken ? { "x-service-token": this.serviceToken } : {},
       body: form,
     });
-    if (!res.ok) throw new Error(`Core ответил ${res.status} на /attachments`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new CoreError(res.status, path, body.slice(0, 500));
+    }
     return (await res.json()) as { id: string; url: string };
   }
 
