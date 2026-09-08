@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { LlmLedgerMonitoring, OurvendHealth } from "@mydon/shared";
+import { STALE_AFTER_SEC } from "../routines/board";
 import { AppsHealthService } from "./apps-health.service";
 import { FACES, type HealthRow } from "./apps-health";
 
@@ -120,6 +121,8 @@ interface Мир {
   monitors?: { name: string; cron: string; enabled: boolean; reason?: "off" | "no_credentials" }[];
   /** Снимка расписаний нет вовсе (агенты ни разу не публиковали). */
   безСнимка?: boolean;
+  /** Момент последней записи снимка (`updatedAt`); по умолчанию — сейчас. */
+  снимокОт?: Date;
   runs?: ReturnType<typeof прогон>[];
   /** Отказ конкретного источника: сообщение исключения. */
   отказ?: { снимок?: string; ourvend?: string; ledger?: string; доставки?: string; бот?: string };
@@ -167,7 +170,7 @@ function сервис(м: Мир = {}): AppsHealthService {
                     notWired: [],
                     monitors,
                   },
-                  updatedAt: NOW,
+                  updatedAt: м.снимокОт ?? NOW,
                 },
           ),
     lastPerJob: () => Promise.resolve(м.runs ?? monitors.map((m) => прогон(m.name))),
@@ -215,11 +218,94 @@ describe("Сборка здоровья приложений (R-A2-2, решен
         FACES.llm.key,
       ],
     );
+    // Слой агентов — первой строкой «внутренних» (перепроверка прода, корень 2):
+    // он условие всех остальных, и в разделе «снаружи» ему делать нечего.
     assert.deepEqual(ответ.internal.map((r) => r.key), [
+      FACES.agents.key,
       FACES.coffee.key,
       FACES.maintenance.key,
       FACES.globerent.key,
     ]);
+    const слой = найти(ответ.internal, FACES.agents.key);
+    assert.equal(слой.state, "ok");
+    assert.match(слой.summary, /слой агентов отчитывался 0 мин назад/);
+    assert.equal(слой.at, NOW.toISOString());
+  });
+
+  it("СНИМОК ПРОТУХ — все строки слоя агентов «не оценить» с давностью, слой — «сломано», бот и модели — как были (корень 2)", async () => {
+    // Сценарий прода: контейнер агентов умер в 09:30 после всех суточных
+    // мониторов. Прогоны успешны, очередь Notion разобрана, отчёт OurVend
+    // свежий — и до этой правки `/apps` держал «в порядке 8 · сломано 0»
+    // почти двое суток: `updatedAt` снимка не читался нигде.
+    const два_часа = 2 * ЧАС;
+    const ответ = await сервис({
+      снимокОт: new Date(NOW.getTime() - два_часа),
+      доставки: [{ status: "sent", n: 10, oldest: new Date(NOW.getTime() - 10 * ЧАС) }],
+    }).health(NOW);
+    const все = [...ответ.outside, ...ответ.internal];
+    const зависимые = [
+      FACES.ourvendSync.key,
+      FACES.ourvendAccounting.key,
+      FACES.fx.key,
+      FACES.notion.key,
+      FACES.coffee.key,
+      FACES.maintenance.key,
+      FACES.globerent.key,
+    ];
+    for (const key of зависимые) {
+      const row = найти(все, key);
+      assert.equal(row.state, "unknown", `${key}: над молчащим слоем прежний вердикт — вчерашний день`);
+      // Слово и минуты — те же, что чип на `/crons`: «не отчитывались 120 мин».
+      assert.match(row.summary, /слой агентов не отчитывался 120 мин/, key);
+      assert.match(row.detail ?? "", /mydon-agents/, key);
+      assert.equal(row.at, new Date(NOW.getTime() - два_часа).toISOString(), `${key}: момент — последний отчёт слоя`);
+    }
+    const слой = найти(ответ.internal, FACES.agents.key);
+    assert.equal(слой.state, "bad");
+    assert.match(слой.summary, /слой агентов не отчитывался 120 мин/);
+    assert.match(слой.detail ?? "", /порог молчания 15 мин/);
+    // Бот — отдельный процесс со своим heartbeat; модели зовут и бот, и
+    // панель, и документы: от слоя агентов эти строки не зависят.
+    assert.equal(найти(ответ.outside, FACES.bot.key).state, "ok");
+    assert.equal(найти(ответ.outside, FACES.llm.key).state, "ok");
+    // Сводка шапки честная: сломано одно, не оценить — восемь следствий.
+    assert.equal(все.filter((r) => r.state === "bad").length, 1);
+    assert.equal(все.filter((r) => r.state === "ok").length, 2);
+  });
+
+  it("ПОРОГ ОДИН на доску рутин и здоровье: ровно STALE_AFTER_SEC — свежий, секундой старше — протух", async () => {
+    // Порог — импортированная константа доски, а не своё число: подмени его
+    // в `board.ts` — граница здесь сдвинется вместе с ним; заведи своё число
+    // в службе — этот тест упадёт на первой же разнице.
+    const наПороге = await сервис({ снимокОт: new Date(NOW.getTime() - STALE_AFTER_SEC * 1000) }).health(NOW);
+    assert.equal(найти(наПороге.outside, FACES.fx.key).state, "ok");
+    assert.equal(найти(наПороге.internal, FACES.agents.key).state, "ok");
+    const старше = await сервис({ снимокОт: new Date(NOW.getTime() - (STALE_AFTER_SEC + 1) * 1000) }).health(NOW);
+    assert.equal(найти(старше.outside, FACES.fx.key).state, "unknown");
+    assert.match(найти(старше.outside, FACES.fx.key).summary, /не отчитывался/);
+    assert.equal(найти(старше.internal, FACES.agents.key).state, "bad");
+  });
+
+  it("снимка нет вовсе — строка слоя «не оценить», а не «сломано»: слой мог ни разу не запуститься", async () => {
+    const ответ = await сервис({ безСнимка: true }).health(NOW);
+    const слой = найти(ответ.internal, FACES.agents.key);
+    assert.equal(слой.state, "unknown");
+    assert.match(слой.summary, /агенты ещё не отчитывались/);
+    assert.equal(слой.at, undefined, "момента отчёта честно нет");
+    // Остальные строки — как было: «агенты ещё не отчитывались», не «протух».
+    const fx = найти(ответ.outside, FACES.fx.key);
+    assert.equal(fx.state, "unknown");
+    assert.match(fx.summary, /агенты ещё не отчитывались/);
+    assert.doesNotMatch(fx.summary, /не отчитывался \d+ мин/);
+  });
+
+  it("снимок расписаний не прочитался — строка слоя «источник не отвечает», без текста исключения", async () => {
+    const ответ = await сервис({ отказ: { снимок: "соединение закрыто" } }).health(NOW);
+    const слой = найти(ответ.internal, FACES.agents.key);
+    assert.equal(слой.state, "unknown");
+    assert.match(слой.detail ?? "", /снимок расписаний/);
+    assert.doesNotMatch(слой.detail ?? "", /соединение закрыто/);
+    assert.doesNotMatch(слой.summary, /не отчитывался/, "отказ чтения — не молчание слоя");
   });
 
   it("отказ одного источника даёт «не оценить» ЕГО строке, а не роняет ответ", async () => {

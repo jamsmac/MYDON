@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { computeBoard, nextOccurrences, type BoardInput } from "./board";
+import { STALE_AFTER_SEC, computeBoard, nextOccurrences, snapshotFreshness, type BoardInput } from "./board";
 
 const now = new Date("2026-09-06T03:10:00.000Z"); // 08:10 Ташкент, суббота
 const snapshot = {
@@ -168,6 +168,24 @@ describe("computeBoard (R-R-3)", () => {
     const none = computeBoard({ ...input, snapshot: null });
     assert.equal(none.snapshot, null);
     assert.equal(none.jobs.length, 0);
+  });
+});
+
+describe("snapshotFreshness — одно правило на доску и здоровье приложений", () => {
+  it("ровно на пороге снимок ещё свежий, секундой старше — протух; момент отчёта возвращается как есть", () => {
+    // Порог — ИМПОРТИРОВАННАЯ константа, а не число: здоровье приложений
+    // (`apps-health.service.ts`) судит о слое агентов той же функцией, и
+    // второй порог где-то ещё разошёлся бы с этим молча.
+    const наПороге = new Date(now.getTime() - STALE_AFTER_SEC * 1000);
+    assert.deepEqual(snapshotFreshness(наПороге, now), { ageSec: STALE_AFTER_SEC, stale: false, reportedAt: наПороге });
+    const старше = new Date(now.getTime() - (STALE_AFTER_SEC + 1) * 1000);
+    assert.equal(snapshotFreshness(старше, now).stale, true);
+    // Часы разъехались (снимок «из будущего») — возраст ноль, а не отрицательный.
+    assert.equal(snapshotFreshness(new Date(now.getTime() + 60_000), now).ageSec, 0);
+    // Доска считает тем же правилом: подмена числа в одном месте роняет оба.
+    const b = computeBoard({ ...input, snapshot: { ...input.snapshot!, updatedAt: старше } });
+    assert.equal(b.snapshot?.stale, true);
+    assert.equal(b.snapshot?.ageSec, STALE_AFTER_SEC + 1);
   });
 });
 

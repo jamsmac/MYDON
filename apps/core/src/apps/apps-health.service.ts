@@ -7,20 +7,24 @@ import { EventsService } from "../events/events.service";
 import { LlmLedgerService } from "../llm-ledger/llm-ledger.service";
 import { HEALTH_RUNS_DEFAULT, OurvendHealthService } from "../ourvend/ourvend-health.service";
 import { rawStaleHours } from "../ourvend/sync-runs";
-import { disabledReasonText, nextOccurrences } from "../routines/board";
+import { STALE_AFTER_SEC, disabledReasonText, nextOccurrences, snapshotFreshness } from "../routines/board";
 import { RunsService } from "../routines/runs.service";
 import {
   FACES,
+  LAYER_DEPENDENCY,
+  rowFromAgentsLayer,
   rowFromHeartbeat,
   rowFromLlm,
   rowFromMonitor,
   rowFromOurvendAccounting,
   rowFromOurvendSync,
   rowFromOutbox,
+  rowFromSilentLayer,
   splitSections,
   unavailableRow,
   type FaceMeta,
   type HealthRow,
+  type LayerSilence,
   type MonitorRunLite,
   type MonitorSnapshotLite,
 } from "./apps-health";
@@ -39,6 +43,15 @@ import {
  * посчиталась (тот же приём, что у паритета внутри `OurvendHealthService`).
  * Недоступность источника даёт ЕГО строке «не оценить» с причиной, а не 500 на
  * весь ответ.
+ *
+ * ВОЗРАСТ СНИМКА — СИГНАЛ ЖИЗНИ СЛОЯ АГЕНТОВ (перепроверка прода, корень 2).
+ * `RunsService.snapshot()` отдаёт `{payload, updatedAt}`, и до этой правки
+ * `updatedAt` здесь не читался нигде: из снимка брались только мониторы и
+ * булево «снимок есть». Рантайм переписывает снимок каждым тиком именно как
+ * heartbeat, доска рутин красит его протухшим через `STALE_AFTER_SEC` — а
+ * здоровье над мёртвым слоем оставалось «в порядке 8 · сломано 0» до второго
+ * пропущенного тика суточных мониторов, то есть почти двое суток. Порог и
+ * арифметика — ТЕ ЖЕ, что у доски (`snapshotFreshness`), не своя копия числа.
  */
 
 /** Единственное назначение доставок сегодня; новое потребует своего лица. */
@@ -120,11 +133,19 @@ export class AppsHealthService {
     // Снимок опубликован хоть раз: отличает «слой агентов не запущен» от
     // «агенты работают, но про этот монитор не сообщали».
     const снимокЕсть = расписания.ok && расписания.value !== null;
+    // Свежесть снимка — правилом доски рутин: один порог на `/crons` и `/apps`.
+    const свежесть =
+      расписания.ok && расписания.value !== null ? snapshotFreshness(расписания.value.updatedAt, now) : null;
+    // Слой молчит: все строки, чьё здоровье делает этот слой, ниже отвечают
+    // одной причиной вместо своих вчерашних вердиктов.
+    const слойМолчит: LayerSilence | null =
+      свежесть !== null && свежесть.stale ? { ageSec: свежесть.ageSec, reportedAt: свежесть.reportedAt } : null;
     const последние = последниеПрогоны(прогоны);
     const базаОтказала = отказ(расписания) ?? отказ(прогоны);
 
     const строкаМонитора = (face: FaceMeta): HealthRow => {
       if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
+      if (слойМолчит !== null) return rowFromSilentLayer(face, слойМолчит, LAYER_DEPENDENCY.monitor);
       const снимок = мониторы.get(face.key) ?? null;
       const lastRun = последние.get(face.key) ?? null;
       return rowFromMonitor(face, {
@@ -137,12 +158,24 @@ export class AppsHealthService {
     };
 
     const rows: HealthRow[] = [
-      this.строкаСбора(мониторы, последние, ourvend, базаОтказала, снимокЕсть, now),
-      this.строкаУчёта(мониторы, последние, ourvend, базаОтказала, снимокЕсть, now),
+      // Слой агентов — первой строкой «внутренних»: он условие всех строк ниже,
+      // и одна его строка называет причину там, где восемь назвали бы следствия.
+      расписания.ok
+        ? rowFromAgentsLayer(FACES.agents, { freshness: свежесть, staleAfterSec: STALE_AFTER_SEC })
+        : unavailableRow(FACES.agents, расписания.источник),
+      this.строкаСбора(мониторы, последние, ourvend, базаОтказала, слойМолчит, снимокЕсть, now),
+      this.строкаУчёта(мониторы, последние, ourvend, базаОтказала, слойМолчит, снимокЕсть, now),
       ...ПРОСТЫЕ_МОНИТОРЫ.map((face) => строкаМонитора(face)),
-      доставки.ok
-        ? rowFromOutbox(FACES.notion, { ...доставки.value, now })
-        : unavailableRow(FACES.notion, доставки.источник),
+      // Очередь Notion разбирает диспетчер внутри прохода задач агентов: над
+      // мёртвым слоем «очередь разобрана» держалось бы бессрочно — новых строк
+      // никто не кладёт, а старые не стареют. Бот и модели от слоя не зависят:
+      // бот — отдельный процесс со своим heartbeat, вызовы моделей делают и
+      // бот, и панель, и документы (`LLM_LEDGER_CONSUMERS`), не только агенты.
+      !доставки.ok
+        ? unavailableRow(FACES.notion, доставки.источник)
+        : слойМолчит !== null
+          ? rowFromSilentLayer(FACES.notion, слойМолчит, LAYER_DEPENDENCY.outbox)
+          : rowFromOutbox(FACES.notion, { ...доставки.value, now }),
       сигнал.ok
         ? rowFromHeartbeat(FACES.bot, {
             lastAt: сигнал.value?.occurredAt ?? null,
@@ -180,12 +213,16 @@ export class AppsHealthService {
     последние: Map<string, MonitorRunLite>,
     ourvend: Чтение<Awaited<ReturnType<OurvendHealthService["health"]>>>,
     базаОтказала: string | null,
+    слойМолчит: LayerSilence | null,
     снимокЕсть: boolean,
     now: Date,
   ): HealthRow {
     const face = FACES.ourvendSync;
     if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
     if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
+    // Молчание слоя — выше застоя и серии отказов: «сбор стоит 7 ч» читался бы
+    // как проблема OurVend, а стоит он потому, что некому его запускать.
+    if (слойМолчит !== null) return rowFromSilentLayer(face, слойМолчит, LAYER_DEPENDENCY.ourvend);
     const h = ourvend.value;
     return rowFromOurvendSync(face, {
       snapshotPublished: снимокЕсть,
@@ -212,12 +249,14 @@ export class AppsHealthService {
     последние: Map<string, MonitorRunLite>,
     ourvend: Чтение<Awaited<ReturnType<OurvendHealthService["health"]>>>,
     базаОтказала: string | null,
+    слойМолчит: LayerSilence | null,
     снимокЕсть: boolean,
     now: Date,
   ): HealthRow {
     const face = FACES.ourvendAccounting;
     if (базаОтказала !== null) return unavailableRow(face, базаОтказала);
     if (!ourvend.ok) return unavailableRow(face, ourvend.источник);
+    if (слойМолчит !== null) return rowFromSilentLayer(face, слойМолчит, LAYER_DEPENDENCY.ourvend);
     const h = ourvend.value;
     const снимок = мониторы.get(face.key) ?? null;
     const lastRun = последние.get(face.key) ?? null;
