@@ -9,6 +9,8 @@ import { agent, agentRun, agentSkillCatalog, auditLog, task } from "@mydon/db";
 import { TZ, agentWorkPaused } from "@mydon/shared";
 import { and, asc, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { DB, type Db } from "../db/db.module";
+import { snapshotFreshness } from "../routines/board";
+import { RunsService } from "../routines/runs.service";
 import { settingValue } from "../system/settings";
 import { SystemService } from "../system/system.service";
 import { TasksService, type ModelEffort } from "../tasks/tasks.service";
@@ -98,10 +100,33 @@ export interface AgentStatusRow {
   lastRun?: { at: string; outcome: string; skipReason: string | null; reason: string };
 }
 
+/** Снимок рантайма агентов глазами сетки: когда отчитался и какие паузы применил. */
+export interface AgentsRuntimeView {
+  /** Момент последнего снимка расписаний (ISO); `null` — рантайм не отчитывался. */
+  reportedAt: string | null;
+  /** Возраст снимка в секундах тем же правилом, что доска рутин; `null` — снимка нет. */
+  ageSec: number | null;
+  /** Снимок старше порога доски: что рантайм применил СЕЙЧАС, неизвестно. */
+  stale: boolean;
+  /** Паузы, действовавшие у рантайма на момент снимка; `null` — снимка нет. */
+  paused: { schedules: boolean; tasks: boolean } | null;
+  /** Конфиг и снимок расходятся хотя бы по одному тумблеру: рантайм ещё не подхватил правку. */
+  lagging: boolean;
+}
+
 export interface AgentsStatusView {
   tz: typeof TZ;
   now: string;
   paused: { schedules: boolean; tasks: boolean };
+  /**
+   * Что рантайм агентов ПРИМЕНИЛ на деле — против намерения в `paused`
+   * (перепроверка прода, Д-3). Тумблеры выше читаются из конфига в ту же
+   * секунду, а слой агентов перечитывает настройки раз в 10 минут и кладёт
+   * действующие у себя паузы в снимок расписаний. Без сверки экран показывал
+   * тринадцать «молчит» над worker'ом, который ещё не взял ни одной задачи, и
+   * «на паузе» над worker'ом, который ещё claim'ит.
+   */
+  runtime: AgentsRuntimeView;
   agents: AgentStatusRow[];
 }
 
@@ -220,6 +245,11 @@ export class AgentsService {
      * отсутствие записи означало бы «работаем», хотя задачи выключены.
      */
     private readonly system: SystemService,
+    /**
+     * Снимок расписаний — ради сверки НАМЕРЕНИЯ (тумблеры в конфиге) с тем,
+     * что рантайм агентов применил (`snapshot.payload.paused`, Д-3).
+     */
+    private readonly runs: RunsService,
   ) {}
 
   /** Список агентов. По умолчанию без архивных — их не должно быть в работе. */
@@ -391,13 +421,16 @@ export class AgentsService {
    */
   async statuses(options: { now?: Date; excludePersonal?: boolean } = {}): Promise<AgentsStatusView> {
     const now = options.now ?? new Date();
-    const [rows, inFlight, lastRuns, config] = await Promise.all([
+    const [rows, inFlight, lastRuns, config, снимок] = await Promise.all([
       // Архивных здесь нет по построению: `list()` их отсекает. Правило архива
       // в чистой функции — второй пояс на случай другого источника строк.
       this.list(),
       this.agentTasksInFlight(options.excludePersonal === true),
       this.lastRunPerAgent(),
       this.system.effective(),
+      // Снимок — второстепенный сигнал: его отказ не должен ронять состояние
+      // всей сетки, а «снимка нет» уже честно называют `/crons` и `/apps`.
+      this.runs.snapshot().catch(() => null),
     ]);
     // `value` — действующее значение тумблера; поле `effective` есть только у
     // источника учёта, у пауз его нет (прецедент — `BoardService.board`).
@@ -445,7 +478,7 @@ export class AgentsService {
       };
     });
 
-    return { tz: TZ, now: now.toISOString(), paused, agents };
+    return { tz: TZ, now: now.toISOString(), paused, runtime: сверкаСРантаймом(paused, снимок, now), agents };
   }
 
   /**
@@ -840,4 +873,31 @@ export class AgentsService {
     });
     return { taskId: created.id };
   }
+}
+
+/**
+ * Намерение против факта: тумблеры конфига против пауз в снимке рантайма (Д-3).
+ *
+ * Свежесть снимка — правилом доски рутин (`snapshotFreshness`): протухший
+ * снимок означает не «рантайм отстаёт на 10 минут», а «что он применил
+ * сейчас, неизвестно», и панель обязана сказать это другими словами.
+ * `lagging` считается и по протухшему снимку — последнее, что известно о
+ * рантайме, всё равно расходится с конфигом; `stale` рядом уточняет, чему
+ * верить.
+ */
+function сверкаСРантаймом(
+  paused: { schedules: boolean; tasks: boolean },
+  снимок: Awaited<ReturnType<RunsService["snapshot"]>>,
+  now: Date,
+): AgentsRuntimeView {
+  if (снимок === null) return { reportedAt: null, ageSec: null, stale: false, paused: null, lagging: false };
+  const свежесть = snapshotFreshness(снимок.updatedAt, now);
+  const применено = { schedules: снимок.payload.paused.schedules, tasks: снимок.payload.paused.tasks };
+  return {
+    reportedAt: снимок.updatedAt.toISOString(),
+    ageSec: свежесть.ageSec,
+    stale: свежесть.stale,
+    paused: применено,
+    lagging: применено.schedules !== paused.schedules || применено.tasks !== paused.tasks,
+  };
 }

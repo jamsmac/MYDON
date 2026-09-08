@@ -1340,11 +1340,30 @@ export interface AgentStatusRow {
   lastRun?: { at: string; outcome: string; skipReason: string | null; reason: string };
 }
 
+/**
+ * Что рантайм агентов ПРИМЕНИЛ на деле — против намерения в `paused` (Д-3).
+ *
+ * Тумблеры в `paused` панель читает из конфига в ту же секунду, а слой агентов
+ * перечитывает настройки раз в 10 минут (об этом честно говорит только
+ * `/system`: «применится в течение 10 минут») и кладёт действующие у себя
+ * паузы в снимок расписаний. `lagging` — конфиг и снимок расходятся; `stale` —
+ * снимок старше порога доски рутин, и что применено СЕЙЧАС, неизвестно.
+ */
+export interface AgentsRuntime {
+  reportedAt: string | null;
+  ageSec: number | null;
+  stale: boolean;
+  paused: { schedules: boolean; tasks: boolean } | null;
+  lagging: boolean;
+}
+
 export interface AgentsStatus {
   tz: string;
   now: string;
-  /** Системные паузы: их источник — настройка, а не карточка агента (Р-2). */
+  /** Системные паузы: их источник — настройка, а не карточка агента; панель называет их своей строкой. */
   paused: { schedules: boolean; tasks: boolean };
+  /** Сверка намерения с тем, что рантайм применил (Д-3); панель печатает расхождение строкой. */
+  runtime: AgentsRuntime;
   agents: AgentStatusRow[];
 }
 

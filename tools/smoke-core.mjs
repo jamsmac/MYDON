@@ -3470,6 +3470,10 @@ async function проверитьЛица() {
     if (json.tz !== "Asia/Tashkent" || typeof json.now !== "string" || !Array.isArray(json.agents)) {
       throw new Error(`форма ответа: ${text.slice(0, 200)}`);
     }
+    // Д-3: намерение против факта — рантайм перечитывает тумблеры раз в 10 минут.
+    if (typeof json.runtime?.lagging !== "boolean" || typeof json.runtime?.stale !== "boolean") {
+      throw new Error(`нет сверки с рантаймом (runtime): ${text.slice(0, 200)}`);
+    }
     return json;
   };
   const мой = (json) => {
@@ -3797,6 +3801,38 @@ async function проверитьЗдоровьеПриложений() {
     if (!new RegExp(`${счёт.пропущено}`).test(доставка.summary)) {
       throw new Error(`число пропущенных не названо: «${доставка.summary}»`);
     }
+  }
+
+  // Перепроверка прода (корень 2): ВОЗРАСТ СНИМКА — СИГНАЛ ЖИЗНИ СЛОЯ АГЕНТОВ.
+  // Старим снимок тем же путём, что и настоящая смерть контейнера
+  // (`updated_at` перестаёт двигаться), старше порога доски (900 с): все
+  // строки, чьё здоровье делает слой, обязаны стать «не оценить» с одной
+  // причиной, строка «Слой агентов» — «сломано», а бот (отдельный процесс)
+  // не меняется. До правки `/apps` держал «в порядке» над мёртвым слоем до
+  // второго пропущенного тика суточных мониторов. Возвращаем как было.
+  const живой_слой = строка(await здоровье(), "agents");
+  if (живой_слой.state !== "ok" || !/отчитывался/.test(живой_слой.summary)) {
+    throw new Error(`слой агентов при свежем снимке: ${живой_слой.state} — «${живой_слой.summary}»`);
+  }
+  const [снимокБыл] = await sql`select updated_at from agent_runtime_snapshot where key = 'schedules'`;
+  if (!снимокБыл) throw new Error("снимка расписаний нет в базе после PUT /routines/snapshot");
+  try {
+    await sql`update agent_runtime_snapshot set updated_at = now() - interval '2 hours' where key = 'schedules'`;
+    const молчание = await здоровье();
+    const слой = строка(молчание, "agents");
+    if (слой.state !== "bad" || !/не отчитывался 120 мин/.test(слой.summary)) {
+      throw new Error(`слой агентов при протухшем снимке: ${слой.state} — «${слой.summary}»`);
+    }
+    for (const key of ["ourvend:sync", "fx:refresh", "coffee:monitor", "maintenance:monitor", "notion"]) {
+      const r = строка(молчание, key);
+      if (r.state !== "unknown" || !/слой агентов не отчитывался 120 мин/.test(r.summary)) {
+        throw new Error(`${key} над молчащим слоем: ${r.state} — «${r.summary}», ждали «не оценить» с давностью`);
+      }
+    }
+    const бот = строка(молчание, "bot");
+    if (бот.state !== "ok") throw new Error(`бот от слоя агентов не зависит, а строка: ${бот.state} — «${бот.summary}»`);
+  } finally {
+    await sql`update agent_runtime_snapshot set updated_at = ${снимокБыл.updated_at} where key = 'schedules'`;
   }
 
   // Вставшая очередь: делаем ОДНУ существующую строку старой и `pending` —

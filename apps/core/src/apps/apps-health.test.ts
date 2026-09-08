@@ -202,6 +202,32 @@ describe("Здоровье приложений: OurVend", () => {
     assert.match(row.summary, /подряд/);
   });
 
+  it("МОНИТОР СБОРА УПАЛ ДО ЗАПИСИ В ЖУРНАЛ СБОРА — «сломано», а не «данные свежие» (Д-1)", () => {
+    // `startVendingSync()` бросил (Core на редеплое): в `agent_run` — failed,
+    // в `vending_sync_run` строки нет, `failedStreak = 0`, застой под порогом.
+    // До правки строка была зелёной и цитировала «последний прогон — сбой».
+    const at = new Date(NOW.getTime() - 30 * 60_000);
+    const r = rowFromOurvendSync(FACES.ourvendSync, сбор({
+      lastRun: { at, outcome: "failed", reason: "[ourvend:sync] fetch failed" },
+      health: { ...ЗДОРОВЬЕ_СБОРА, failedStreak: 0, staleHoursRaw: 3, staleHoursShown: 3 },
+    }));
+    assert.equal(r.state, "bad");
+    assert.match(r.summary, /последний прогон упал/);
+    assert.match(r.detail ?? "", /fetch failed/, "причина прогона процитирована");
+    assert.equal(r.at, at.toISOString(), "момент — падение, а не прошлый успех");
+    // Серия и застой — диагнозы точнее, и падение прогона их не перекрывает.
+    const серия = rowFromOurvendSync(FACES.ourvendSync, сбор({
+      lastRun: { at, outcome: "failed", reason: "[ourvend:sync] fetch failed" },
+      health: { ...ЗДОРОВЬЕ_СБОРА, failedStreak: 2 },
+    }));
+    assert.match(серия.summary, /отказов подряд 2/);
+    // Тот же вход, но прогон прошёл — «упал» не выдумывается.
+    const прошёл = rowFromOurvendSync(FACES.ourvendSync, сбор({
+      health: { ...ЗДОРОВЬЕ_СБОРА, failedStreak: 0, staleHoursRaw: 3, staleHoursShown: 3 },
+    }));
+    assert.equal(прошёл.state, "ok");
+  });
+
   it("застой сравнивается с порогом по СЫРЫМ часам, а не по округлённому для показа полю", () => {
     // 5 ч 59 м 49 с округляются до ровно 6.0: сравнение показанного числа
     // сдвинуло бы границу на 11 секунд раньше настоящей (авария 24.08.2026).

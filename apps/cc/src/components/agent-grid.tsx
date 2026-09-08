@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { isSkipReason, type SkipReason } from "@mydon/shared";
-import type { AgentState, AgentStatusRow } from "../lib/core";
+import type { AgentsRuntime, AgentState, AgentStatusRow } from "../lib/core";
 import { runWhen } from "../lib/crons";
 import { Av8 } from "./av8";
 
@@ -79,8 +79,14 @@ function молчитИзЗаПоломки(row: AgentStatusRow): boolean {
   return isSkipReason(run.skipReason) && ПОЛОМКА.includes(run.skipReason);
 }
 
-/** Сводка заголовка: только ненулевое — «затыков 0» не вопрос владельца. */
-function сводка(rows: readonly AgentStatusRow[]): string {
+/**
+ * Сводка заголовка: только ненулевое — «затыков 0» не вопрос владельца.
+ *
+ * ЭКСПОРТИРУЕТСЯ ради списка `/agents` (перепроверка прода, Д-2): тот
+ * печатал «Работают N из M» по паспортному статусу, и одна сводка на два
+ * экрана — единственный способ, чтобы они не спорили о числе работающих.
+ */
+export function stateSummary(rows: readonly AgentStatusRow[]): string {
   const счёт = (state: AgentState): number => rows.filter((r) => r.state === state).length;
   const working = счёт("working");
   const blocked = счёт("blocked");
@@ -99,11 +105,14 @@ function сводка(rows: readonly AgentStatusRow[]): string {
 export function AgentGrid({
   rows,
   paused,
+  runtime,
   now,
   error,
 }: {
   rows: readonly AgentStatusRow[];
   paused: { schedules: boolean; tasks: boolean };
+  /** Сверка намерения с рантаймом (Д-3); нет — когда состояние не прочиталось. */
+  runtime?: AgentsRuntime;
   /**
    * Момент, от которого считается давность состояния (`row.since`).
    *
@@ -129,7 +138,9 @@ export function AgentGrid({
     <div className="sect" style={{ marginTop: 16 }}>
       <div className="sect-h">
         <h3 className="h2">Агенты</h3>
-        {error === undefined && rows.length > 0 && <span className="hint">{сводка(rows)}</span>}
+        {error === undefined && rows.length > 0 && (
+          <span className="hint">{stateSummary(rows)}</span>
+        )}
         <span className="sp" />
         <Link href="/agents" className="go">
           все агенты →
@@ -151,7 +162,12 @@ export function AgentGrid({
           .
         </div>
       ) : (
-        <GridBody rows={rows} paused={paused} now={now} />
+        <GridBody
+          rows={rows}
+          paused={paused}
+          now={now}
+          {...(runtime !== undefined ? { runtime } : {})}
+        />
       )}
     </div>
   );
@@ -161,19 +177,23 @@ export function AgentGrid({
 function GridBody({
   rows,
   paused,
+  runtime,
   now,
 }: {
   rows: readonly AgentStatusRow[];
   paused: { schedules: boolean; tasks: boolean };
+  runtime?: AgentsRuntime;
   now: Date;
 }) {
   return (
     <>
-      {/* Р-2: пока настройка включена, ни один агент не возьмёт задачу. Без
-          этой строки экран показал бы двенадцать спокойных плиток там, где
-          выключена система, — и владелец искал бы поломку в агентах. */}
+      {/* Пауза задач — ОТДЕЛЬНОЙ СТРОКОЙ, а не состоянием плиток (перепроверка
+          прода, корень 1): она останавливает только новые claim'ы порученных
+          задач, cron-прогоны идут, и агент с живым claim работает. Без этой
+          строки владелец не узнал бы, почему порученная задача лежит в очереди. */}
       {paused.tasks && <TasksPausedNotice />}
       {paused.schedules && <SchedulesPausedNotice />}
+      {runtime !== undefined && <RuntimeLagNotice paused={paused} runtime={runtime} />}
 
       {rows.length === 0 ? (
         <div className="empty">
@@ -219,6 +239,50 @@ export function TasksPausedNotice() {
         Системе
       </Link>
       .
+    </div>
+  );
+}
+
+/**
+ * Рантайм ещё не подхватил тумблер (перепроверка прода, Д-3).
+ *
+ * Сетка читает НАМЕРЕНИЕ — тумблеры из конфига в ту же секунду, а слой агентов
+ * перечитывает настройки раз в 10 минут. Владелец снял паузу → в ту же
+ * секунду плитки «молчит», а worker до 10 минут ничего не берёт: спокойный
+ * экран над всё ещё выключенной системой. Поставил паузу → «на паузе» над
+ * worker'ом, который ещё claim'ит. Об этом знал только `/system`
+ * («применится в течение 10 минут»); теперь — и сетка, и карточка, и список.
+ * Ничего не рисует, пока конфиг и снимок сходятся: строка, которая есть
+ * всегда, перестаёт что-либо значить.
+ */
+export function RuntimeLagNotice({
+  paused,
+  runtime,
+}: {
+  paused: { schedules: boolean; tasks: boolean };
+  runtime: AgentsRuntime;
+}) {
+  if (!runtime.lagging || runtime.paused === null) return null;
+  const слово = (on: boolean): string => (on ? "на паузе" : "работают");
+  const применено = runtime.paused;
+  const разница = [
+    применено.tasks !== paused.tasks
+      ? `назначенные задачи: в настройке ${слово(paused.tasks)}, у рантайма ещё ${слово(применено.tasks)}`
+      : null,
+    применено.schedules !== paused.schedules
+      ? `расписания: в настройке ${слово(paused.schedules)}, у рантайма ещё ${слово(применено.schedules)}`
+      : null,
+  ].filter((ч): ч is string => ч !== null);
+  const мин = runtime.ageSec !== null ? Math.round(runtime.ageSec / 60) : null;
+  return (
+    <div className="notice">
+      <b>
+        {runtime.stale
+          ? `Рантайм агентов не отчитывался ${мин ?? "?"} мин — что он применил сейчас, неизвестно`
+          : `Рантайм агентов ещё не подхватил настройку (снимок ${мин ?? "?"} мин назад)`}
+      </b>
+      {разница.join("; ")}. Слой агентов перечитывает настройки раз в 10 минут; состояния выше — по
+      настройке, а worker до перечитки работает по-старому.
     </div>
   );
 }

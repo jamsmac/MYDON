@@ -465,6 +465,21 @@ export function rowFromOurvendSync(face: FaceMeta, input: OurvendSyncInput): Hea
       at,
     );
   }
+  // ПОСЛЕДНИЙ ПРОГОН УПАЛ — «сломано», то же правило и то же место цепочки,
+  // что у учёта (перепроверка прода, Д-1). Серия отказов и застой судят по
+  // журналу сбора `vending_sync_run`, а прогон монитора может упасть ДО
+  // записи в этот журнал: `await core.startVendingSync()` в `runOurvendSync`
+  // стоит вне try, и на редеплое Core или таймауте он бросает —
+  // `journaledMonitor` пишет в `agent_run` `failed`, а строки сбора нет вовсе
+  // (то же при незакрытой записи: `failedStreak` её намеренно пропускает).
+  // Тогда `failedStreak = 0`, застой ещё под порогом — и строка отдавала `ok`
+  // «отказов подряд нет, данные свежие», цитируя в `detail` «последний
+  // прогон — сбой»: зелёная лампа против собственного пояснения до второго
+  // пропущенного тика (~6 ч). Выше стоят диагнозы точнее (серия, застой) —
+  // их падение прогона не перекрывает.
+  if (input.lastRun !== null && input.lastRun.outcome === "failed") {
+    return row(face, "bad", "последний прогон упал", input.lastRun.reason, input.lastRun.at);
+  }
   return row(
     face,
     "ok",

@@ -14,7 +14,13 @@ import {
 } from "../../../lib/core";
 import { CoreDown } from "../../../components/core-down";
 import { AgentEditor, type AutonomyMax } from "../../../components/agent-editor";
-import { SchedulesPausedNotice, STATE_LED, STATE_WORD } from "../../../components/agent-grid";
+import {
+  RuntimeLagNotice,
+  SchedulesPausedNotice,
+  STATE_LED,
+  STATE_WORD,
+  TasksPausedNotice,
+} from "../../../components/agent-grid";
 import { Av8 } from "../../../components/av8";
 import { RunSkillButton } from "../../../components/run-skill-button";
 import { outcomeTone, runWhen } from "../../../lib/crons";
@@ -258,10 +264,12 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
     // из ответа выбрасывался, и cron-агент при `AGENTS_SCHEDULES_PAUSED=1`
     // говорил на своей карточке «молчит · последний прогон — выполнено», ни
     // словом не упоминая, что плановые прогоны выключены НАСТРОЙКОЙ СИСТЕМЫ.
-    прочитать<{ row: AgentStatusRow | null; paused: AgentsStatus["paused"] }>(async () => {
-      const { agents, paused } = await core.agentsStatus();
-      return { row: agents.find((a) => a.name === name) ?? null, paused };
-    }),
+    прочитать<{ row: AgentStatusRow | null; paused: AgentsStatus["paused"]; runtime: AgentsStatus["runtime"] }>(
+      async () => {
+        const { agents, paused, runtime } = await core.agentsStatus();
+        return { row: agents.find((a) => a.name === name) ?? null, paused, runtime };
+      },
+    ),
     прочитать<SkillDeck>(() => core.skillDeck(name)),
     прочитать<AgentRun[]>(async () => (await core.agentRuns(name)).runs),
     прочитать<AgentMemoryEvent[]>(() => core.agentMemory(name)),
@@ -350,7 +358,10 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
           в сетке (круг починок, C-4). Без неё cron-агент на своей карточке
           писал «молчит · последний прогон — выполнено» и молчал о том, что
           плановые прогоны выключены настройкой системы, а не им самим. */}
+      {задачиНаПаузе && <TasksPausedNotice />}
       {расписанияНаПаузе && <SchedulesPausedNotice />}
+      {/* Рантайм ещё не подхватил тумблер (Д-3): те же слова, что в сетке. */}
+      {статус.value !== null && <RuntimeLagNotice paused={статус.value.paused} runtime={статус.value.runtime} />}
 
       <section aria-labelledby="agent-skills">
         <div className="section-title" id="agent-skills">

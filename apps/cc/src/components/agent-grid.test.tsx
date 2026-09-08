@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { SkipReason } from "@mydon/shared";
-import type { AgentStatusRow } from "../lib/core";
+import type { AgentsRuntime, AgentStatusRow } from "../lib/core";
 import { AgentGrid } from "./agent-grid";
 
 const row = (over: Partial<AgentStatusRow> & { name: string }): AgentStatusRow => ({
@@ -119,6 +119,57 @@ describe("Сетка агентов: системная пауза", () => {
       <AgentGrid rows={обычныйДень} paused={{ schedules: true, tasks: false }} now={NOW} />,
     );
     expect(container.querySelector(".notice")).toHaveTextContent(/AGENTS_SCHEDULES_PAUSED/);
+  });
+});
+
+describe("Сетка агентов: рантайм ещё не подхватил тумблер (Д-3)", () => {
+  const снимок = (over: Partial<AgentsRuntime> = {}): AgentsRuntime => ({
+    reportedAt: "2026-09-06T08:55:00.000Z",
+    ageSec: 300,
+    stale: false,
+    paused: { schedules: false, tasks: false },
+    lagging: false,
+    ...over,
+  });
+
+  it("владелец снял паузу задач, рантайм ещё на ней — строка называет расхождение и давность снимка", () => {
+    const { container } = render(
+      <AgentGrid
+        rows={обычныйДень}
+        paused={безПаузы}
+        runtime={снимок({ paused: { schedules: false, tasks: true }, lagging: true })}
+        now={NOW}
+      />,
+    );
+    const строки = [...container.querySelectorAll(".notice")].map((n) => n.textContent ?? "");
+    const строка = строки.find((t) => /не подхватил/.test(t));
+    expect(строка).toBeDefined();
+    expect(строка).toMatch(/снимок 5 мин назад/);
+    expect(строка).toMatch(/назначенные задачи: в настройке работают, у рантайма ещё на паузе/);
+    expect(строка).not.toMatch(/расписания:/);
+  });
+
+  it("конфиг и снимок сходятся — строки нет; снимка нет — тоже нет", () => {
+    const { container } = render(<AgentGrid rows={обычныйДень} paused={безПаузы} runtime={снимок()} now={NOW} />);
+    expect(container.querySelector(".notice")).toBeNull();
+    const без = render(
+      <AgentGrid rows={обычныйДень} paused={безПаузы} runtime={снимок({ paused: null, reportedAt: null, ageSec: null })} now={NOW} />,
+    );
+    expect(без.container.querySelector(".notice")).toBeNull();
+  });
+
+  it("снимок протух — другие слова: не «ещё не подхватил», а «не отчитывался N мин»", () => {
+    const { container } = render(
+      <AgentGrid
+        rows={обычныйДень}
+        paused={{ schedules: false, tasks: true }}
+        runtime={снимок({ ageSec: 7200, stale: true, paused: { schedules: false, tasks: false }, lagging: true })}
+        now={NOW}
+      />,
+    );
+    const строки = [...container.querySelectorAll(".notice")].map((n) => n.textContent ?? "");
+    expect(строки.some((t) => /не отчитывался 120 мин/.test(t))).toBe(true);
+    expect(строки.some((t) => /не подхватил/.test(t))).toBe(false);
   });
 });
 

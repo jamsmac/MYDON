@@ -165,6 +165,7 @@ export default async function Main() {
       <AgentGrid
         rows={agents?.agents ?? []}
         paused={agents?.paused ?? { schedules: false, tasks: false }}
+        {...(agents !== null ? { runtime: agents.runtime } : {})}
         // Давность состояния считаем от времени CORE: часы панели на границе
         // суток подписали бы вчерашний прогон сегодняшним днём.
         now={agents !== null ? new Date(agents.now) : new Date()}
