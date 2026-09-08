@@ -624,6 +624,13 @@
       "when": 1788678467059,
       "tag": "0088_agent_run",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1788871977914,
+      "tag": "0089_attachment_artifacts",
+      "breakpoints": true
     }
   ]
 }

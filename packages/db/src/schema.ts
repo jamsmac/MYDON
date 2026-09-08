@@ -1135,17 +1135,23 @@ export const geoPoint = pgTable(
   ],
 );
 
-// ── attachment: файлы (фото номенклатуры, чеки), привязанные к записи ──
+// ── attachment: файлы (фото номенклатуры, чеки, артефакты), привязанные к записи ──
 //
 // Полиморфная привязка: одна таблица под фото карточек, чеки приходов и т.п.
 // Сам файл лежит в объектном хранилище (S3/MinIO) или на диске — здесь только
 // ключ и метаданные. Так фото товара/запчасти, снятое сотрудником в Telegram,
 // привязывается к карточке (owner_type='entity') или движению склада.
+//
+// Срез A3 «Кольцо артефактов» (миграция 0089): та же таблица — субстрат
+// артефактов агентов и бота (owner_type='person' | 'task', kind='doc').
+// Не `document`: у неё ноль писателей и читателей, а здесь живое хранилище
+// (StorageService) и пять маршрутов. Артефакт — ещё один owner_type, а не
+// новая сущность (спека 2026-09-07-artifacts-ring-design §1).
 export const attachment = pgTable(
   "attachment",
   {
     id: id(),
-    /** К чему привязано: 'entity' | 'stock_movement' | ... */
+    /** К чему привязано: 'entity' | 'stock_movement' | 'person' (артефакт бота) | 'task' | ... */
     ownerType: text("owner_type").notNull(),
     ownerId: uuid("owner_id").notNull(),
     /** Что это: photo | receipt | doc. */
@@ -1160,6 +1166,25 @@ export const attachment = pgTable(
      * момент снят», и смешивать их значит терять одно из двух.
      */
     stage: text("stage"),
+    /**
+     * Человеческое имя артефакта: «Дебиторка GLOBERENT за август». NULL у фото
+     * и чеков полевого контура — у них имени нет, и требовать его значило бы
+     * бэкфиллить тысячи строк выдумкой. Витрина /artifacts ищет по нему (ILIKE).
+     */
+    title: text("title"),
+    /**
+     * Направление бизнеса — ТОТ ЖЕ enum, что у money_flow: «всё по VendHub»
+     * должно означать одно и то же для денег и для документов. NULL — «вне
+     * направления» (фото карточки в реестре, документ бота без контекста).
+     */
+    domain: domainEnum("domain"),
+    /**
+     * Метки артефакта (`["bot"]`, `["kp"]`…) — то, ради чего заводили `document`.
+     * NOT NULL с default '[]': читатель не разбирает null-ветку, а старые строки
+     * получают пустой список без бэкфилла (default постоянный — Postgres не
+     * переписывает таблицу).
+     */
+    tags: jsonb("tags").$type<string[]>().default([]).notNull(),
     /** Ключ в хранилище (S3-ключ или относительный путь на диске). */
     storageKey: text("storage_key").notNull(),
     mime: text("mime"),
@@ -1168,7 +1193,15 @@ export const attachment = pgTable(
     createdBy: text("created_by"),
     createdAt: createdAt(),
   },
-  (t) => [index("attachment_owner_idx").on(t.ownerType, t.ownerId)],
+  (t) => [
+    index("attachment_owner_idx").on(t.ownerType, t.ownerId),
+    // Витрина /artifacts: «последние артефакты такого рода». До среза A3 был
+    // только (owner_type, owner_id) — запрос по kind шёл бы полным сканом по
+    // таблице с фото полевого контура. `.desc()` на колонке, а не `desc()`
+    // из drizzle-orm: так генератор пишет "created_at" DESC NULLS LAST, и
+    // снапшот хранит колонку, а не выражение.
+    index("attachment_kind_created_idx").on(t.kind, t.createdAt.desc()),
+  ],
 );
 
 // ── notification_delivery: что уже доставлено владельцу (FR-2) ──
@@ -1185,6 +1218,13 @@ export const notificationDelivery = pgTable("notification_delivery", {
 });
 
 // ── document: ссылки на файлы (в архив/knowledge-curator) ──
+//
+// Ни одного писателя и читателя во всём монорепо (проверено 06.09.2026,
+// .superpowers/sdd/notes/2026-09-06-a3-artifacts-premise.md). Не сносится:
+// снос таблицы необратим, а срез A3 — про письмо артефактов, не про уборку.
+// Решение о сносе — за владельцем, когда /artifacts поработает. Экспорт и
+// регистрация в `schema` остаются: тест «11 таблиц реестра» её по-прежнему ждёт.
+/** УСТАРЕЛА: писателей нет, читателей нет; субстрат артефактов — attachment (срез A3). */
 export const document = pgTable("document", {
   id: id(),
   pathOrUrl: text("path_or_url").notNull(),
