@@ -396,7 +396,24 @@ describe("Цепочка миграций: файл ↔ журнал (сторо
     );
     assert.doesNotMatch(операторы, /RAISE (NOTICE|WARNING)/, "застава обязана падать, а не писать в лог");
     assert.match(операторы, /udt_name/, "застава колонок не смотрит фактический тип");
-    assert.match(операторы, /attachment_kind_created_idx' \)\s*\n?\s*<>|indexdef/, "застава индекса не сверяет форму");
+    /*
+     * СВЕРЯЕТСЯ ИМЕННО СРАВНЕНИЕ, А НЕ УПОМИНАНИЕ СЛОВА. Прежний регэксп был
+     * `/attachment_kind_created_idx' \)\s*\n?\s*<>|indexdef/`, и его первая
+     * альтернатива не совпадала НИКОГДА: в файле стоит
+     * `'attachment_kind_created_idx')` — без пробела перед скобкой. Зелёным
+     * ассерт держался на второй альтернативе, то есть на наличии слова
+     * `indexdef` где угодно в файле. Проверено мутацией: замена `<> 'CREATE
+     * INDEX …'` на `IS NULL` оставляла тест зелёным при сообщении «застава
+     * индекса не сверяет форму». Теперь совпасть обязана вся связка:
+     * прочитали `indexdef` ИМЕННО этого индекса и сравнили его с ожидаемым
+     * определением, где `created_at DESC` (то есть DESC NULLS FIRST — путь
+     * сортировки витрины).
+     */
+    assert.match(
+      операторы,
+      /SELECT indexdef FROM pg_indexes[\s\S]*?indexname = 'attachment_kind_created_idx'\)\s*<>\s*'CREATE INDEX attachment_kind_created_idx ON public\.attachment USING btree \(kind, created_at DESC\)'/,
+      "застава индекса не сверяет форму: нет сравнения indexdef с ожидаемым «(kind, created_at DESC)»",
+    );
     // Существующие фото и чеки не трогаем: ни UPDATE, ни DELETE, ни смены типов, ни DROP.
     assert.doesNotMatch(операторы, /^\s*(UPDATE|DELETE|DROP|ALTER TABLE "attachment" ALTER COLUMN)/m);
     assert.doesNotMatch(операторы, /"document"/, "document не сносится в этом срезе — только помечается в схеме");
