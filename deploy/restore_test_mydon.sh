@@ -18,8 +18,71 @@ TMP_DIR=""
 CONTAINER_CREATED=0
 FAILED=0
 NEW_TABLES=0
+LAST_FAIL=""
+# Пути переопределяемы ТОЛЬКО ради тестов (deploy/tests/restore-test-alarm.test.sh):
+# на сервере переменные не выставляются и действуют боевые значения.
+MYDON_ENV="${MYDON_ENV_FILE:-/opt/mydon-app/.env}"
+ALERT_ENV="${WATCHDOG_ENV_FILE:-/etc/mydon-heartbeat.env}"
+CORE_INGEST="${CORE_INGEST_URL:-http://127.0.0.1:3001/ingest}"
 
-say() { printf '%s\n' "$1"; }
+# say запоминает последнюю строку «ПРОВАЛ»: тревоге нужна причина, а не только
+# код возврата — «проверка упала» без причины заставляет лезть в лог руками.
+say() {
+  printf '%s\n' "$1"
+  case "$1" in *ПРОВАЛ*) LAST_FAIL="$1" ;; esac
+}
+
+env_value() {  # env_value <ключ> <файл>
+  [ -r "$2" ] || return 0
+  grep "^$1=" "$2" 2>/dev/null | tail -1 | cut -d= -f2-
+}
+
+# Тревога о провале проверки восстановления.
+#
+# Канал тот же, что у disk_guard/healthz_guard: событие в Core, а если Core не
+# ответил — напрямую в Telegram. Тревога об инфраструктуре не должна зависеть от
+# той же инфраструктуры: если сервер лежит, событие в Core о лежащем сервере
+# отправить некому.
+#
+# Лесенка секретов повторяет backup_extra.sh: свои TG_BACKUP_* в .env mydon,
+# затем аварийный бот сторожа из /etc/mydon-heartbeat.env.
+alert() {  # alert <код возврата>
+  local rc=$1 reason safe payload bot chat
+  reason="${LAST_FAIL:-проверка завершилась с кодом ${rc}, строки «ПРОВАЛ» в выводе нет}"
+
+  if [ -n "${INGEST_KEY:-}" ]; then
+    # Причина едет внутрь JSON-строки: кавычки и слэши убираем подстановкой
+    # bash, а не внешним tr — из имён таблиц и путей ничего осмысленного не
+    # теряется, зато битый JSON не превращает тревогу в тишину.
+    safe=${reason//\\/}
+    safe=${safe//\"/}
+    safe=${safe//$'\n'/ }
+    payload=$(printf '{"type":"infra.restore_test","source":"restore_test_mydon","payload":{"status":"failed","exitCode":%d,"reason":"%s"}}' \
+      "$rc" "$safe")
+    if curl -sf -m 15 -X POST "${CORE_INGEST}/${INGEST_KEY}" \
+        -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  bot=$(env_value TG_BACKUP_BOT_TOKEN "$MYDON_ENV")
+  chat=$(env_value TG_BACKUP_CHAT_ID "$MYDON_ENV")
+  if [ -z "${bot:-}" ] || [ -z "${chat:-}" ]; then
+    bot=$(env_value WATCHDOG_BOT_TOKEN "$ALERT_ENV")
+    # WATCHDOG_CHAT_IDS — список через запятую; сообщению нужен один чат — первый.
+    chat=$(env_value WATCHDOG_CHAT_IDS "$ALERT_ENV" | cut -d, -f1 | tr -d '[:space:]')
+  fi
+  if [ -z "${bot:-}" ] || [ -z "${chat:-}" ]; then
+    printf '%s\n' "ОШИБКА: проверка восстановления провалена, MYDON не ответил, аварийного канала нет — тревога никуда не ушла" >&2
+    return 1
+  fi
+  # Токен не попадает в argv (виден в ps): URL уходит через stdin (curl -K-).
+  curl -sf -m 30 -F chat_id="${chat}" \
+    -F text="🚨 Проверка восстановления бэкапа MYDON провалена. ${reason} Смотри: /opt/backups/restore_test.log" \
+    -K- <<< "url = \"https://api.telegram.org/bot${bot}/sendMessage\"" >/dev/null ||
+    printf '%s\n' "ОШИБКА: Telegram не принял тревогу о проваленной проверке восстановления" >&2
+}
+
 cleanup() {
   if [ "$CONTAINER_CREATED" -eq 1 ]; then
     "$DOCKER_BIN" rm -f "$RESTORE_CONTAINER" >/dev/null 2>&1 || true
@@ -30,7 +93,18 @@ cleanup() {
     TMP_DIR=""
   fi
 }
-trap cleanup EXIT
+
+# Тревога висит на EXIT, а не дописана к каждому `exit 1`.
+# Точек выхода в скрипте больше десяти, и 07.09.2026 провал случился ровно в той,
+# про которую забыли бы: проверка упала, а узнал об этом никто и через двое суток.
+# Один обработчик покрывает и существующие выходы, и те, что допишут потом.
+on_exit() {
+  local rc=$?
+  cleanup
+  [ "$rc" -ne 0 ] && alert "$rc"
+  exit "$rc"
+}
+trap on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -53,6 +127,17 @@ newer_migrations_create_table() {
 }
 
 say "=== Проверка восстановления базы MYDON · $(date '+%d.%m.%Y %H:%M') ==="
+
+# Каналы проверяются ДО работы, как в disk_guard: сторож без канала молчит ровно
+# до дня аварии, а в этот день молчит тоже. Узнать о сломанной конфигурации в
+# момент настоящего провала — значит не узнать вообще.
+INGEST_KEY=$(env_value INGEST_KEY "$MYDON_ENV")
+if [ -z "${INGEST_KEY:-}" ] &&
+   { [ -z "$(env_value TG_BACKUP_BOT_TOKEN "$MYDON_ENV")" ] || [ -z "$(env_value TG_BACKUP_CHAT_ID "$MYDON_ENV")" ]; } &&
+   { [ -z "$(env_value WATCHDOG_BOT_TOKEN "$ALERT_ENV")" ] || [ -z "$(env_value WATCHDOG_CHAT_IDS "$ALERT_ENV")" ]; }; then
+  say "ПРОВАЛ: нет ни INGEST_KEY в $MYDON_ENV, ни аварийного бота (TG_BACKUP_* там же или WATCHDOG_* в $ALERT_ENV) — о проваленной проверке сказать будет некому"
+  exit 1
+fi
 
 if [ -z "$DUMP" ]; then
   DUMP=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'mydon-app_*.sql.gz' \
@@ -108,9 +193,18 @@ if ! "$DOCKER_BIN" run -d --name "$RESTORE_CONTAINER" --network none \
   exit 1
 fi
 CONTAINER_CREATED=1
+# Готовность проверяется тем самым запросом, которым потом разворачивают дамп,
+# а НЕ через pg_isready.
+#
+# Образ postgres во время initdb поднимает служебный сервер на unix-сокете и
+# только потом создаёт POSTGRES_DB. pg_isready в это окно отвечает «принимает
+# соединения» — сервер-то живой, — и скрипт шёл дальше к psql, который получал
+# FATAL: database "restore" does not exist. Так упала проверка 07.09.2026 при
+# целом бэкапе: гейт проверял живость сервера, а пользовались базой.
 ready=0
 for _ in $(seq 1 60); do
-  if "$DOCKER_BIN" exec "$RESTORE_CONTAINER" pg_isready -U mydon -d restore >/dev/null 2>&1; then
+  if "$DOCKER_BIN" exec "$RESTORE_CONTAINER" \
+      psql -U mydon -d restore -v ON_ERROR_STOP=1 -Atc 'select 1' >/dev/null 2>&1; then
     ready=1
     break
   fi
@@ -118,7 +212,7 @@ for _ in $(seq 1 60); do
 done
 if [ "$ready" -ne 1 ]; then
   "$DOCKER_BIN" logs --tail 30 "$RESTORE_CONTAINER" >&2 || true
-  say "ПРОВАЛ: временный PostgreSQL не стал ready за 60 секунд"
+  say "ПРОВАЛ: временный PostgreSQL не принял запрос к базе restore за 60 секунд"
   exit 1
 fi
 say "2. Изолированный PostgreSQL 17 готов (network=none, data=tmpfs)"
