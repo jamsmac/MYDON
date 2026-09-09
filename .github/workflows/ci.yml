@@ -297,3 +297,4 @@ jobs:
           bash deploy/tests/watchdog-liveness.test.sh
           bash deploy/tests/setup-guards.test.sh
           bash deploy/tests/guards-env.test.sh
+          bash deploy/tests/restore-test-alarm.test.sh
