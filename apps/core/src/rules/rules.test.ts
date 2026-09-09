@@ -6,6 +6,7 @@ import {
   PARITY_ISSUES_OPENED_EVENT,
   PARITY_ISSUES_RESOLVED_EVENT,
 } from "../ourvend/parity-issue-identity";
+import { COFFEE_ORDERS_STALE_EVENT } from "../coffee/orders-stale.service";
 import { SNAPSHOT_STALE_EVENT } from "../ourvend/sync-stale.service";
 import { ACCOUNTING_SOURCE_CHANGED_EVENT } from "../sales/accounting-source";
 import { RETENTION_EVENT } from "../vending/retention.service";
@@ -262,6 +263,26 @@ describe("Правила уведомлений (FR-2)", () => {
   it("готовность к катоверу — счётная форма: «1 день», а не «1 дней»", () => {
     const [n] = applyRules(ctx("ourvend.cutover_ready", { greenDays: 1, since: "2026-08-26" }));
     assert.match(n!.text, /1 день подряд/);
+  });
+
+  it("кофе-заказы молчат неделю — будит немедленно и называет число суток", () => {
+    const [n] = applyRules(ctx(COFFEE_ORDERS_STALE_EVENT, { staleDays: 20, lastOrderAt: "2026-08-20", total: 57886, threshold: 3 }));
+    assert.equal(n!.urgency, "immediate");
+    assert.match(n!.text, /20 суток/);
+    // Без «выручка не видна» тревога читается как «не приехал какой-то отчёт».
+    assert.match(n!.text, /выручк/i);
+  });
+
+  it("кофе-заказы молчат несколько дней — в брифинг, а не будить", () => {
+    const [n] = applyRules(ctx(COFFEE_ORDERS_STALE_EVENT, { staleDays: 4, lastOrderAt: "2026-09-05", total: 57886, threshold: 3 }));
+    assert.equal(n!.urgency, "briefing");
+    assert.match(n!.text, /4 суток/);
+  });
+
+  it("кофе-заказов нет вовсе — это тревога, а не спокойствие", () => {
+    const [n] = applyRules(ctx(COFFEE_ORDERS_STALE_EVENT, { staleDays: null, lastOrderAt: null, total: 0, threshold: 3 }));
+    assert.equal(n!.urgency, "immediate");
+    assert.match(n!.text, /ни одного|вовсе|нет заказов/i);
   });
 
   it("застой учётного снапшота будит немедленно и говорит, что именно встало", () => {

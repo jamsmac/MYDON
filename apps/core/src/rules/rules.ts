@@ -345,6 +345,43 @@ export const RULES: Rule[] = [
     },
     format: (c) => `💽 Диск заполнен на ${num(c.payload.usedPercent)}% — стоит присмотреть.`,
   },
+  // Источник кофе-заказов замолчал. Одно событие — два правила по числу суток,
+  // как у `infra.disk`: сторож (`CoffeeOrdersStaleService`) считает, решение
+  // «будить или в брифинг» принимается здесь, в одном месте и с журналом.
+  //
+  // ПОРОГ СТОРОЖА И ПОРОГ СРОЧНОСТИ — РАЗНЫЕ ЧИСЛА. Сторож молчит до
+  // `COFFEE_ORDERS_STALE_DAYS` (по умолчанию 3) и вообще не шлёт события; сюда
+  // приходит только то, что он уже счёл тишиной, и здесь решается, ждёт это до
+  // утра или нет.
+  {
+    id: "coffee.orders.stale",
+    eventType: "coffee.orders.stale",
+    urgency: "immediate",
+    // `staleDays: null` — «заказов нет вовсе»: тревожнее любого числа, потому
+    // что означает не пропущенный прогон, а отсутствие данных как таковых.
+    when: (c) => c.payload.staleDays === null || num(c.payload.staleDays) >= 7,
+    format: (c) =>
+      c.payload.staleDays === null
+        ? "☕️ Кофе-заказов нет в базе ни одного — выручка по кофе не видна совсем. Проверь заливку из gjvending."
+        : `🚨 Кофе-заказы не приезжают ${num(c.payload.staleDays)} суток ` +
+          `(последний ${str(c.payload.lastOrderAt, "неизвестно когда")}). ` +
+          `Выручка по кофе всё это время не видна: залей выгрузку из gjvending.`,
+  },
+  {
+    id: "coffee.orders.stale.watch",
+    // Тот же тип события, но спокойный диапазон — в утренний брифинг.
+    eventType: "coffee.orders.stale",
+    urgency: "briefing",
+    when: (c) => {
+      const дней = c.payload.staleDays;
+      if (дней === null) return false;
+      const n = num(дней);
+      return n >= 1 && n < 7;
+    },
+    format: (c) =>
+      `☕️ Кофе-заказы не приезжают ${num(c.payload.staleDays)} суток ` +
+      `(последний ${str(c.payload.lastOrderAt, "неизвестно когда")}) — выручка по кофе не обновляется.`,
+  },
   {
     id: "infra.service_down",
     eventType: "infra.service_down",
